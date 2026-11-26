@@ -8,12 +8,13 @@ Related: [API.md](API.md) · [DECISIONS.md](DECISIONS.md) (D16–D18) · [ARCHIT
 
 ## Rules
 
-1. **Plane 2 is the source of truth** for jobs, events, profiles, readiness, vulns, and screenshot metadata. Plane 1 is read-only via API.
-2. **Plane 3 holds no Killhub database.** It is ephemeral compute; any state needed after destroy must already be copied into Plane 2 artifacts.
+1. **Plane 1 (control plane) is the source of truth** for jobs, events, profiles, readiness, vulns, and screenshot metadata. Next.js owns the Jobs API; `explore/` workers update the same store.
+2. **Plane 2 (disposable Microsandbox) holds no Killhub database.** It is ephemeral compute; any state needed after destroy must already be copied into Plane 1 artifacts.
 3. **Job lifetime ≠ client presence.** Rows/records remain until terminal state + TTL cleanup (or explicit cancel cleanup).
 4. **Do not store secrets** (API keys, SSH private keys) in job JSON, event payloads, or screenshot captions. Redact before persist.
 5. **Public github.com URLs only** in `source` / create payload validation.
 6. When replacing in-memory with a real DB, preserve field names below and document the migration in [DECISIONS.md](DECISIONS.md).
+7. **Screenshots are optional** ([DECISIONS.md](DECISIONS.md) D31); an empty screenshot list is valid.
 
 ---
 
@@ -98,7 +99,7 @@ erDiagram
 | `verify_result` | object \| null | Smoke/readiness evidence |
 | `sandbox_id` | string \| null | Microsandbox id/name while provisioned; retained after destroy for the report UI |
 | `inference_model` | string \| null | Vultr Serverless Inference model id used for this job ([DECISIONS.md](DECISIONS.md) D25) |
-| `destroyed_at` | datetime \| null | Set when Plane 3 sandbox is stopped/removed; null while alive |
+| `destroyed_at` | datetime \| null | Set when Plane 2 sandbox is stopped/removed; null while alive |
 | `created_at` / `updated_at` | datetime | UTC |
 
 ---
@@ -123,7 +124,7 @@ Append-only timeline (SSE source of truth).
 | Field | Type | Rules |
 |-------|------|-------|
 | `job_id` | string | PK/FK |
-| `profile` | object | Must validate against schema before provisioning Plane 3 |
+| `profile` | object | Must validate against schema before provisioning Plane 2 |
 | `storage_path` | string | e.g. `storage/profiles/{job_id}/environment_profile.json` |
 
 ### Profile object (logical schema)
@@ -133,17 +134,18 @@ Append-only timeline (SSE source of truth).
 | `intent` | yes | `git_mcp` \| `webapp` |
 | `source` | yes | `{ type, url, ref }` |
 | `runtime` | yes | e.g. `python`, `node` |
-| `os_image` | yes | Maps to Test VM image |
+| `os_image` | yes | Logical OS hint |
+| `oci_image` | recommended | OCI image Microsandbox can boot (D29 — no allowlist) |
 | `services` | yes | Inferred required services (may be `[]`) |
-| `packages` | yes | Allowlisted only at provision time |
-| `install_commands` | yes | Executed on VM |
+| `packages` | yes | Attempted at provision time; failures flagged |
+| `install_commands` | yes | Executed in sandbox; failures flagged |
 | `run_commands` | yes | App launch |
-| `mcp` | if `git_mcp` | `{ launch_command, readiness }` |
+| `mcp` | if `git_mcp` | `{ launch_command, readiness }` — readiness `mcp_handshake` must list tools (D30) |
 | `healthcheck` | if `webapp` (typical) | `{ type, path, port }` |
 | `ports` | yes | Exposed/probed ports |
 | `summary` | yes | Human-readable |
 
-Invalid profiles **must not** trigger Plane 3 create.
+Invalid profiles **must not** trigger Plane 2 create.
 
 ---
 
@@ -185,7 +187,7 @@ Findings do not delete readiness evidence.
 | `cpus` / `memory` | number / string | Resource caps at create |
 | `state` | enum | `provisioning` \| `running` \| `destroyed` \| `failed` |
 
-On destroy, set `state=destroyed`, mirror `Job.destroyed_at`, and ensure the microsandbox is stopped/removed (Plane 3 reaper). `Job.sandbox_id` should match `environment_id` when both are set.
+On destroy, set `state=destroyed`, mirror `Job.destroyed_at`, and ensure the microsandbox is stopped/removed (Plane 2 orphan reaper). `Job.sandbox_id` should match `environment_id` when both are set.
 
 ---
 
@@ -203,7 +205,7 @@ storage/
 
 | Trigger | Action |
 |---------|--------|
-| Job `ready` (agent instructions + readiness + vuln scan done) | Destroy Plane 3 sandbox immediately; keep job artifacts for the report UI |
-| Job `cancelled` / `failed` | Destroy Plane 3 sandbox; delete or expire screenshots/profiles per retention |
+| Job `ready` (agent instructions + readiness + vuln scan done) | Destroy Plane 2 sandbox immediately; keep job artifacts for the report UI |
+| Job `cancelled` / `failed` | Destroy Plane 2 sandbox; delete or expire screenshots/profiles per retention |
 | `ENV_TTL_SECONDS` / orphan reaper | Safety-net destroy if sandbox outlives the job or was left running |
 | Orphan reaper | Stop/remove sandboxes with no live job reference |

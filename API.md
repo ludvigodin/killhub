@@ -1,6 +1,6 @@
 # API.md — How components communicate
 
-Killhub communication is plane-scoped. Plane 1 ↔ Plane 2 over HTTP/SSE. Plane 2 → Plane 3 over the harness (Microsandbox `msb` / SDK on a Vultr VX1 host). Plane 3 never calls Plane 1.
+Killhub communication is plane-scoped. **Plane 1 owns the Jobs API and SSE** ([DECISIONS.md](DECISIONS.md) D28). Plane 1 → Plane 2 over the harness (Microsandbox `msb` / SDK on a Vultr VX1 host). Plane 2 never calls Plane 1.
 
 Related: [ARCHITECTURE.md](ARCHITECTURE.md) · [DATABASE.md](DATABASE.md) · [DECISIONS.md](DECISIONS.md)
 
@@ -10,25 +10,24 @@ Related: [ARCHITECTURE.md](ARCHITECTURE.md) · [DATABASE.md](DATABASE.md) · [DE
 
 ```mermaid
 flowchart LR
-  Browser --> Next["Plane 1 Next.js"]
-  Next -->|"HTTP + SSE"| Explore["Plane 2 Explore Sandbox"]
-  Explore -->|"msb create / exec / destroy"| VM["Plane 3 Microsandbox"]
-  Explore -->|"inference"| Inference["Vultr Inference / OpenCode"]
+  Browser --> Next["Plane 1 Next.js + workers"]
+  Next -->|"msb create / exec / destroy"| VM["Plane 2 Microsandbox"]
+  Next -->|"inference"| Inference["Vultr Inference / OpenCode"]
 ```
 
 | Path | Protocol | Auth (v1) |
 |------|----------|-----------|
 | Browser → Next.js | HTTPS | None (public demo) |
-| Next.js → Explore (`EXPLORE_SANDBOX_URL`) | HTTP/SSE | Private network / compose; tighten later |
-| Explore → Vultr API | HTTPS | `VULTR_API_KEY` on Plane 2 only (host/ops; not per-job VM create) |
-| Explore → Test VM | Microsandbox `msb` / SDK on VX1 host | Host access for Plane 2; sandbox is job-scoped |
-| Explore → Vultr Serverless Inference | HTTPS `https://api.vultrinference.com/v1` | `VULTR_INFERENCE_*` (+ `OPENCODE_*` client) on Plane 2 only ([DECISIONS.md](DECISIONS.md) D25) |
+| Next.js ↔ `explore/` workers | In-process or localhost sidecar | Same host; not a public plane |
+| Control plane → Vultr API | HTTPS | `VULTR_API_KEY` on Plane 1 server only |
+| Control plane → Plane 2 | Microsandbox `msb` / SDK on VX1 | Host access for harness; sandbox is job-scoped |
+| Control plane → Vultr Serverless Inference | HTTPS `https://api.vultrinference.com/v1` | `VULTR_INFERENCE_*` (+ `OPENCODE_*`) on Plane 1 only (D25) |
 
 ---
 
-## Plane 1 ↔ Plane 2 (Jobs API)
+## Jobs API (Plane 1)
 
-Base URL: `EXPLORE_SANDBOX_URL` (Plane 1 server or BFF proxies to Explore).
+Served by Next.js (route handlers). `explore/` workers update job state; they do not own the public HTTP surface.
 
 ### `POST /api/jobs`
 
@@ -76,17 +75,16 @@ Full job snapshot for poll/hydrate.
 }
 ```
 
-Optional job fields for lifecycle / demo evidence ([DECISIONS.md](DECISIONS.md) D25–D26):
-
 | Field | Meaning |
 |-------|---------|
 | `sandbox_id` | Microsandbox name / id (same as `environment.environment_id` when set) |
 | `inference_model` | Vultr Serverless Inference model id used for this job |
-| `destroyed_at` | UTC timestamp when Plane 3 sandbox was stopped/removed; null while alive |
+| `destroyed_at` | UTC timestamp when Plane 2 sandbox was stopped/removed; null while alive |
+| `screenshot_ids` | May be empty — screenshots are optional (D31) |
 
 **Errors:** `404` unknown job.
 
-Poll and SSE must agree on `status` / `progress` ([DECISIONS.md](DECISIONS.md) D13).
+Poll and SSE must agree on `status` / `progress` (D13).
 
 ---
 
@@ -98,11 +96,11 @@ Server-Sent Events stream.
 |------------|----------------------|
 | `status` | `{ status }` |
 | `progress` | `{ progress, current_step }` |
-| `log` | `{ message, kind?, sandbox_id?, attempt?, detail? }` — use `kind` for lifecycle moments: `sandbox_create` \| `sandbox_destroy` \| `repair_attempt` \| `containment_probe` \| `agent` \| `harness` |
-| `screenshot` | `{ screenshot_id, step, caption, url }` |
+| `log` | `{ message, kind?, sandbox_id?, attempt?, detail? }` — `kind`: `sandbox_create` \| `sandbox_destroy` \| `repair_attempt` \| `containment_probe` \| `agent` \| `harness` |
+| `screenshot` | `{ screenshot_id, step, caption, url }` — only when a still was captured |
 | `error` | `{ message }` |
 
-`log` payloads must not include secrets. Containment and destroy moments should be emitted as `log` (or `status` + `log`) so Plane 1 can show the execution loop without a new SSE type in v1.
+`log` payloads must not include secrets.
 
 - Support **Last-Event-ID** / event id resume for catch-up.
 - Stream stays open through `error` events until terminal job state.
@@ -112,7 +110,7 @@ Server-Sent Events stream.
 
 ### `GET /api/jobs/{id}/screenshots`
 
-Ordered timeline:
+Ordered timeline (may be `[]`):
 
 ```json
 [
@@ -134,13 +132,13 @@ Image bytes (`image/png`) or redirect to object storage.
 
 ### `DELETE /api/jobs/{id}`
 
-Explicit cancel. Plane 2 stops the worker (best effort), destroys Test VM, emits terminal `cancelled`.
+Explicit cancel. Plane 1 stops the worker (best effort), destroys Plane 2 sandbox, emits terminal `cancelled`.
 
 ---
 
 ### `GET /health`
 
-Plane 2 liveness for compose/orchestration. `200` when process is up.
+Control-plane liveness. `200` when process is up.
 
 ---
 
@@ -152,19 +150,19 @@ pending → analyzing → planning → provisioning → installing
        → scanning → ready | failed | cancelled
 ```
 
-| Phase | Typical plane work |
-|-------|--------------------|
+| Phase | Typical work |
+|-------|----------------|
 | `analyzing` / `planning` | Plan loop steps 1–3 → `environment_profile.json` |
-| `provisioning` / `installing` | Plane 3 create + supported deps |
-| `verifying` / `repairing` | Launch MCP/webapp + readiness; capped retries |
-| `scanning` | Vuln scan + AI review |
-| `ready` | Profile + readiness + report available to Plane 1 |
+| `provisioning` / `installing` | Plane 2 create + install attempts (no allowlist; flag failures) |
+| `verifying` / `repairing` | Launch + readiness; `git_mcp` = MCP handshake listing tools; capped retries |
+| `scanning` | Vuln scan + AI review (also best-effort after partial failure) |
+| `ready` | Profile + readiness + report available (screenshots optional) |
 
 ---
 
-## Plane 2 → Plane 3 (Harness API)
+## Plane 1 → Plane 2 (Harness API)
 
-Not an HTTP public API. Internal interface in `explore/harness.py`:
+Not an HTTP public API. Internal interface in `explore/harness.py` (or equivalent):
 
 | Call | Input | Output |
 |------|-------|--------|
@@ -179,12 +177,13 @@ Not an HTTP public API. Internal interface in `explore/harness.py`:
 - Implemented with Microsandbox (`msb` / SDK) on the Vultr VX1 host — see [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md).
 - Timeouts on every `exec`.
 - Map `environment_profile.json` → OCI image + CPU/memory before create.
-- Never pass `VULTR_API_KEY` / `OPENCODE_*` into sandbox env by default.
-- Destroy (stop + remove) when the agent finishes instructions and all tests (`ready`), or on cancel, fail, `ENV_TTL_SECONDS`, or orphan reaper.
+- Never pass `VULTR_API_KEY` / `VULTR_INFERENCE_*` / `OPENCODE_*` into sandbox env by default.
+- Destroy when the agent finishes instructions and all tests (`ready`), or on cancel, fail, `ENV_TTL_SECONDS`, or orphan reaper.
+- One sandbox per job covers explore + test (D27).
 
 ---
 
-## Plane 2 → Inference
+## Plane 1 → Inference
 
 OpenCode client uses **Vultr Serverless Inference** only (`VULTR_INFERENCE_BASE_URL` default `https://api.vultrinference.com/v1`) with prompts under `prompts/`:
 
@@ -193,7 +192,7 @@ OpenCode client uses **Vultr Serverless Inference** only (`VULTR_INFERENCE_BASE_
 - `repair_from_errors.md`
 - `vuln_review.md`
 
-Persist `inference_model` on the job. Tool use is limited to Explore Sandbox + harness APIs ([AGENTS.md](AGENTS.md)). Do not route agent reasoning to non-Vultr providers without a new [DECISIONS.md](DECISIONS.md) entry.
+Persist `inference_model` on the job. Tool use is limited to harness / sandbox APIs ([AGENTS.md](AGENTS.md)).
 
 ---
 
@@ -201,13 +200,13 @@ Persist `inference_model` on the job. Tool use is limited to Explore Sandbox + h
 
 | Artifact | Producer | Consumer |
 |----------|----------|----------|
-| `environment_profile.json` | Plane 2 plan loop | Plane 2 harness → Plane 3; Plane 1 report UI |
-| Screenshots | Plane 2 `screenshots.py` | Plane 1 timeline via Jobs API |
-| Vuln report | Plane 2 `vulnscan` + review | Plane 1 report UI |
-| Readiness | Plane 2 `verify` against Plane 3 | Job snapshot + SSE |
+| `environment_profile.json` | Plane 1 plan loop | Harness → Plane 2; report UI |
+| Screenshots (optional) | Plane 1 `screenshots` | Timeline via Jobs API |
+| Vuln report | Plane 1 vulnscan + review | Report UI |
+| Readiness | Plane 1 `verify` against Plane 2 | Job snapshot + SSE |
 
 ---
 
 ## Versioning
 
-v1 is unversioned under `/api/...`. Breaking changes require a decision entry and either `/api/v2` or coordinated Plane 1+2 release.
+v1 is unversioned under `/api/...`. Breaking changes require a decision entry and coordinated release.

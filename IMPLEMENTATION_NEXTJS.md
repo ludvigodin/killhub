@@ -1,8 +1,8 @@
-# Plane 1 — Next.js (Frontend + Server)
+# Plane 1 — Next.js (UI + Jobs API)
 
-Implementation plan for the user-facing plane: input window, status window, and report window. Plane 1 talks **only** to the Explore Sandbox (Plane 2). It does not provision VMs or run the Environment Agent.
+Implementation plan for the user-facing control plane: input · status · report windows, and the **Jobs API / SSE** owned by Next.js ([DECISIONS.md](DECISIONS.md) D28). Agent/harness workers live in `explore/` on the same host — see [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md). Disposable sandboxes: [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md).
 
-Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Index: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) · Plane 2: [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md) · Plane 3: [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md)
+Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Index: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
 
 ---
 
@@ -11,8 +11,10 @@ Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Index: [IMPLEMENTATION_PLAN.
 | Window | Contents |
 |--------|----------|
 | **Input** | Public GitHub URL + start |
-| **Status** | Live `status`, `progress`, `current_step`, execution log, screenshot timeline |
-| **Report** | `environment_profile.json`, Test VM / readiness status, vulnerability findings, final outcome |
+| **Status** | Live `status`, `progress`, `current_step`, execution log, **optional** screenshot timeline |
+| **Report** | `environment_profile.json`, sandbox / readiness status, vulnerability findings, final outcome |
+
+Plane 1 **owns** job create/poll/SSE. Browser talks only to Next.js. Secrets never go to the client.
 
 ---
 
@@ -23,6 +25,7 @@ frontend/
 ├── app/
 │   ├── page.tsx              # Input window
 │   ├── jobs/[id]/page.tsx    # Status + report windows
+│   ├── api/jobs/...          # Jobs API + SSE route handlers
 │   └── layout.tsx
 ├── components/
 │   ├── UrlForm.tsx
@@ -30,58 +33,33 @@ frontend/
 │   ├── StatusBadge.tsx
 │   ├── ProgressBar.tsx
 │   ├── ScreenshotTimeline.tsx
-│   ├── SetupDocs.tsx           # / profile view
+│   ├── SetupDocs.tsx
 │   ├── EnvStatus.tsx
 │   ├── VulnReport.tsx
 │   └── ErrorBanner.tsx
 └── lib/
-    └── api.ts                  # Client for EXPLORE_SANDBOX_URL
+    └── api.ts                # Browser client → same-origin /api
 ```
 
 ---
 
-## API consumed from Plane 2
-
-Plane 1 is the client of these Explore Sandbox endpoints (may be proxied via Next.js route handlers):
+## Jobs API (served here)
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/api/jobs` | Create job `{ github_url }` → `{ job_id }` |
-| `GET` | `/api/jobs/{id}` | Snapshot: status, progress, profile, vuln, screenshot ids |
-| `GET` | `/api/jobs/{id}/events` | SSE: status, progress, logs, screenshots, errors |
-| `GET` | `/api/jobs/{id}/screenshots` | Ordered timeline |
+| `GET` | `/api/jobs/{id}` | Snapshot |
+| `GET` | `/api/jobs/{id}/events` | SSE |
+| `GET` | `/api/jobs/{id}/screenshots` | Timeline (may be empty) |
 | `GET` | `/api/jobs/{id}/screenshots/{shot_id}` | Image bytes |
 | `DELETE` | `/api/jobs/{id}` | Cancel (explicit only) |
+| `GET` | `/health` | Liveness |
 
-### Status payload (always pollable)
-
-```json
-{
-  "job_id": "...",
-  "status": "installing",
-  "progress": 55,
-  "current_step": "pip install -r requirements.txt",
-  "steps_completed": ["analyzing", "planning", "provisioning"],
-  "updated_at": "...",
-  "error": null
-}
-```
-
-Poll and SSE must stay consistent. Reconnect restores status, logs, and screenshots.
-
-### SSE event types
-
-| `type` | Purpose |
-|--------|---------|
-| `status` | State machine transition |
-| `progress` | Numeric progress + `current_step` |
-| `log` | Execution / agent message |
-| `screenshot` | New process still |
-| `error` | Failure detail |
+Workers in `explore/` update the job store; Next.js exposes it. Exact in-process vs localhost sidecar boundary is an open non-decision under D28.
 
 ### Client disconnect policy
 
-Jobs are **server-owned** (Plane 2). Closing the tab or dropping SSE does **not** cancel. Resume via `/jobs/{id}`. Cancel only via explicit `DELETE` or Plane 2 timeout.
+Jobs are **server-owned** (Plane 1). Closing the tab does **not** cancel. Resume via `/jobs/{id}`. Cancel only via `DELETE` or timeout.
 
 ---
 
@@ -90,20 +68,18 @@ Jobs are **server-owned** (Plane 2). Closing the tab or dropping SSE does **not*
 ### N0 — Scaffold
 
 - [ ] Next.js App Router + TypeScript in `frontend/`
-- [ ] Shell pages: landing (input), `/jobs/[id]` (status + report placeholders)
-- [ ] `lib/api.ts` reading `EXPLORE_SANDBOX_URL`
+- [ ] Shell pages: landing (input), `/jobs/[id]`
 - [ ] Wire into `docker-compose.yml` as `frontend`
-- [ ] Proxy or CORS so browser reaches Explore Sandbox cleanly
+- [ ] Same-origin `/api` routes (no browser → separate Explore URL required)
 
-**Done when:** Frontend loads; can hit explore `/health` through configured base URL.
+**Done when:** Frontend loads; `/health` returns `200`.
 
-### N1 — Input window
+### N1 — Input + Jobs API
 
-- [ ] GitHub URL form + start button
+- [ ] GitHub URL form + start
 - [ ] Client-side validation hints (HTTPS, github.com)
-- [ ] On submit: `POST /api/jobs`, navigate to `/jobs/{id}`
-- [ ] Disable start while a job is in flight from that session
-- [ ] Surface `400` validation errors in `ErrorBanner`
+- [ ] `POST /api/jobs` creates job (delegates to explore worker), navigate to `/jobs/{id}`
+- [ ] Surface `400` in `ErrorBanner`
 
 **Done when:** Submitting a URL creates a job and opens the job view.
 
@@ -111,64 +87,58 @@ Jobs are **server-owned** (Plane 2). Closing the tab or dropping SSE does **not*
 
 - [ ] `StatusBadge` + `ProgressBar` + `current_step` from poll and/or SSE
 - [ ] `ProgressLog` chronological SSE `log` events
-- [ ] `ScreenshotTimeline`: hydrate from `GET .../screenshots`; append on `screenshot` events
-- [ ] On `/jobs/{id}` load: fetch snapshot + reconnect SSE + load screenshots so far
-- [ ] Map intermediate job states to loading UI
+- [ ] `ScreenshotTimeline`: hydrate when shots exist; tolerate empty timeline (D31)
+- [ ] On load: snapshot + SSE reconnect
 
-**Done when:** Live status/progress/logs/screenshots update without full page refresh; reconnect restores timeline.
+**Done when:** Live status/progress/logs update without refresh; reconnect restores state.
 
 ### N3 — Report window
 
-- [ ] Show `environment_profile.json` / setup docs when available
-- [ ] `EnvStatus`: provisioning / running / ready / destroyed (include `sandbox_id` / `destroyed_at` when present)
-- [ ] Surface repair attempts (`attempt n / MAX_REPAIR_ATTEMPTS`) and containment-probe log lines from SSE `log` payloads
-- [ ] `VulnReport`: severity-grouped findings when scan completes
-- [ ] Error banner for agent / provision / install failures
-- [ ] Cancel control (explicit); optional retry
-- [ ] Optional status copy that execution + inference run on Vultr (judges / operators)
+- [ ] Show `environment_profile.json` when available
+- [ ] `EnvStatus`: provisioning / running / ready / destroyed (`sandbox_id` / `destroyed_at`)
+- [ ] Repair attempts + containment-probe log lines
+- [ ] `VulnReport` when scan completes (including fail path)
+- [ ] Cancel control; optional retry
 
-**Done when:** Ready job shows profile, readiness, vuln report, screenshot timeline, and a clear sandbox-destroyed state.
+**Done when:** Terminal jobs show profile, readiness or clear failure, vulns, and sandbox-destroyed state.
 
 ### N4 — Hardening + public Vultr deploy
 
 - [ ] Reconnect / event-id catch-up UX
-- [ ] Empty and error states for each window
+- [ ] Empty and error states (including “no screenshots”)
 - [ ] No control-plane secrets in client bundles
-- [ ] E2E happy path against mocked or real Explore Sandbox
-- [ ] Deploy Plane 1 (with Plane 2) to **Vultr Cloud Compute** with a public HTTPS URL ([DECISIONS.md](DECISIONS.md) D24); local compose remains for development only
+- [ ] E2E against golden fixtures (D32)
+- [ ] Deploy control plane to **Vultr Cloud Compute** with public HTTPS (D24)
 
-**Done when:** Leave/return to `/jobs/{id}` restores full UI; errors are human-readable; demo is reachable on Vultr.
+**Done when:** Leave/return restores UI; demo reachable on Vultr.
 
 ---
 
-## Configuration (Plane 1)
+## Configuration (Plane 1 UI)
 
 | Variable | Purpose |
 |----------|---------|
-| `EXPLORE_SANDBOX_URL` | Base URL for Plane 2 |
-| Next.js public/proxy settings | Browser → Explore Sandbox |
+| Server-only env for workers | Inference / MSB — never `NEXT_PUBLIC_*` for secrets |
 
 ---
 
-## Milestones (Plane 1)
+## Milestones
 
 - [ ] **N-M0:** Frontend boots in compose
-- [ ] **N-M1:** Input creates job and opens status view
-- [ ] **N-M2:** Live status, progress, logs, screenshots
-- [ ] **N-M3:** Report window shows profile + vulns + timeline + sandbox lifecycle
-- [ ] **N-M4:** Reconnect / cancel UX verified; public Vultr demo URL live
+- [ ] **N-M1:** Input creates job via Plane 1 API
+- [ ] **N-M2:** Live status, progress, logs
+- [ ] **N-M3:** Report shows profile + vulns + sandbox lifecycle
+- [ ] **N-M4:** Reconnect / cancel; public Vultr demo URL live
 
 ---
 
-## Out of scope (this plane)
+## Out of scope (this doc)
 
-- Environment Agent Plan Loop
-- Provisioning or destroying Test VMs (Plane 2 closes the Test VM when the agent finishes its instructions and all tests — readiness + vuln scan — or on cancel/fail/TTL)
-- Running scanners or Playwright capture (Plane 2 produces screenshots; Plane 1 only displays them)
-- Hosting the public demo on non-Vultr platforms (D24)
+- Plan-loop / harness internals → [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md)
+- `msb` host bootstrap → [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md)
 
 ---
 
-## Definition of done (Plane 1)
+## Definition of done
 
-User can paste a GitHub URL (on the public Vultr demo when deployed), watch live status/progress/screenshots/sandbox lifecycle, and read the report (profile, readiness, vulns) without refreshing — entirely via Explore Sandbox APIs.
+User can paste a GitHub URL, watch live status/progress/sandbox lifecycle, and read the report without refreshing — via Plane 1 Jobs API. Screenshots optional.
