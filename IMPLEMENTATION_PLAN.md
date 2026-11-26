@@ -73,7 +73,7 @@ NodeGoat fixture: expect **readiness fail** + **vuln findings from scan** — no
 - [ ] **M0:** Compose boots Plane 1 (frontend + explore workers)
 - [ ] **M1:** Jobs API + SSE served from Plane 1
 - [ ] **M2:** Harness creates / execs / destroys a Microsandbox
-- [ ] **M3:** Plan loop emits valid `environment_profile.json` (`git_mcp` \| `webapp`)
+- [ ] **M3:** Plan loop emits valid `environment_profile.json` (`git_mcp` \| `webapp` \| `demo`)
 - [ ] **M4:** Install + readiness green on sandbox (MCP handshake or HTTP)
 - [ ] **M5:** Optional screenshots when useful
 - [ ] **M6:** Vuln **scan report** attached (including fail path); no exploit/pentest tooling

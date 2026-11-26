@@ -10,9 +10,9 @@ Given a public GitHub URL, Killhub:
 
 1. Accepts the link in a Next.js app (input · status · report)
 2. Runs an **Environment Agent Plan Loop** on the control plane (OpenCode → Vultr Inference)
-3. Writes a structured **`environment_profile.json`** (intent: `git_mcp` or `webapp`)
+3. **Decides** how to demo the repo and writes **`environment_profile.json`** (intent: `git_mcp`, `webapp`, or `demo`)
 4. Creates **one disposable Microsandbox** per job (explore + test are the same VM)
-5. Attempts install/run from the profile (**no allowlist** — failures are flagged), launches MCP or webapp, verifies **readiness** (MCP handshake listing tools, or HTTP healthcheck)
+5. Attempts install/run from the profile (**no allowlist** — failures are flagged), launches the chosen target, verifies **readiness** (MCP handshake listing tools, or HTTP / profile probe)
 6. **Scans** known vulnerabilities (SCA / advisories; including best-effort on fail paths) and summarizes findings — does **not** run exploits or pentest the app
 7. Streams status and progress (screenshots **when useful**, optional)
 8. Destroys the sandbox (and can demonstrate a **containment** probe absorbing unsafe commands inside it — isolation proof, not CVE exploitation)

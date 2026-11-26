@@ -6,9 +6,9 @@
 
 1. User pastes a link in a Next.js app (input · status · report).
 2. The **control plane** (Next.js + agent/harness) runs an **Environment Agent Plan Loop**.
-3. The agent writes a structured **`environment_profile.json`** (intent: `git_mcp` or `webapp`).
+3. The agent **decides** how to demonstrate the repo and writes **`environment_profile.json`** (intent: `git_mcp`, `webapp`, or `demo` when inventing a minimal showcase — e.g. a lone text puzzle served over HTTP).
 4. A **single disposable Microsandbox** microVM on Vultr VX1 is created for that job (explore + test are the same sandbox); deps are installed from the profile.
-5. MCP (or webapp) is launched and **readiness** is verified (repair loop, capped). For `git_mcp`, readiness is a real MCP handshake that can list tools.
+5. The chosen target is launched and **readiness** is verified (repair loop, capped). `git_mcp` = MCP handshake that lists tools; `webapp` / `demo` = profile probe (usually HTTP).
 6. Known vulnerabilities are **scanned and summarized** (SCA / advisories; including best-effort scan on failure paths). Killhub does **not** run exploits or pentest the app.
 7. Live **status and progress** stream back to the UI; **screenshots when useful** (optional — never gate readiness).
 8. Optional **containment probe** demonstrates the sandbox absorbs unsafe commands (isolation proof — not CVE exploitation).
@@ -24,7 +24,7 @@ Standing up someone else’s repo is slow, brittle, and unsafe if done on a shar
 
 ## Who it is for
 
-Operators, security-minded engineers, and internal teams who need to quickly and safely “bring up” public Git MCP servers or webapps from GitHub with a clear environment profile and audit trail.
+Operators, security-minded engineers, and internal teams who need to quickly and safely “bring up” (or invent a minimal demo of) public GitHub repos — MCP servers, webapps, or oddball content — with a clear environment profile and audit trail.
 
 ## Success looks like
 
@@ -32,7 +32,7 @@ A user pastes a public GitHub URL and, without refreshing, sees:
 
 - Live status and progress  
 - A validated `environment_profile.json`  
-- **Verifiable execution** — MCP handshake / webapp readiness (or a clear failed probe), not a chat description of work  
+- **Verifiable execution** — MCP handshake / HTTP (or other profile) readiness for whatever the agent chose to demo (or a clear failed probe), not a chat description of work  
 - Sandbox lifecycle signals (create → work → **destroyed**)  
 - An AI-reviewed vulnerability report  
 - Screenshots when they add signal (HTTP verify); not required for every job  

@@ -19,7 +19,7 @@ Environment Agent Plan Loop
   2. Infer required services
   3. Validate environment and spec
   4. Provision deps                 → harness → Plane 2
-  5. Launch MCP / webapp + ready    → harness → Plane 2
+  5. Launch chosen target + ready   → harness → Plane 2
        │
        ▼
 OUT: environment_profile.json + readiness/failure + vuln report
@@ -29,7 +29,7 @@ OUT: environment_profile.json + readiness/failure + vuln report
 |--|--|
 | **IN** | Git repository URL |
 | **Agent** | Environment Agent Plan Loop (OpenCode → Vultr Inference) |
-| **Classify intent** | `git_mcp` \| `webapp` |
+| **Decide intent** | Prefer `git_mcp` \| `webapp`; else invent `demo` (D34) |
 | **OUT** | `environment_profile.json` + readiness (or flagged failure) |
 
 Explore and test share **one** microVM per job.
@@ -140,7 +140,7 @@ SSE types: `status` · `progress` · `log` · `screenshot` · `error`
 - [ ] `discover.py`: inspect → infer → validate (inspect via sandbox clone/copy/exec — not privileged host exec of untrusted install)
 - [ ] `profile.py` schema + `storage/profiles/{job_id}/`
 - [ ] Prompts: discover + validate
-- [ ] Intent: `git_mcp` \| `webapp` only
+- [ ] Intent: `git_mcp` \| `webapp` \| `demo` (agent decides; D34)
 - [ ] **No install allowlist** (D29) — profile may contain any OCI/install/run Microsandbox can attempt; invalid/incomplete profile still blocks step 4
 - [ ] Cap turns / tokens / wall-clock
 - [ ] Stream steps to job events
@@ -155,9 +155,9 @@ Depends on [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md).
 - [ ] Map profile → OCI image + CPU/memory
 - [ ] Record `sandbox_id`; emit create/destroy logs
 - [ ] Clone + **attempt** install/run from profile; **flag failures** (do not invent success)
-- [ ] Launch MCP or webapp; `verify.py`:
+- [ ] Launch chosen target; `verify.py`:
   - `git_mcp` → MCP handshake that **lists tools** (D30)
-  - `webapp` → HTTP healthcheck
+  - `webapp` / `demo` → profile probe (typically HTTP)
 - [ ] Repair within `MAX_REPAIR_ATTEMPTS`; log attempt number
 - [ ] **Containment probe** (D26) inside Plane 2 only — adversarial cmd / loop absorbed by timeout/kill; stream `log.kind=containment_probe`; **not** exploiting the submitted repo (D33)
 - [ ] Set `destroyed_at` on remove; do not mark `ready` until readiness passes (scan still E5)

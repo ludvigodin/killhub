@@ -119,7 +119,7 @@ IN:  Git repo URL
 │  2. Infer required services                                 │
 │  3. Validate environment and spec                           │
 │  4. Provision deps on the same disposable sandbox           │
-│  5. Launch MCP / webapp and verify readiness                │
+│  5. Launch chosen target and verify readiness               │
 │     (loop on failure → re-inspect / patch profile / retry)  │
 └─────────────────────────────────────────────────────────────┘
        │
@@ -129,11 +129,11 @@ OUT: environment_profile.json  (+ readiness / failure + vuln report)
 
 | Step | What the agent does |
 |------|---------------------|
-| **1. Inspect** | Read tree, README, manifests, lockfiles, scripts inside/via Plane 2; classify `git_mcp` \| `webapp` |
-| **2. Infer** | Runtimes, services, ports, MCP entrypoints |
+| **1. Inspect** | Read tree, README, manifests, lockfiles, scripts inside/via Plane 2; **decide** `git_mcp` \| `webapp` \| `demo` (D34) |
+| **2. Infer** | Runtimes, services, ports, MCP entrypoints — or invent a minimal demo plan for oddball repos |
 | **3. Validate** | Complete `environment_profile.json` (OCI image, commands, readiness); reject incomplete specs |
 | **4. Provision** | Attempt install/run commands from profile (**no allowlist** — flag failures, D29) |
-| **5. Launch + ready** | Start MCP/webapp; **`git_mcp`** = MCP handshake that lists tools (D30); `webapp` = HTTP healthcheck |
+| **5. Launch + ready** | Start target; **`git_mcp`** = MCP handshake that lists tools (D30); `webapp` / `demo` = profile probe (typically HTTP) |
 
 ### `environment_profile.json`
 
@@ -188,7 +188,7 @@ OUT: environment_profile.json  (+ readiness / failure + vuln report)
 1. Create microsandbox (OCI image + CPU/memory from profile)
 2. Clone `source` into the sandbox
 3. Run `install_commands` / packages (attempt; flag failures)
-4. Launch MCP or app; verify readiness
+4. Launch chosen target; verify readiness
 5. Vuln scan against installed tree / lockfiles (also best-effort after partial failure)
 6. Stop + remove on `ready` / fail / cancel / TTL
 

@@ -16,7 +16,8 @@ Product intent: [PRODUCT.md](PRODUCT.md) · Structure: [ARCHITECTURE.md](ARCHITE
 | D2 | ~~Plane 1 does not run the agent or provision VMs~~ → **superseded by D28** (Plane 1 owns orchestration; browser still must not hold secrets) | — |
 | D3 | ~~Plane 2 owns plan loop and harness~~ → **superseded by D28** (plan loop + harness run on the control plane) | — |
 | D4 | Disposable Microsandbox per job on Vultr VX1 — **retained**; clarified by D27 that this single sandbox is both explore and test | Ephemeral KVM isolation; destroy on `ready` / cancel / fail / TTL |
-| D5 | Primary v1 intents: **`git_mcp` \| `webapp`** | Focused classification; unknown intents blocked/flagged |
+| D5 | ~~Primary v1 intents: **`git_mcp` \| `webapp`**; unknown intents blocked/flagged~~ → **superseded by D34** | — |
+| D34 | Environment Agent **decides** how to demonstrate the repo. Prefer **`git_mcp`** or **`webapp`** when those fit; otherwise invent a minimal **`demo`** (e.g. serve a lone `.txt` / puzzle as a tiny HTTP page or scripted verify) and put that plan in `environment_profile.json`. Hard-fail only when no verifiable demo can be launched within caps — not merely because the repo is not MCP/webapp. Readiness for `demo` = the profile’s declared probe (typically HTTP 200 or a command exit 0 with logged evidence); still **verifiable execution**, not a chat description. | Operator wants agent judgment: “bring it up somehow” including edge repos |
 | D6 | Canonical artifact: **`environment_profile.json`** | Clear handoff from discovery to sandbox provisioning |
 | D22 | Plane 2 runtime = **[Microsandbox on Vultr Cloud Compute](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute)** (`msb` / SDK over KVM+libkrun) | Official Vultr agent-sandboxing path |
 | D24 | **Public / demo control plane** runs on **Vultr Cloud Compute**; local `docker-compose` remains for development only | Vultr is the orchestration fabric, not only sandboxes |

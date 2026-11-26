@@ -15,7 +15,7 @@ IN:  environment_profile.json  (from Plane 1 plan loop)
        │
        ▼
   Create microsandbox → clone repo → attempt install/run
-       → launch MCP / webapp → readiness probes
+       → launch chosen target → readiness probes
        │
        ▼
 OUT: Running environment (or failure stdout/stderr for plan-loop retry)
@@ -97,6 +97,7 @@ flowchart LR
 |--------|------------------|
 | `git_mcp` | Install MCP server; launch; **MCP handshake listing tools** |
 | `webapp` | Install app; `run_commands`; HTTP healthcheck on `ports` |
+| `demo` | Agent-invented minimal showcase (D34); `run_commands` + profile probe (typically HTTP) |
 
 ---
 
@@ -131,7 +132,7 @@ flowchart LR
 
 ### T3 — Launch + readiness surface
 
-- [ ] Start MCP or webapp processes per profile
+- [ ] Start MCP / webapp / demo processes per profile
 - [ ] Keep process alive for Plane 1 probes (`msb touch` if idle timeout risks stop)
 - [ ] Capture failure logs (`msb logs`) for repair
 

@@ -131,7 +131,7 @@ Append-only timeline (SSE source of truth).
 
 | Key | Required | Notes |
 |-----|----------|-------|
-| `intent` | yes | `git_mcp` \| `webapp` |
+| `intent` | yes | `git_mcp` \| `webapp` \| `demo` (D34 — agent invents `demo` when MCP/webapp do not fit) |
 | `source` | yes | `{ type, url, ref }` |
 | `runtime` | yes | e.g. `python`, `node` |
 | `os_image` | yes | Logical OS hint |
@@ -139,9 +139,9 @@ Append-only timeline (SSE source of truth).
 | `services` | yes | Inferred required services (may be `[]`) |
 | `packages` | yes | Attempted at provision time; failures flagged |
 | `install_commands` | yes | Executed in sandbox; failures flagged |
-| `run_commands` | yes | App launch |
+| `run_commands` | yes | App / demo launch |
 | `mcp` | if `git_mcp` | `{ launch_command, readiness }` — readiness `mcp_handshake` must list tools (D30) |
-| `healthcheck` | if `webapp` (typical) | `{ type, path, port }` |
+| `healthcheck` | if `webapp` or `demo` (typical) | `{ type, path, port }` — or other declared probe for `demo` |
 | `ports` | yes | Exposed/probed ports |
 | `summary` | yes | Human-readable |
 

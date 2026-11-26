@@ -41,10 +41,10 @@ When acting as the Environment Agent:
 2. Infer required services  
 3. Validate environment and spec → write/update `environment_profile.json`  
 4. Provision deps (via harness → same disposable sandbox)  
-5. Launch MCP (or webapp) and verify readiness  
+5. Launch the chosen target and verify readiness  
 
-- Classify intent as `git_mcp` or `webapp` (v1).  
-- **`git_mcp` ready** = MCP handshake that can list tools (D30).  
+- **Decide** intent: prefer `git_mcp` or `webapp` when they fit; otherwise invent a minimal `demo` and encode it in the profile (D34). Do not fail solely because the repo is not MCP/webapp.  
+- **`git_mcp` ready** = MCP handshake that can list tools (D30). `webapp` / `demo` ready = profile probe (typically HTTP).  
 - Loop on failure only within `MAX_REPAIR_ATTEMPTS`.  
 - Emit status, progress, logs, and **optional** screenshots to the job event stream.  
 - Do not mark the job `ready` until readiness succeeds (vuln **scan** still required per product rules). Screenshots must not gate `ready` (D31).

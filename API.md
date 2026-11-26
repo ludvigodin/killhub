@@ -154,7 +154,7 @@ pending → analyzing → planning → provisioning → installing
 |-------|----------------|
 | `analyzing` / `planning` | Plan loop steps 1–3 → `environment_profile.json` |
 | `provisioning` / `installing` | Plane 2 create + install attempts (no allowlist; flag failures) |
-| `verifying` / `repairing` | Launch + readiness; `git_mcp` = MCP handshake listing tools; capped retries |
+| `verifying` / `repairing` | Launch + readiness; `git_mcp` = MCP handshake listing tools; `webapp` / `demo` = profile probe; capped retries |
 | `scanning` | Vuln scan + AI review (also best-effort after partial failure) |
 | `ready` | Profile + readiness + report available (screenshots optional) |
 
