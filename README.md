@@ -1,164 +1,268 @@
 # Killhub
 
-Turn a public GitHub repository into a **verified running environment** — Environment Agent plan, one disposable Microsandbox, readiness checks, and a vulnerability report — without running untrusted code on your laptop.
+**Paste a public GitHub URL. Get a verified running environment — and a receipt that outlives the sandbox.**
 
-**Vultr-native agent runtime:** control plane on Vultr Cloud Compute, agent reasoning via [Vultr Serverless Inference](https://docs.vultr.com/products/serverless/inference/provisioning), untrusted execution in [Microsandbox](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute) on VX1.
+Killhub stands up someone else’s repo the way you’d want a security-minded operator to: understand first, isolate always, prove readiness, surface known risk, then destroy the machine.
 
-## What it does
+Built on **Vultr** end-to-end — Cloud Compute control plane, [Serverless Inference](https://docs.vultr.com/products/serverless/inference/provisioning) for the agent, [Microsandbox](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute) microVMs for untrusted code.
 
-Given a public GitHub URL, Killhub:
+---
 
-1. Accepts the link in a Next.js app (input · status · report)
-2. Runs an **Environment Agent Plan Loop** on the control plane (OpenCode → Vultr Inference)
-3. **Decides** how to demo the repo and writes **`environment_profile.json`** (intent: `git_mcp`, `webapp`, or `demo`)
-4. Creates **one disposable Microsandbox** per job (explore + test are the same VM)
-5. Attempts install/run from the profile (**no allowlist** — failures are flagged), launches the chosen target, verifies **readiness** (MCP handshake listing tools, or HTTP / profile probe)
-6. **Scans** known vulnerabilities (SCA / advisories; including best-effort on fail paths) and summarizes findings; when the agent plans it for MCP repos, may also run **MCP Inspector/SDK** assessment — does **not** weaponize CVEs or run generic app/web exploit suites
-7. Streams status and progress (screenshots **when useful**, optional)
-8. Destroys the sandbox (and can demonstrate a **containment** probe absorbing unsafe commands inside it — isolation proof, not CVE exploitation)
+## The problem
 
-Jobs are **server-owned** by Plane 1. Closing the tab does not cancel. Reopen `/jobs/{id}` to resume. Only explicit cancel or timeout stops a job.
+Bringing up a stranger’s GitHub repo is slow, brittle, and unsafe on a shared laptop or production host.
 
-## Architecture
-
-Two planes ([DECISIONS.md](DECISIONS.md) D27–D28):
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  PLANE 1 — Control plane (Next.js + explore/ workers)                   │
-│  UI · Jobs API/SSE · Environment Agent · harness · vuln review          │
-└───────────────────────────────┬─────────────────────────────────────────┘
-                                │ msb create / exec / destroy
-                                ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│  PLANE 2 — Disposable Microsandbox (per job on Vultr VX1)               │
-│  Same VM for explore + test · clone · install · launch · readiness      │
-└─────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  A["Public GitHub repo"] --> B{"Run it where?"}
+  B -->|"Your laptop"| C["Risk · pollution · no audit trail"]
+  B -->|"Shared host"| D["Blast radius · secret leakage"]
+  B -->|"Killhub"| E["Isolated microVM · readiness · receipt"]
+  style E fill:#1a7f37,color:#fff
+  style C fill:#cf222e,color:#fff
+  style D fill:#cf222e,color:#fff
 ```
 
-**Data flow:** User submits URL → Plane 1 creates job → plan loop emits profile → harness provisions one sandbox → readiness + SCA (+ optional MCP assessment when planned) → UI shows profile and report → sandbox destroyed. Killhub secrets never enter the sandbox.
+Killhub exists so you can **understand**, **isolate**, **prove**, and **leave a dossier** — without trusting the repo with your keys or your machine.
 
-### Golden fixtures (M7)
+---
+
+## What you get
+
+| Outcome | Meaning |
+|---------|---------|
+| **Live job** | Status, progress, structured evidence — no refresh required |
+| **`environment_profile.json`** | Versioned plan: how Killhub decided to demo the repo |
+| **Honest label** | `original_application` · `generated_demo` · `setup_failed` |
+| **Readiness evidence** | MCP handshake (`tools/list`) or HTTP / profile probe |
+| **Intake receipt** | Cited SCA findings (+ optional MCP assessment when planned) |
+| **Containment proof** | Isolation probes absorbed inside the sandbox — then destroy |
+
+Screenshots appear when they add signal. They never gate completion.
+
+---
+
+## How it works
+
+One public URL in. One disposable microVM. One durable receipt out.
+
+```mermaid
+flowchart TB
+  U["Paste public GitHub URL"] --> P["Pre-flight<br/>URL · admission · cheap risk"]
+  P --> A["Environment Agent Plan Loop<br/>OpenCode → Vultr Inference"]
+  A --> F["environment_profile.json<br/>git_mcp · webapp · demo"]
+  F --> V["Bootstrap Microsandbox on VX1"]
+  V --> I["Phased install · launch · readiness"]
+  I --> S["SCA scan · optional MCP assessment"]
+  S --> R["Finalize · receipt · destroy sandbox"]
+  R --> UI["UI: profile · evidence · report"]
+```
+
+**Jobs are server-owned.** Close the tab — the pipeline keeps running. Reopen `/jobs/{id}` to resume. Only cancel or timeout stops a job.
+
+---
+
+## Architecture at a glance
+
+Two planes. Hard boundary. Secrets stay on the control plane.
+
+```mermaid
+flowchart TB
+  subgraph plane1 ["Plane 1 · Control plane"]
+    UI["Next.js UI"]
+    API["Jobs API + SSE"]
+    Agent["Environment Agent"]
+    Harness["Harness"]
+    Ledger["Durable ledger"]
+  end
+
+  subgraph plane2 ["Plane 2 · Disposable Microsandbox"]
+    VM["One microVM per job"]
+    Work["Clone · install · launch · readiness"]
+  end
+
+  UI --> API
+  API --> Agent
+  Agent --> Harness
+  Harness -->|"msb create / exec / destroy"| VM
+  Work --> Harness
+  Harness --> API
+  API --> Ledger
+```
+
+| Plane | What it is | Owns |
+|------:|------------|------|
+| **1** | Next.js + `explore/` workers on Vultr Cloud Compute | UI, Jobs API/SSE, plan loop, harness, vuln review, secrets |
+| **2** | One Microsandbox microVM per job on VX1 | Untrusted clone/install/run — explore and test share the same VM |
+
+There is **no** separate Explore VM vs Test VM.
+
+### Trust zones
+
+```mermaid
+flowchart LR
+  subgraph Z0["Internet"]
+    Browser["Operator browser"]
+  end
+  subgraph Host["Vultr fabric"]
+    Edge["Reverse proxy"]
+    CP["Control plane<br/>+ ledger + keys"]
+    SB["Disposable sandbox"]
+  end
+  subgraph Ext["External"]
+    Inf["Vultr Inference"]
+    GH["GitHub"]
+    Reg["Registries"]
+  end
+
+  Browser --> Edge --> CP
+  CP --> Inf
+  CP --> GH
+  CP -->|"msb + net policy"| SB
+  SB -.->|"install phase only"| Reg
+  CP -.->|"secrets never injected"| SB
+```
+
+Sandbox → control plane is **denied**. Real Killhub secrets never enter the guest (canaries only).
+
+---
+
+## Job lifecycle
+
+```mermaid
+stateDiagram-v2
+  [*] --> pending
+  pending --> queued
+  queued --> analyzing
+  analyzing --> planning
+  planning --> provisioning
+  provisioning --> installing
+  installing --> verifying
+  verifying --> repairing: probe fails
+  repairing --> verifying: retry ≤ MAX_REPAIR_ATTEMPTS
+  verifying --> scanning: ready evidence
+  scanning --> finalizing
+  finalizing --> completed
+  verifying --> failed: repairs exhausted
+  pending --> cancelled
+  analyzing --> cancelled
+  installing --> cancelled
+  completed --> [*]
+  failed --> [*]
+  cancelled --> [*]
+```
+
+Readiness is **evidence**, not a destroy trigger. The sandbox dies on `completed` / fail / cancel / absolute TTL — even if the control plane restarts.
+
+---
+
+## Security story (in one picture)
+
+```mermaid
+flowchart TB
+  subgraph yes ["In scope"]
+    SCA["SCA / advisories with citations"]
+    MCP["Optional MCP Inspector/SDK when planned"]
+    CONT["Containment + network + canary probes"]
+  end
+  subgraph no ["Out of scope"]
+    EXP["Weaponize CVEs"]
+    PEN["Generic app/web exploit suites"]
+    PATCH["Auto-patch / remediate"]
+  end
+```
+
+Untrusted code never runs as a privileged control-plane process. OpenCode only sees harness tools. Plane 2 network policy is probe-tested.
+
+---
+
+## Vultr-native stack
+
+| Layer | Where |
+|-------|-------|
+| Control plane demo | Vultr Cloud Compute (app on localhost behind reverse proxy) |
+| Agent reasoning | Vultr Serverless Inference (`api.vultrinference.com`) |
+| Untrusted execution | Microsandbox on Vultr VX1 — one microVM per job |
+| Local dev | `docker-compose` for Plane 1; sandboxes still provisioned on VX1 |
+
+---
+
+## Golden fixtures (v1)
+
+Pinned commits live in fixture config ([DECISIONS.md](DECISIONS.md) D53).
 
 | Outcome | Repo |
 |---------|------|
-| `webapp` success | [heroku/node-js-getting-started](https://github.com/heroku/node-js-getting-started) |
-| `git_mcp` success | [modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers) |
-| Fail + vulns | [OWASP/NodeGoat](https://github.com/OWASP/NodeGoat) |
+| `webapp` → `original_application` | [heroku/node-js-getting-started](https://github.com/heroku/node-js-getting-started) |
+| `git_mcp` filesystem (stdio) | [modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers) |
+| Controlled `setup_failed` + SCA | Deliberately broken fixture (not NodeGoat) |
 
-## Docs
+---
 
-| Doc | Purpose |
-|-----|---------|
-| [PRODUCT.md](PRODUCT.md) | What and why |
-| [AGENTS.md](AGENTS.md) | Rules every AI agent must follow |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Two planes and boundaries |
-| [DECISIONS.md](DECISIONS.md) | Agreed technical decisions |
-| [DATABASE.md](DATABASE.md) | Data model and rules |
-| [API.md](API.md) | How components communicate |
-| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Implementation index |
-| [IMPLEMENTATION_NEXTJS.md](IMPLEMENTATION_NEXTJS.md) | Plane 1 UI + Jobs API |
-| [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md) | Plane 1 agent/harness workers |
-| [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md) | Plane 2 disposable Microsandbox |
+## Who it’s for
 
-## Repo structure (planned)
+Operators, security-minded engineers, and internal teams who need to quickly and safely bring up — or invent a minimal demo of — public GitHub repos (MCP servers, webapps, oddball content) with a clear environment profile and audit trail.
 
-```
-killhub/
-├── frontend/                 # Plane 1 — Next.js (UI + Jobs API)
-├── explore/                  # Plane 1 — agent / harness workers
-├── prompts/                  # Agent prompts
-├── storage/                  # profiles/ + screenshots/ (dev)
-├── PRODUCT.md … API.md       # Canonical product docs
-└── README.md
-```
-
-Plane 2 is not a checked-in app folder — it is an ephemeral Microsandbox microVM per job on a Vultr VX1 host.
+---
 
 ## Quick start
 
-1. Read [PRODUCT.md](PRODUCT.md) and [ARCHITECTURE.md](ARCHITECTURE.md)
-2. Follow [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
-3. When compose lands: Plane 1 boots locally; Plane 2 is harness-provisioned at job time on VX1
+Docs-first while the stack is scaffolded:
 
-## Demo / deploy (Vultr)
+1. Read [PRODUCT.md](PRODUCT.md) — *what* and *why*
+2. Read [ARCHITECTURE.md](ARCHITECTURE.md) — planes, trust zones, lifecycle
+3. Follow [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) — build order by plane
 
-| Piece | Requirement |
-|-------|-------------|
-| Plane 1 | Deploy on **Vultr Cloud Compute**; public HTTPS demo URL |
-| Inference | `https://api.vultrinference.com/v1` via `VULTR_INFERENCE_*` |
-| Plane 2 | Microsandbox on Vultr VX1 (`MSB_HOST`); one sandbox per job |
-| Containment | Record a moment where the sandbox absorbs something unsafe, then destroy |
-| Local | `docker-compose` for Plane 1 during development |
+---
 
-## API
+## Docs & roadmap
 
-Jobs API is **owned by Plane 1** (Next.js). Full contracts: [API.md](API.md).
+| Doc | Purpose |
+|-----|---------|
+| [PRODUCT.md](PRODUCT.md) | Product intent |
+| [AGENTS.md](AGENTS.md) | Rules for AI agents working in this repo |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Two planes, trust zones, data flow |
+| [DECISIONS.md](DECISIONS.md) | Locked technical choices |
+| [DATABASE.md](DATABASE.md) | Job / receipt model |
+| [API.md](API.md) | Jobs API + SSE contracts |
+| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Milestone index |
+| [IMPLEMENTATION_NEXTJS.md](IMPLEMENTATION_NEXTJS.md) | Plane 1 UI + Jobs API |
+| [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md) | Plane 1 agent / harness |
+| [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md) | Plane 2 Microsandbox |
+
+```mermaid
+flowchart LR
+  M0["M0 Plane 1 boots"] --> M1["M1 Jobs + SSE"]
+  M1 --> M2["M2 Harness lifecycle"]
+  M2 --> M3["M3 Profile"]
+  M3 --> M4["M4 Readiness"]
+  M4 --> M5["M5 Screenshots"]
+  M5 --> M6["M6 Vuln report"]
+  M6 --> M6b["M6b Containment"]
+  M6b --> M7["M7 Fixtures + isolation"]
+```
+
+### API surface
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/jobs` | Create job `{ github_url }` → `{ job_id }` |
+| `POST` | `/api/jobs` | Create `{ github_url }` → `{ job_id }` |
 | `GET` | `/api/jobs/{id}` | Snapshot |
-| `GET` | `/api/jobs/{id}/events` | SSE |
+| `GET` | `/api/jobs/{id}/events` | SSE stream |
 | `GET` | `/api/jobs/{id}/screenshots` | Timeline (may be empty) |
-| `DELETE` | `/api/jobs/{id}` | Cancel + destroy sandbox |
-| `GET` | `/health` | Control-plane liveness |
+| `DELETE` | `/api/jobs/{id}` | Cancel + destroy |
+| `GET` | `/health` | Liveness |
 
-### Job states
+Full contracts: [API.md](API.md). Config and admission caps: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 
-```
-pending → analyzing → planning → provisioning → installing
-       → verifying ⇄ repairing
-       → scanning → ready | failed | cancelled
-```
-
-Repair loop capped by `MAX_REPAIR_ATTEMPTS`, then `failed`.
-
-## Configuration
-
-| Variable | Plane | Purpose |
-|----------|------:|---------|
-| `VULTR_API_KEY` | 1 | VX1 host ops (never injected into sandboxes) |
-| `VULTR_INFERENCE_BASE_URL` | 1 | Default `https://api.vultrinference.com/v1` |
-| `VULTR_INFERENCE_API_KEY` | 1 | Serverless Inference |
-| `VULTR_INFERENCE_MODEL` | 1 | Model id |
-| `OPENCODE_*` | 1 | Agent harness (must use Vultr Inference) |
-| `MSB_HOST` / image / CPU·memory | 1→2 | Microsandbox defaults |
-| `JOB_TIMEOUT_SECONDS` | 1 | Wall clock |
-| `MAX_REPAIR_ATTEMPTS` | 1 | Plan-loop / readiness cap |
-| `ENV_TTL_SECONDS` | 2 | Auto-destroy sandbox |
-| `VULN_SCAN_*` / `MAX_SCREENSHOTS_PER_JOB` | 1 | Scan + screenshot caps |
-
-## Security
-
-- Untrusted repo code runs only on **Plane 2**, never as privileged control-plane host processes
-- `VULTR_API_KEY` / `VULTR_INFERENCE_*` / `OPENCODE_*` stay on Plane 1 server; not injected into the sandbox by default
-- Public HTTPS `github.com` URLs only in v1
-- Destroy sandboxes on `ready` / cancel / failure / `ENV_TTL_SECONDS`
-- Containment probes run only inside Plane 2 and must be visible in the job log before destroy
+---
 
 ## Out of scope (v1)
 
-- Private GitHub repos / OAuth · multi-user auth / billing
-- Long-lived customer sandboxes beyond TTL · GPU · auto-patch CVEs · weaponizing CVEs / generic app/web exploit suites
-- Non-Vultr clouds · alternate agent LLM providers · session video
-- Separate Explore VM vs Test VM · install allowlist
-- MCP Inspector on every job (only when `mcp.security_assessment` is planned — D35)
+Private repos / OAuth · multi-user billing · long-lived customer sandboxes · GPU · auto-patch CVEs · weaponizing exploits · non-Vultr clouds · alternate agent LLM providers · session video · separate Explore vs Test VM · install allowlists that block runnable commands
 
-## Roadmap
+---
 
-| Milestone | Goal |
-|-----------|------|
-| **M0** | Compose boots Plane 1 |
-| **M1** | Jobs API + SSE on Plane 1 |
-| **M2** | Harness create / exec / destroy Microsandbox |
-| **M3** | Plan loop → valid `environment_profile.json` |
-| **M4** | Install + MCP/HTTP readiness on sandbox |
-| **M5** | Optional screenshots when useful |
-| **M6** | Vuln scan report (incl. fail path); optional MCP assessment when planned |
-| **M6b** | Containment probe (isolation only) |
-| **M7** | Golden fixtures (D32) + isolation + TTL cleanup |
+## Definition of done
 
-## Definition of done (v1)
-
-A user can paste a public GitHub URL in Plane 1 and, without refreshing, see live status/progress, `environment_profile.json`, and a vuln report (plus optional MCP assessment findings when planned) while the plan loop drives a single Plane 2 Microsandbox — with Killhub secrets never entering the sandbox, screenshots optional, containment absorbed in Plane 2, and sandboxes torn down after TTL or cancel.
+A user pastes a public GitHub URL and, without refreshing, sees live status, a validated profile, verifiable readiness with an honest label, and a cited intake receipt — while one Microsandbox absorbs the work and is destroyed on completion, with Killhub secrets never entering the guest.

@@ -2,16 +2,16 @@
 
 ## What
 
-**Killhub** turns a **public GitHub repository URL** into a **verified running environment**:
+**Killhub** turns a **public GitHub repository URL** into a **verified running environment** plus an **intake dossier** (durable receipt of how it ran and what risk was found):
 
 1. User pastes a link in a Next.js app (input · status · report).
-2. The **control plane** (Next.js + agent/harness) runs an **Environment Agent Plan Loop**.
-3. The agent **decides** how to demonstrate the repo and writes **`environment_profile.json`** (intent: `git_mcp`, `webapp`, or `demo` when inventing a minimal showcase — e.g. a lone text puzzle served over HTTP).
-4. A **single disposable Microsandbox** microVM on Vultr VX1 is created for that job (explore + test are the same sandbox); deps are installed from the profile.
-5. The chosen target is launched and **readiness** is verified (repair loop, capped). `git_mcp` = MCP handshake that lists tools; `webapp` / `demo` = profile probe (usually HTTP).
-6. Known vulnerabilities are **scanned and summarized** (SCA / advisories; including best-effort scan on failure paths). When the agent plans it for an MCP repo, Plane 2 may also run **MCP Inspector / SDK** security assessment (does **not** gate readiness). Killhub does **not** weaponize CVEs or run generic app/web exploit suites.
-7. Live **status and progress** stream back to the UI; **screenshots when useful** (optional — never gate readiness).
-8. Optional **containment probe** demonstrates the sandbox absorbs unsafe commands (isolation proof — not CVE exploitation).
+2. Plane 1 runs **pre-flight** (URL, admission, cheap risk) before spending a sandbox when hard-fail applies.
+3. The **control plane** (Next.js edge + Python `explore/` sidecar) runs an **Environment Agent Plan Loop**. The agent **proposes** how to demonstrate the repo and writes a **versioned executable** **`environment_profile.json`** (`git_mcp`, `webapp`, or `demo`); **deterministic gates** decide readiness and terminal outcomes from evidence. Invented demos are labeled `generated_demo` and must retain visible original setup failures.
+4. A **single disposable Microsandbox** microVM on Vultr VX1 is created from a **bootstrap** image (with canary secrets + network policy), then provisioned from the discovered runtime profile (explore + test are the same sandbox; image replace keeps one live VM).
+5. Install uses **phased egress** (registries/git); verify/containment run **offline / egress-denied**. The target is launched and **readiness** is verified (repair loop, capped). MCP **stdio** uses an in-guest JSON-RPC helper (`initialize` → `tools/list`), not an HTTP ping. Readiness is evidence — not job completion and not a destroy trigger.
+6. Known vulnerabilities are **scanned and summarized with citations** (SCA / advisories; best-effort on failure paths). Optional MCP Inspector/SDK assessment when planned. Killhub does **not** weaponize CVEs or run generic app/web exploit suites.
+7. After bounded report generation, probes, artifact capture, and sandbox cleanup (**finally**), the job is **`completed`** (or `failed` / `cancelled`) with a durable **receipt**. Live status/progress/evidence stream to the UI; screenshots when useful (optional — never gate completion).
+8. **Containment / network / canary probes** demonstrate isolation and that Plane 2 cannot call Plane 1 (not CVE exploitation).
 
 ## Why
 
@@ -19,8 +19,9 @@ Standing up someone else’s repo is slow, brittle, and unsafe if done on a shar
 
 - **Understand** a repo before trusting it (inspect docs, infer services, validate a spec).
 - **Isolate** execution on a short-lived Microsandbox (not the operator’s machine).
-- **Prove** it works (readiness) and **surface risk** (SCA report; optional MCP assessment when planned) before humans dig in.
-- **Show work** continuously (status + optional stills) so operators trust the automation.
+- **Prove** it works (readiness) and **surface risk** (cited SCA report; optional MCP assessment; containment evidence) before humans dig in.
+- **Leave a receipt** — profile, probes, findings, lifecycle — that outlives the destroyed sandbox.
+- **Show work** continuously (structured events + optional stills) so operators trust the automation.
 
 ## Who it is for
 
@@ -30,24 +31,27 @@ Operators, security-minded engineers, and internal teams who need to quickly and
 
 A user pastes a public GitHub URL and, without refreshing, sees:
 
-- Live status and progress  
+- Live status, progress, and structured evidence events (with keep-alives on long steps)  
 - A validated `environment_profile.json`  
-- **Verifiable execution** — MCP handshake / HTTP (or other profile) readiness for whatever the agent chose to demo (or a clear failed probe), not a chat description of work  
-- Sandbox lifecycle signals (create → work → **destroyed**)  
-- An AI-reviewed vulnerability report (SCA; plus MCP assessment findings when the agent planned them)  
+- **Verifiable execution** — MCP handshake / HTTP (or other profile) readiness with an honest label: `original_application`, `generated_demo`, or `setup_failed`  
+- Sandbox lifecycle signals (bootstrap create → optional image replace → work → **destroyed** only when removal is confirmed)  
+- An intake **receipt**: cited vulnerability report that separates **dependency advisories (SCA)** from other finding classes; does not erase readiness evidence  
+
 - Screenshots when they add signal (HTTP verify); not required for every job  
 
-…while Killhub secrets never enter the sandbox, adversarial probes stay contained in the Microsandbox, and the sandbox is destroyed when the agent finishes its instructions and all tests (or on TTL/cancel).
+…while Killhub secrets never enter the sandbox (canaries only), OpenCode cannot shell the control plane, Plane 2 cannot call Plane 1, adversarial probes stay contained, and the sandbox is destroyed on job completion / fail / cancel / absolute expiry (even if the control plane restarts).
 
-Public demos run the control plane on **Vultr Cloud Compute** with agent reasoning via **Vultr Serverless Inference** and execution in Microsandbox on VX1.
+Public demos run the control plane on **Vultr Cloud Compute** (app on localhost behind a reverse proxy) with agent reasoning via **Vultr Serverless Inference** and execution in Microsandbox on VX1 — behind admission limits and a durable job ledger.
 
 ## v1 golden fixtures
 
+Pinned commit SHAs live in fixture config ([DECISIONS.md](DECISIONS.md) D53).
+
 | Intent / outcome | Public repo |
 |------------------|-------------|
-| `webapp` success | [heroku/node-js-getting-started](https://github.com/heroku/node-js-getting-started) |
-| `git_mcp` success | [modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers) |
-| Fail + vulnerabilities | [OWASP/NodeGoat](https://github.com/OWASP/NodeGoat) (expect readiness fail without durable Mongo within caps; still emit vuln findings) |
+| `webapp` → `original_application` | [heroku/node-js-getting-started](https://github.com/heroku/node-js-getting-started) @ pin |
+| `git_mcp` → filesystem server (stdio) | [modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers) @ pin + fixed filesystem entrypoint |
+| Controlled `setup_failed` + SCA | Deliberately broken fixture (not NodeGoat); dependency advisories via lockfile SCA, separate from intentional app vulns |
 
 ## Non-goals (v1)
 

@@ -12,7 +12,7 @@ Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Index: [IMPLEMENTATION_PLAN.
 |--------|----------|
 | **Input** | Public GitHub URL + start |
 | **Status** | Live `status`, `progress`, `current_step`, execution log, **optional** screenshot timeline |
-| **Report** | `environment_profile.json`, sandbox / readiness status, vulnerability findings (SCA + optional MCP assessment), final outcome |
+| **Report** | Intake **receipt**: `environment_profile.json`, sandbox lifecycle, readiness evidence, cited vulnerability findings (SCA + optional MCP / canary / containment), gate outcomes, terminal `completed` / fail |
 
 Plane 1 **owns** job create/poll/SSE. Browser talks only to Next.js. Secrets never go to the client.
 
@@ -55,11 +55,11 @@ frontend/
 | `DELETE` | `/api/jobs/{id}` | Cancel (explicit only) |
 | `GET` | `/health` | Liveness |
 
-Workers in `explore/` update the job store; Next.js exposes it. Exact in-process vs localhost sidecar boundary is an open non-decision under D28.
+**State owner (D52):** Python `explore/` sidecar owns the ledger. Next.js **proxies** `/api/jobs*` → `/internal/jobs*` (loopback + `INTERNAL_API_TOKEN`). Do not implement a parallel Next.js job dictionary. Freeze the Internal Worker API in [API.md](API.md) before N1.
 
 ### Client disconnect policy
 
-Jobs are **server-owned** (Plane 1). Closing the tab does **not** cancel. Resume via `/jobs/{id}`. Cancel only via `DELETE` or timeout.
+Jobs are **server-owned** (Plane 1). Closing the tab does **not** cancel. Resume via `/jobs/{id}` using snapshot `event_cursor` then SSE (D55). Cancel only via `DELETE` (idempotent — D56) or timeout.
 
 ---
 
@@ -74,45 +74,51 @@ Jobs are **server-owned** (Plane 1). Closing the tab does **not** cancel. Resume
 
 **Done when:** Frontend loads; `/health` returns `200`.
 
-### N1 — Input + Jobs API
+### N1 — Input + Jobs API proxy + admission
 
 - [ ] GitHub URL form + start
 - [ ] Client-side validation hints (HTTPS, github.com)
-- [ ] `POST /api/jobs` creates job (delegates to explore worker), navigate to `/jobs/{id}`
-- [ ] Surface `400` in `ErrorBanner`
+- [ ] Public `/api/jobs*` **proxy** to Internal Worker API (D52); no local job store
+- [ ] Snapshot exposes `event_cursor`; status page: hydrate → SSE with `Last-Event-ID` / `?after=`; handle `cursor_expired` (D55)
+- [ ] Cancel: idempotent `DELETE`; surface already-cancelled cleanly (D56)
+- [ ] Enforce / surface admission: `400` / `429` / `503` (D40)
+- [ ] Surface errors in `ErrorBanner`
 
-**Done when:** Submitting a URL creates a job and opens the job view.
+**Done when:** Submitting a URL creates a job via sidecar; hydrate+SSE has no silent gaps; overload returns explicit rejection codes.
 
 ### N2 — Status window
 
 - [ ] `StatusBadge` + `ProgressBar` + `current_step` from poll and/or SSE
-- [ ] `ProgressLog` chronological SSE `log` events
+- [ ] `ProgressLog` chronological SSE `log` + evidence events (`span` / `finding` / `containment` / `lifecycle`)
+- [ ] Tolerate SSE keep-alives without UI flicker (D50)
 - [ ] `ScreenshotTimeline`: hydrate when shots exist; tolerate empty timeline (D31)
 - [ ] On load: snapshot + SSE reconnect
 
-**Done when:** Live status/progress/logs update without refresh; reconnect restores state.
+**Done when:** Live status/progress/logs/evidence update without refresh; reconnect restores state.
 
 ### N3 — Report window
 
 - [ ] Show `environment_profile.json` when available
-- [ ] `EnvStatus`: provisioning / running / ready / destroyed (`sandbox_id` / `destroyed_at`)
-- [ ] Repair attempts + containment-probe log lines
-- [ ] `VulnReport` when **scan** completes (including fail path) — severity-grouped advisories by `source` (`sca` \| `mcp_assessment`)
+- [ ] `EnvStatus`: provisioning / running / readiness passed / completed / destroyed / destroy_failed (`sandbox_id` / `expires_at` / `cleanup` / `destroyed_at`) — do not equate readiness with completion (D37, D57)
+- [ ] Show `verification.kind` (`original_application` \| `generated_demo` \| `setup_failed`) and visible `original_failure` when present (D54)
+- [ ] Repair attempts + containment / network / canary evidence
+- [ ] Render **receipt** dossier when present (D49): gates, probes, lifecycle, cited findings
+- [ ] `VulnReport` when **scan** completes (including fail path) — severity-grouped advisories by `source` (`sca` \| `mcp_assessment` \| `canary` \| `network` \| `containment` \| `preflight`)
 - [ ] When present, show `vuln_report.mcp_assessment` (Inspector/SDK) separately from SCA; clarify assessment was agent-planned (D35)
-- [ ] Optional copy clarifying default report is scan-based; MCP assessment appears only when planned — not a generic app pentest
+- [ ] Optional copy clarifying default report is scan-based; MCP assessment appears only when planned — not a generic app pentest; findings do not erase readiness
 - [ ] Cancel control; optional retry
 
-**Done when:** Terminal jobs show profile, readiness or clear failure, vulns (and MCP assessment when planned), and sandbox-destroyed state.
+**Done when:** Terminal jobs show profile, readiness evidence or clear failure, receipt/vulns (and MCP assessment when planned), and sandbox-destroyed / `completed` state.
 
 ### N4 — Hardening + public Vultr deploy
 
-- [ ] Reconnect / event-id catch-up UX
-- [ ] Empty and error states (including “no screenshots”)
+- [ ] Reconnect / event-id catch-up UX (durable event ids — D41)
+- [ ] Empty and error states (including “no screenshots”, admission rejections, pre-flight hard-fail)
 - [ ] No control-plane secrets in client bundles
-- [ ] E2E against golden fixtures (D32)
-- [ ] Deploy control plane to **Vultr Cloud Compute** with public HTTPS (D24)
+- [ ] E2E against pinned fixtures (D53)
+- [ ] Deploy control plane to **Vultr Cloud Compute** with public HTTPS via reverse proxy; app binds `127.0.0.1` (D24, D46) only after ledger + admission + host reaper are live
 
-**Done when:** Leave/return restores UI; demo reachable on Vultr.
+**Done when:** Leave/return restores UI; demo reachable on Vultr behind admission controls and edge proxy.
 
 ---
 
