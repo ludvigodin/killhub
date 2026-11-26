@@ -36,7 +36,7 @@ Frozen **before** implementing N1/E1. Not public. Base URL e.g. `http://127.0.0.
 | `POST` | `/internal/jobs` | Create job `{ github_url }` → `{ job_id }` (admission applied here or in Next before proxy) |
 | `GET` | `/internal/jobs/{id}` | Full snapshot (same shape as public GET) |
 | `GET` | `/internal/jobs/{id}/events` | SSE (same event model as public) |
-| `DELETE` | `/internal/jobs/{id}` | Cancel (idempotent — D56) |
+| `DELETE` | `/internal/jobs/{id}` | Cancel (idempotent finalizer path — D61) |
 | `GET` | `/internal/jobs/{id}/screenshots` | Timeline |
 | `GET` | `/internal/jobs/{id}/screenshots/{shot_id}` | Bytes |
 | `GET` | `/internal/health` | Sidecar + ledger liveness |
@@ -98,11 +98,15 @@ Full job snapshot for poll/hydrate.
     "original_failure": null
   },
   "sandbox_id": "…",
+  "resolved_commit": "abc123…",
+  "current_profile_revision": 2,
+  "current_sandbox_generation": 1,
   "inference_model": "…",
   "expires_at": "…",
   "cleanup": { "status": "pending", "attempts": 0 },
   "destroyed_at": null,
-  "environment": { "environment_id": "…", "state": "running", "expires_at": "…" },
+  "cancel_requested_at": null,
+  "environment": { "environment_id": "…", "generation": 1, "state": "running", "expires_at": "…" },
   "vuln_report": null,
   "screenshot_ids": [],
   "receipt": null
@@ -111,10 +115,13 @@ Full job snapshot for poll/hydrate.
 
 | Field | Meaning |
 |-------|---------|
-| `event_cursor` | Last durable event id at snapshot time — pass to SSE as `Last-Event-ID` / `?after=` (D55) |
+| `event_cursor` | Last **retained** durable event id at snapshot time — pass to SSE as `Last-Event-ID` / `?after=` (D55, D67) |
+| `resolved_commit` | Full SHA of inspected source; required after first clone; reused on replace (D62) |
+| `current_profile_revision` / `current_sandbox_generation` | Pointers into revision/generation history (D64) |
 | `verification` | Outcome class (D54); `generated_demo` must carry `original_failure` when original setup failed |
-| `cleanup` / `destroyed_at` | Destroy lifecycle; `destroyed_at` only when removal confirmed (D57) |
-| `readiness` | Probe evidence; independent of terminal `completed` (D37) |
+| `cleanup` / `destroyed_at` | Destroy lifecycle; job-level `destroyed_at` only when **current** removal confirmed (D57, D64) |
+| `cancel_requested_at` | Set on cancel request; freezes ordinary writers before terminal `cancelled` (D61) |
+| `readiness` | Probe evidence; independent of terminal outcome (D37, D66) |
 | `screenshot_ids` | May be empty (D31) |
 
 **Errors:** `404` unknown job.
@@ -138,18 +145,20 @@ Server-Sent Events stream (proxied from sidecar).
 | `finding` | Structured finding draft/final (D49) |
 | `containment` | Matrix dimension results (D58) |
 | `lifecycle` | Sandbox created/replaced/destroying/destroyed/destroy_failed (D49, D57) |
+| `gap` | Contiguous prune tombstone when byte budget drops a prefix (D67) |
 
 Keep-alives at least ~every 15s while open (D50). Payloads must not include real secrets.
 
-#### Cursor / replay (D55)
+#### Cursor / replay (D55, D67)
 
-1. Client `GET` snapshot → read `event_cursor`.
+1. Client `GET` snapshot → read `event_cursor` (last **retained** event).
 2. Open SSE with `Last-Event-ID: {event_cursor}` or `?after={event_cursor}` (exclusive).
-3. Server replays durable events after the cursor, then tails live.
-4. Events retained for `EVENT_RETENTION` (active job lifetime + configurable post-terminal window).
-5. **Expired / unknown cursor:** HTTP `410` on subscribe **or** first SSE `error` with `code=cursor_expired`. Client must re-fetch snapshot and resubscribe — **must not** continue from `0` without user-visible reset (avoids silent gaps).
+3. Server replays durable events after the cursor **contiguously**, then tails live.
+4. Events retained for `EVENT_RETENTION` (active job lifetime + configurable post-terminal window), subject to `MAX_JOB_LOG_BYTES`.
+5. Under byte pressure, prune a **prefix** of oldest events and insert one durable `gap` event; never delete middle events (D67). A fresh snapshot restores history only within the **current retained window** (complete forward from the gap/tombstone).
+6. **Expired / unknown / pruned-range cursor:** HTTP `410` on subscribe **or** first SSE `error` with `code=cursor_expired`. Client must re-fetch snapshot and resubscribe — **must not** continue from `0` without user-visible reset.
 
-- Stream stays open through non-terminal `error` events until terminal job state.
+- Stream stays open through non-terminal `error` events until terminal job state (`completed` \| `failed` \| `cancelled`).
 - Client disconnect does **not** cancel the job.
 
 ---
@@ -166,15 +175,17 @@ Image bytes (`image/png`) or redirect to object storage.
 
 ### `DELETE /api/jobs/{id}`
 
-Explicit cancel (D56).
+Explicit cancel (**D61**; supersedes earlier D56 wording).
 
 | Case | Behavior |
 |------|----------|
-| Running / queued / creating | Commit `cancel_requested_at`, status → `cancelled` (after best-effort abort); abort in-flight bootstrap/`msb create`; destroy partial sandbox; emit `log.kind=cancel` + lifecycle |
+| Running / queued / creating / finalizing | (1) Set `cancel_requested_at`; **freeze ordinary workers**; (2) abort in-flight bootstrap/`msb create` (best effort); (3) run **bounded finalizer**: destroy sandbox, emit `log.kind=cancel` + lifecycle, persist **receipt**; (4) only then set terminal `status=cancelled`. SSE stays open until that terminal event. |
 | Already `cancelled` | **Idempotent** `200` with same terminal snapshot |
-| Other terminal (`completed` / `failed`) | `409` or `200` no-op with existing terminal snapshot (pick one at implement; document — prefer `200` no-op for demo UX) |
+| Other terminal (`completed` / `failed`) | `200` no-op with existing terminal snapshot |
 
-After cancel is committed, the ledger **rejects** worker updates other than cleanup/destroy fields.
+**Ordinary writers** (plan loop, install, repair, assessment, non-cleanup status/progress/profile mutations) are rejected after `cancel_requested_at`.
+
+**Finalizer allowlist** (authorized until terminal): `cleanup.*`, destroy/lifecycle evidence, `receipt`, cancel-related `log`/`span`/`containment`, `progress`/`current_step` for cleanup only, and `status` → `finalizing` then `cancelled`.
 
 ---
 
@@ -199,33 +210,48 @@ pending → [queued] → analyzing → planning → provisioning → installing
 | `provisioning` / `installing` | Services + install commands from executable profile (D51); flag failures |
 | `verifying` / `repairing` | Supervise processes; probes — MCP stdio via in-guest helper or HTTP/TCP/command; set `readiness` + `verification.kind` |
 | `scanning` | SCA (`source=sca`) + cite-checked `vuln_review`; optional MCP assessment; separate intentional-app findings |
-| `finalizing` | Persist receipt; destroy with confirm-only `destroyed_at`; containment matrix evidence |
-| `completed` | Terminal success with honest verification label (D54) |
+| `finalizing` | Persist receipt; destroy with confirm-only job-level `destroyed_at`; containment matrix evidence; also the cancel finalizer phase (D61) |
+| `completed` | Terminal success with honest verification label (D54) per gate table (D66) |
+| `cancelled` | Terminal only **after** finalizer + receipt (D61) |
 
-Destroy triggers: terminal states \| absolute `expires_at` — **not** readiness alone. Cleanup may end `destroy_failed` without `destroyed_at` (D57).
+Destroy triggers: after finalizer on terminal paths \| absolute `expires_at` — **not** readiness alone. Cleanup may end `destroy_failed` without job-level `destroyed_at` (D57). Gate outcomes: [DECISIONS.md](DECISIONS.md) D66.
 
 ---
 
 ## Plane 1 → Plane 2 (Harness API)
 
-Internal to `explore/harness.py`:
+Internal to `explore/harness.py` (agent-facing subset still bound by D38 + **D60**):
 
 | Call | Input | Output |
 |------|-------|--------|
-| `create_environment` | `job_id`, bootstrap or runtime plan | `environment_id` |
-| `replace_environment` | `job_id`, new OCI image / plan | new `environment_id` (one live VM) |
+| `create_environment` | `job_id`, bootstrap or runtime plan | `environment_id` + generation |
+| `replace_environment` | `job_id`, new OCI image / plan | new `environment_id` (one live VM; inherits `expires_at`; D64) |
 | `wait_until_ready` | `environment_id` | guest running or timeout |
 | `exec` | `environment_id`, `cmd` | `{ stdout, stderr, exit_code }` |
-| `copy_in` / `copy_out` | paths | void / bytes |
+| `copy_in` | `environment_id`, **logical helper id or allowlisted relative path**, guest dest | void — host path resolved server-side (D60) |
+| `copy_out` | `environment_id`, guest src, **artifact kind** (`screenshot` \| `lockfile` \| `log` \| …) | bytes written only under server-selected `storage/artifacts\|screenshots/{job_id}/` (D60) |
 | `destroy_environment` | `environment_id` | `{ confirmed: bool, error? }` — confirmed false ⇒ `destroy_failed` |
+
+### `copy_in` / `copy_out` host-path rules (D60)
+
+| Rule | Requirement |
+|------|-------------|
+| No arbitrary host paths | Callers pass logical helper ids / artifact kinds; harness maps to allowlisted roots |
+| `copy_in` sources | Only under Killhub helper roots (e.g. `explore/helpers/`); `realpath` must stay inside root |
+| Traversal / symlinks | Reject `..` segments and symlink escape outside the allowlisted root; reject non-regular files unless explicitly allowlisted |
+| `copy_out` destinations | Only server-selected per-job dirs (`storage/screenshots/{job_id}/`, `storage/artifacts/{job_id}/`); never overwrite arbitrary host files |
+| Size | Enforce `MAX_COPY_BYTES` per call and job disk caps (D40); fail closed on overflow |
+| Guest paths | Remain inside sandbox workdir / published guest policy |
 
 **Rules**
 
-- Bootstrap first (D36); runtime requires schema-valid profile (D51).
-- Network policy + install-then-offline phases (D39, D43).
+- Bootstrap first (D36); runtime requires schema-valid profile (D51); persist profile **revisions** (D64).
+- Resolve and persist `resolved_commit`; re-clone at that SHA after replace (D62).
+- Network policy + install → **deny-all remaining egress** verify phase (D39, D43); preinstall assessment tooling (D63).
 - MCP `stdio`: run in-guest verify helper; do not HTTP-ping stdio servers.
-- `expires_at` absolute; touch must not extend (D41).
-- Destroy confirm-only (D57). One sandbox per job (D27).
+- `original_application` launches the built checkout — no unpinned `npx -y` (D62).
+- `expires_at` absolute and inherited on replace; touch must not extend (D41, D64).
+- Destroy confirm-only (D57). One live sandbox per job (D27).
 
 ---
 

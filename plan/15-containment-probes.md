@@ -9,7 +9,7 @@
 
 ## Read first
 
-- [DECISIONS.md](../DECISIONS.md) D26, D58, D39, D44
+- [DECISIONS.md](../DECISIONS.md) D26, D58, D65, D39, D44, D66
 - [IMPLEMENTATION_TEST_VM.md](../IMPLEMENTATION_TEST_VM.md) § T4 / containment
 
 ## Vultr / msb tooling (required)
@@ -19,15 +19,18 @@ Use **`msb` CLI/SDK** (and Vultr MCP / `vultr-cli` to verify the VX1 host) per [
 ## Do
 
 - [ ] Emit `containment` evidence for: timeout_enforcement, host_access_denied, sibling_access_denied, host_liveness
-- [ ] `network_probe` to Plane 1 + management targets must fail
-- [ ] Canary scan → high-severity `finding.source=canary` on hit
-- [ ] Incomplete matrix ⇒ containment claim incomplete (not “proven”)
+- [ ] Use **known-live** targets + host-side **positive controls**; classify `policy_denied` \| `infra_error` \| `tooling_missing` \| `inconclusive` (D65)
+- [ ] Also probe CP denial during **install** phase (already attempted in step 13 — retain evidence here)
+- [ ] `network_probe` to Plane 1 + management targets: only `policy_denied` counts as proven deny
+- [ ] Canary scan → high-severity `finding.source=canary` on **unexpected** hit; exclude deliberate probe sessions (D65)
+- [ ] Incomplete matrix ⇒ `containment.claim=incomplete` (not “proven”) — D66
 - [ ] **Not** CVE exploitation of the submitted app (D33)
 
 ## Do not
 
 - Weaponize project CVEs
-- Claim isolation from timeout alone
+- Claim isolation from timeout alone or from a bare failed fetch
+- Treat offline-mode failures as proof of control-plane denial
 
 ## Lint gate (required before Done when)
 

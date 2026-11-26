@@ -117,10 +117,12 @@ flowchart LR
 | Control plane → sandbox | Harness `msb` create/exec/copy/destroy only | D23, D38 |
 | Sandbox → control plane / management | Never | D39 network policy + `network_probe` |
 | Sandbox → registries / git | Install/provision phase only | D43 phases + D39 allow/deny |
-| Sandbox → internet during verify/containment | No (detached / denied) | D43 |
+| Sandbox → internet during verify/containment | No — **deny-all remaining egress** (loopback only) | D43 (not “registries-denied” alone) |
 | Real Killhub secrets → sandbox | Never | D19; canaries instead (D44) |
-| Agent narrative → readiness / terminal gates | Never overrides evidence | D47, D37 |
+| Agent / harness → arbitrary host paths | Never — copy helpers/artifacts only | D60 |
+| Agent narrative → readiness / terminal gates | Never overrides evidence | D47, D66, D37 |
 | `vuln_review` claim without finding cite | Dropped / non-authoritative | D48 |
+| Advisory / SCA registry fetch | Plane 1 (or prefetched DB); not guest after offline | D43, D63 |
 
 ---
 
@@ -178,28 +180,28 @@ IN:  Git repo URL
 │  1. Inspect repo and docs (via sandbox clone/copy/exec)     │
 │  2. Infer required services                                 │
 │  3. Validate runtime environment_profile.json               │
-│     (replace VM if oci_image ≠ bootstrap — still one VM)    │
-│  4. Provision deps (install-phase egress — D43)             │
-│  5. Detach/deny egress → launch + verify readiness          │
+│     (resolved_commit required; replace VM if image differs) │
+│  4. Provision deps + preinstall assessment tooling (D43/63) │
+│  5. Deny-all remaining egress → launch + verify readiness   │
 │     (loop on failure → re-inspect / patch profile / retry)  │
-│  6. Scan / canary+containment / cite-checked review (D48)   │
-│  7. Destroy (finally) → receipt → completed|failed (D49)    │
+│  6. Scan (Plane-1 SCA) / canary+containment / review (D48)  │
+│  7. Receipt → confirm destroy → completed|failed|cancelled  │
 └─────────────────────────────────────────────────────────────┘
        │
        ▼
-OUT: environment_profile.json + readiness + receipt (vulns · probes · lifecycle)
+OUT: profile revision + readiness + receipt (vulns · probes · generations)
 ```
 
 | Step | What the agent / harness does |
 |------|---------------------|
 | **−1. Pre-flight** | URL + admission + cheap risk checks; hard-fail without creating a sandbox when possible (D45) |
-| **0. Bootstrap** | Harness creates Plane 2 from Killhub-owned bootstrap profile (`MSB_DEFAULT_IMAGE`); plant canaries; apply net policy (D36, D44, D39) |
-| **1. Inspect** | Read tree, README, manifests, lockfiles, scripts inside/via Plane 2; **decide** `git_mcp` \| `webapp` \| `demo` (D34); for MCP, whether to plan `mcp.security_assessment` (D35) |
+| **0. Bootstrap** | Harness creates Plane 2 from Killhub-owned bootstrap profile (`MSB_DEFAULT_IMAGE`); plant canaries; apply net policy (D36, D44, D39); record sandbox **generation** (D64) |
+| **1. Inspect** | Read tree, README, manifests, lockfiles, scripts inside/via Plane 2; resolve and persist **`resolved_commit`** (D62); **decide** `git_mcp` \| `webapp` \| `demo` (D34); for MCP, whether to plan `mcp.security_assessment` (D35) |
 | **2. Infer** | Runtimes, services, ports, MCP entrypoints — or invent a minimal demo plan for oddball repos |
-| **3. Validate** | Complete **runtime** profile against **versioned schema** (D51): services, CommandSpecs with cwd, process supervision, probes, MCP transport; reject incomplete specs. If `oci_image` differs from bootstrap → **replace** sandbox; never two concurrent VMs (D27/D36) |
-| **4. Provision** | Attempt services + install/run from runtime profile (**no allowlist** — flag failures, D29); registries/git egress allowed in this phase (D43) |
-| **5. Launch + readiness** | Enter offline/deny-egress phase (D43); supervise processes; set `readiness` + `verification.kind` when probe passes (D37, D54). **`git_mcp` + `stdio`** = in-guest MCP verify helper (JSON-RPC `initialize` → `tools/list`); **`streamable_http`** = HTTP MCP handshake listing tools; `webapp` / `demo` = declared probe. Do **not** destroy on readiness alone. Gates own success (D47) |
-| **6–7. Finalize** | SCA + cite-checked `vuln_review` (D48); canary + **containment matrix** (D58); optional MCP assessment; capture artifacts; **confirm destroy**; persist receipt; mark `completed` or `failed` (D49, D57) |
+| **3. Validate** | Complete **runtime** profile against **versioned schema** (D51) with required `source.commit`; append profile **revision** (D64). If `oci_image` differs → **replace** sandbox (inherit `expires_at`; re-clone at resolved commit); never two concurrent VMs (D27/D36) |
+| **4. Provision** | Attempt services + install from runtime profile (**no allowlist** — flag failures, D29); registries/git egress allowed; **preinstall** Playwright/assessment/verify helpers (D43, D63) |
+| **5. Launch + readiness** | Enter **deny-all remaining egress** phase (D43); supervise processes; for `original_application` launch the **built checkout** (D62); set `readiness` + `verification.kind` when probe passes (D37, D54). **`git_mcp` + `stdio`** = in-guest MCP verify helper; **`streamable_http`** = HTTP MCP handshake listing tools; `webapp` / `demo` = declared probe. Do **not** destroy on readiness alone. Gates own success (D47, D66) |
+| **6–7. Finalize** | Plane-1 SCA on copied lockfiles + cite-checked `vuln_review` (D48, D63); canary + **containment matrix** with positive controls (D58, D65); optional MCP assessment (tooling already present); capture artifacts via D60 copy; **persist receipt then confirm destroy**; mark terminal per D66 (D49, D57, D61) |
 
 ### `environment_profile.json` (schema_version `1` — D51)
 
@@ -214,7 +216,7 @@ Full field rules: [DATABASE.md](DATABASE.md). Example:
     "type": "git",
     "url": "https://github.com/org/repo",
     "ref": "main",
-    "commit": "abc123"
+    "commit": "abc123def456…"
   },
   "runtime": "node",
   "os_image": "ubuntu-24.04",
@@ -223,23 +225,24 @@ Full field rules: [DATABASE.md](DATABASE.md). Example:
   "services": [],
   "packages": [],
   "install_commands": [
-    { "argv": ["npm", "ci"], "cwd": "/workspace/repo", "timeout_seconds": 600 }
+    { "argv": ["npm", "ci"], "cwd": "/workspace/repo", "timeout_seconds": 600 },
+    { "argv": ["npm", "run", "build"], "cwd": "/workspace/repo/src/filesystem", "timeout_seconds": 600 }
   ],
   "run_commands": [],
   "processes": [
     {
       "name": "mcp",
-      "command": { "argv": ["node", "dist/index.js"], "cwd": "/workspace/repo", "timeout_seconds": 30 },
+      "command": { "argv": ["node", "dist/index.js", "/workspace/repo"], "cwd": "/workspace/repo/src/filesystem", "timeout_seconds": 30 },
       "supervise": "restart",
       "ready_probe": "mcp_tools"
     }
   ],
   "mcp": {
     "transport": "stdio",
-    "entrypoint": "@modelcontextprotocol/server-filesystem",
+    "entrypoint": "src/filesystem",
     "launch_command": {
-      "argv": ["npx", "-y", "@modelcontextprotocol/server-filesystem", "/workspace/repo"],
-      "cwd": "/workspace/repo",
+      "argv": ["node", "dist/index.js", "/workspace/repo"],
+      "cwd": "/workspace/repo/src/filesystem",
       "timeout_seconds": 60
     },
     "readiness": { "type": "mcp_handshake", "transport": "stdio", "timeout_seconds": 60 },
@@ -247,14 +250,16 @@ Full field rules: [DATABASE.md](DATABASE.md). Example:
       "enabled": false,
       "tools": ["inspector", "sdk"],
       "probes": [],
-      "notes": "Set enabled true when the agent plans MCP security testing (D35)"
+      "notes": "Set enabled true when the agent plans MCP security testing (D35). Tooling preinstalled in install phase (D63)."
     }
   },
   "healthcheck": { "type": "http", "path": "/", "port": 8000 },
   "ports": [8000],
-  "summary": "..."
+  "summary": "…"
 }
 ```
+
+`source.commit` is required. For `original_application`, launch the **built checkout** — do not use unpinned `npx -y <package>` (D62).
 
 ### Prompt pack
 
@@ -268,13 +273,14 @@ Full field rules: [DATABASE.md](DATABASE.md). Example:
 | Concern | Behavior |
 |---------|----------|
 | **Control** | `msb` / SDK create · replace · exec · copy · stop · remove on VX1 |
-| **Bootstrap** | First create uses trusted bootstrap profile; runtime image may replace in place (D36) |
-| **Network** | Apply Killhub egress policy on every create (deny control plane + management; D39); **install then offline** phases (D43) |
-| **Canaries** | Plant randomized canaries on create/replace; scan for hits (D44) |
-| **Report** | Structured SSE + durable receipt: profile; readiness; findings; probes; lifecycle; optional screenshots (D49) |
+| **Bootstrap** | First create uses trusted bootstrap profile; runtime image may replace in place (D36); generations + revisions (D64) |
+| **Copy paths** | Host sources/destinations restricted to helpers + per-job artifact dirs (D60) |
+| **Network** | Apply Killhub egress policy on every create (deny control plane + management; D39); **install then deny-all remaining egress** (D43) |
+| **Canaries** | Plant randomized canaries on create/replace; scan for hits; exclude deliberate probes (D44, D65) |
+| **Report** | Structured SSE + durable receipt before terminal status (D49, D61) |
 | **Secrets** | Inference / API keys stay on Plane 1; not injected into Plane 2 by default |
-| **Agent tools** | OpenCode trusted config exposes only job-scoped harness tools (D38) |
-| **Gates** | Deterministic rules decide outcomes; agents advise/explain (D47) |
+| **Agent tools** | OpenCode trusted config exposes only job-scoped harness tools (D38, D60) |
+| **Gates** | Deterministic table decides outcomes; agents advise/explain (D47, D66) |
 
 ---
 
@@ -284,38 +290,44 @@ Full field rules: [DATABASE.md](DATABASE.md). Example:
 
 ### Lifecycle
 
-1. Create microsandbox from **bootstrap** profile (`MSB_DEFAULT_IMAGE` + CPU/memory defaults) with Killhub network policy + canaries (D36, D39, D44) — only after pre-flight when hard-fail applies (D45)
-2. Clone `source` into the sandbox; inspect/discover
-3. If runtime `oci_image` differs → **replace** (destroy bootstrap VM, create new image, re-clone, re-plant canaries) — one live VM (D36)
-4. **Install phase:** run `install_commands` / packages with registries/git egress allowed (D43); attempt; flag failures
-5. **Offline / deny-egress phase:** supervise processes; verify readiness (MCP stdio helper or HTTP/TCP/command) → set `readiness` + verification kind (D37, D43, D51, D54)
-6. Optional MCP Inspector/SDK assessment when profile plans it (D35)
-7. Vuln scan against installed tree / lockfiles; canary + **containment matrix** (timeout, host-access, sibling-access, host-liveness — D58) + network probes
-8. Optional Playwright stills **inside** Plane 2 (D38); copy out
-9. Stop + remove in a **finally** path; set `destroyed_at` **only if confirmed** else `destroy_failed` (D57); emit lifecycle evidence (D49)
+1. Create microsandbox from **bootstrap** profile (`MSB_DEFAULT_IMAGE` + CPU/memory defaults) with Killhub network policy + canaries (D36, D39, D44) — only after pre-flight when hard-fail applies (D45); record generation 0/1 (D64)
+2. Clone `source` into the sandbox; persist **`resolved_commit`**; inspect/discover (D62)
+3. If runtime `oci_image` differs → **replace** (destroy bootstrap generation, create new image, re-clone **same SHA**, re-plant canaries; inherit `expires_at`) — one live VM (D36, D64)
+4. **Install phase:** run `install_commands` / packages with registries/git egress; preinstall assessment/browser/verify tooling; attempt; flag failures (D43, D63)
+5. **Verify phase (deny-all remaining egress):** supervise processes; launch built checkout for original_application; verify readiness → set `readiness` + verification kind (D37, D43, D51, D54, D62)
+6. Optional MCP Inspector/SDK assessment when profile plans it — tooling already present (D35, D63)
+7. **SCA on Plane 1** against lockfiles copied to artifact dir; canary + **containment matrix** with known-live targets + positive controls (D58, D65) + network probes (incl. install-phase CP denial)
+8. Optional Playwright stills **inside** Plane 2 (D38); `copy_out` only to server-selected dirs (D60)
+9. Persist **receipt** → stop + remove in finally; set job-level `destroyed_at` **only if current generation confirmed** else `destroy_failed` (D57, D61); emit lifecycle evidence (D49)
 
 ### Network phases (D43)
 
 ```mermaid
 stateDiagram-v2
   [*] --> Created: msb create + net policy + canaries
-  Created --> Installing: registries/git egress allowed
-  Installing --> Offline: detach or deny remaining egress
+  Created --> Installing: package/git egress; CP/management denied
+  Installing --> Offline: deny-all remaining egress
   Offline --> Verifying: readiness + containment offline
   Verifying --> Observed: canary / denied egress / limits
-  Observed --> Destroyed: finally on every path
+  Observed --> Destroyed: receipt then destroy on every path
   Installing --> Destroyed: failure / cancel / expiry
   Verifying --> Destroyed: failure / cancel / expiry
   Destroyed --> [*]
 ```
 
+| Phase | Guest egress | Tooling / SCA |
+|-------|--------------|---------------|
+| **Install/provision** | Package/git allowed; control-plane + management **denied** (probe with positive controls — D65) | Preinstall Playwright / MCP assessment / verify helpers (D63) |
+| **Verify / containment / in-guest shots** | **Deny-all remaining egress** except guest loopback | No new Killhub tool installs; no live `npm audit` against registry |
+| **SCA** | N/A in guest after offline | Plane 1 reads copied lockfiles / advisory APIs (D43, D63) |
+
 ### Constraints
 
 - No Killhub control-plane API keys in sandbox `env` by default; canaries only (D19, D44)
 - Inter-sandbox traffic denied by default
-- Egress to public control-plane destinations and Microsandbox management endpoints **denied and probe-tested** (D39)
-- After install: verify/containment run with egress detached or registries-denied (D43)
-- Resource/time caps + absolute `expires_at` (host reaper; `msb touch` cannot extend — D41); prefer non-root; no Docker socket from control plane
+- Egress to public control-plane destinations and Microsandbox management endpoints **denied and probe-tested** with positive controls (D39, D65)
+- After install: verify/containment run with **deny-all remaining egress** — not merely registries-denied (D43)
+- Resource/time caps + absolute `expires_at` inherited on replace (host reaper; `msb touch` cannot extend — D41, D64); prefer non-root; no Docker socket from control plane
 
 ---
 
@@ -430,9 +442,10 @@ flowchart LR
 - Install-then-offline network phases; denied egress logged (D43)
 - Canary hits are high-severity findings (D44)
 - Containment probes run **only** in Plane 2; timeout alone is insufficient — record host-access, sibling-access, and host-liveness evidence (D58); visible in receipt/stream before destroy (D26, D49)
-- Cancel is idempotent; workers cannot mutate non-cleanup fields after cancel (D56)
-- SSE clients hydrate `event_cursor` then subscribe; expired cursors force re-snapshot (D55)
-- Agents explain; gates decide (D47)
+- Cancel: request → freeze ordinary workers → finalizer (receipt + destroy) → terminal `cancelled` (D61)
+- SSE clients hydrate `event_cursor` then subscribe; expired/pruned cursors force re-snapshot; retention is contiguous with `gap` events (D55, D67)
+- Agents explain; gates decide (D47, D66)
+- Harness copy paths restricted (D60); resolved commit required (D62)
 
 ---
 

@@ -8,13 +8,14 @@
 
 ## Read first
 
-- [DATABASE.md](../DATABASE.md) — Job, JobEvent, rules
-- [DECISIONS.md](../DECISIONS.md) D41, D16
+- [DATABASE.md](../DATABASE.md) — Job, JobEvent, EnvironmentProfileRevision, SandboxGeneration, rules
+- [DECISIONS.md](../DECISIONS.md) D41, D16, D64, D67
 
 ## Do
 
 - [ ] Choose SQLite path under `storage/ledger/` (record in DECISIONS if not SQLite)
-- [ ] Persist Job + JobEvent with field names from DATABASE.md
+- [ ] Persist Job + JobEvent + profile **revisions** + sandbox **generations** with field names from DATABASE.md (D64)
+- [ ] Event byte-budget pruning is contiguous + `gap` tombstone (D67)
 - [ ] Create job / append event / load snapshot helpers
 - [ ] Survive process restart (smoke: write → kill → read)
 

@@ -17,7 +17,8 @@ Use **`msb` CLI/SDK** (and Vultr MCP / `vultr-cli` to verify the VX1 host) per [
 
 ## Do
 
-- [ ] `replace_environment`: stop+remove → create new image → re-clone
+- [ ] `replace_environment`: stop+remove prior **generation** → create new image → re-clone at **`resolved_commit`**
+- [ ] Inherit original job `expires_at` (do not extend); do not set job-level `destroyed_at` while replacement is alive (D64)
 - [ ] Re-plant canaries; re-apply net policy
 - [ ] Emit `lifecycle` / `log.kind=sandbox_replace`
 - [ ] Assert never two concurrent microVMs for one job
@@ -27,6 +28,7 @@ Use **`msb` CLI/SDK** (and Vultr MCP / `vultr-cli` to verify the VX1 host) per [
 
 - Split explore/test into two VMs
 - Leave bootstrap VM running after replace
+- Re-clone at a floating ref that can drift from the inspected SHA
 
 ## Lint gate (required before Done when)
 

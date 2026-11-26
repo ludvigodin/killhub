@@ -15,7 +15,7 @@ Canonical product docs: [PRODUCT.md](PRODUCT.md) · [ARCHITECTURE.md](ARCHITECTU
    - [IMPLEMENTATION_NEXTJS.md](IMPLEMENTATION_NEXTJS.md) — Plane 1 UI + Jobs API/SSE
    - [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md) — Plane 1 agent/harness workers (`explore/`)
    - [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md) — Plane 2 disposable Microsandbox
-5. When **building** the product, take **one** step from [`plan/`](plan/README.md) per session (01→21). Do not attempt multiple steps or the whole roadmap in one turn. Before marking a step done or starting the next, run the **Biome + Knip** lint gate ([plan/LINT.md](plan/LINT.md)) and fix until both pass. After M7, run [plan/21-cleanup-docs.md](plan/21-cleanup-docs.md) to remove scaffolding docs.
+5. When **building** the product, take **one** step from [`plan/`](plan/README.md) per session (01→21). Do not attempt multiple steps or the whole roadmap in one turn. Before marking a step done or starting the next, run the **quality gate** ([plan/LINT.md](plan/LINT.md) — Biome + Knip + frontend typecheck/build + Ruff + focused tests; D68) and fix until all pass. After M7, run [plan/21-cleanup-docs.md](plan/21-cleanup-docs.md) to remove scaffolding docs.
 6. Vultr / Microsandbox work must go through **Vultr MCP**, **`vultr-cli`**, and/or **`msb` CLI/SDK** (optionally `microsandbox-mcp` for debug) — see [plan/VULTR.md](plan/VULTR.md) and [DECISIONS.md](DECISIONS.md) D59. Never substitute Docker-on-host for Plane 2 or mark sandbox steps done without real `msb`.
 
 Do not invent a third durable plane or split explore/test into two VMs without updating architecture + decisions first ([DECISIONS.md](DECISIONS.md) D27–D28).
@@ -45,9 +45,9 @@ When acting as the Environment Agent:
 3. Inspect repo and docs (via sandbox clone/copy/exec — not privileged host exec of untrusted code)  
 4. Infer required services  
 5. Validate environment and spec → write/update **runtime** `environment_profile.json` with `schema_version` and executable fields (services, cwd, supervision, probes, MCP transport — D51); replace VM if `oci_image` differs — still one VM; re-plant canaries  
-6. Provision deps (install-phase egress — D43)  
-7. Offline/deny-egress → launch and verify readiness → set `readiness` + honest `verification.kind` (gates own success — D47, D54)  
-8. Bounded scan / canary+containment matrix / cite-checked review / artifacts / confirm destroy → receipt → `completed` \| `failed`  
+6. Provision deps (install-phase egress) + preinstall assessment tooling (D43, D63)  
+7. Deny-all remaining egress → launch built checkout (D62) and verify readiness → set `readiness` + honest `verification.kind` (gates own success — D47, D66, D54)  
+8. Bounded Plane-1 SCA / canary+containment matrix / cite-checked review / artifacts / receipt → confirm destroy → `completed` \| `failed` \| `cancelled` (D61)  
 
 - **Propose** intent: prefer `git_mcp` or `webapp` when they fit; otherwise invent a minimal `demo` and encode it in the profile (D34). Do not fail solely because the repo is not MCP/webapp.  
 - If inventing a demo after original setup fails, set `verification.kind=generated_demo` and retain `original_failure` — never imply the application works (D54).  
@@ -69,11 +69,12 @@ When acting as the Environment Agent:
 - Public GitHub HTTPS URLs on `github.com` only in v1; reject others with `400`. Pre-flight may hard-fail before create (D45).
 - Destroy Plane 2 sandboxes in a **finally** path when the job reaches `completed` / `failed` / `cancelled`, or on absolute `expires_at` / host reaper — **not** when readiness alone passes (D37, D41, D49). Persist `destroy_failed` if removal is not confirmed; do not set `destroyed_at` until confirmed (D57).
 - **OpenCode lockdown (D38):** trusted system/managed config only; deny host shell and non-harness tools; allow only Vultr inference provider; treat submitted repository `AGENTS.md` / `.opencode` / scripts as **untrusted input**. Playwright browser execution for screenshots runs in **Plane 2**.
-- **Network (D39 + D43):** every sandbox create applies policy denying control-plane destinations and management endpoints; install-phase egress then offline/deny for verify; ship/test `network_probe`.
+- **Network (D39 + D43):** every sandbox create applies policy denying control-plane destinations and management endpoints; install-phase package/git egress then **deny-all remaining egress** for verify; ship/test `network_probe` with positive controls (D65).
+- **Copy paths (D60):** harness `copy_in`/`copy_out` only via allowlisted helpers and server-selected artifact dirs.
 - **Admission (D40):** enforce global concurrency, queue, rate limits, inference and disk/log budgets on the public demo.
 - **Trust zones (D42):** respect the From→To boundary matrix in [ARCHITECTURE.md](ARCHITECTURE.md).
 - **Inference:** Environment Agent LLM calls must go through **Vultr Serverless Inference** (`https://api.vultrinference.com/v1`) only ([DECISIONS.md](DECISIONS.md) D25). Do not add alternate providers without a new decision.
-- **Containment:** Adversarial / containment / canary probes run only inside Plane 2; record timeout, host-access deny, sibling-access deny, and host-liveness evidence (D58); stream to the job stream (D26, D44, D49).
+- **Containment:** Adversarial / containment / canary probes run only inside Plane 2; record timeout, host-access deny, sibling-access deny, and host-liveness evidence with policy-vs-infra classification (D58, D65); stream to the job stream (D26, D44, D49).
 - **Demo deploy:** Public control-plane demos run on **Vultr Cloud Compute** with app on `127.0.0.1` behind a reverse proxy (D24, D46). Durable ledger + host reaper required before public deploy (D41).
 - **Vultr tooling (D59):** Prefer Vultr MCP for inventory, `vultr-cli` for mutating Cloud Compute, `msb` CLI/SDK for sandboxes ([plan/VULTR.md](plan/VULTR.md)). Do not fake Plane 2 with Docker or mark sandbox work done without real `msb`.
 
@@ -96,7 +97,7 @@ Every meaningful step must update the job:
 
 - `status`, `progress`, `current_step`
 - SSE events: `status` | `progress` | `log` | `screenshot` | `error` | `span` | `finding` | `containment` | `lifecycle` (+ keep-alives — D49, D50)
-- Persist `environment_profile.json`, readiness, vuln report (incl. optional MCP assessment / canary / network findings), **receipt**, optional screenshot metadata, and sandbox lifecycle fields (`sandbox_id`, `expires_at`, `destroyed_at`, `inference_model`) per [DATABASE.md](DATABASE.md)
+- Persist profile **revisions**, readiness, vuln report (incl. optional MCP assessment / canary / network findings), **receipt** (before terminal status — D61), optional screenshot metadata, `resolved_commit`, and sandbox **generation** lifecycle fields (`sandbox_id`, `expires_at`, `destroyed_at`, `inference_model`) per [DATABASE.md](DATABASE.md)
 - Log / emit sandbox **create**, **replace**, repair **attempt n**, optional **mcp_assessment**, **network_probe** / containment / canary results, gate outcomes, and **destroy** (finally)
 
 Jobs are **server-owned** (Plane 1): client disconnect does not cancel the pipeline. State lives in the durable ledger (D41).

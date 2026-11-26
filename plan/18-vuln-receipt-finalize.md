@@ -9,7 +9,7 @@
 
 ## Read first
 
-- [DECISIONS.md](../DECISIONS.md) D33, D48, D49, D57, D35, D37
+- [DECISIONS.md](../DECISIONS.md) D33, D48, D49, D57, D35, D37, D43, D61, D66
 - [DATABASE.md](../DATABASE.md) — VulnReport, JobReceipt
 - [IMPLEMENTATION_EXPLORE_SANDBOX.md](../IMPLEMENTATION_EXPLORE_SANDBOX.md) § E5
 
@@ -19,18 +19,21 @@ Use **`msb` CLI/SDK** (and Vultr MCP / `vultr-cli` to verify the VX1 host) per [
 
 ## Do
 
-- [ ] `vulnscan.py` SCA/lockfile advisories; best-effort on fail paths
-- [ ] Optional MCP assessment only when profile plans it (D35)
+- [ ] `vulnscan.py` SCA via **Plane 1** on lockfiles copied to artifact dir (D43); best-effort on fail paths
+- [ ] Optional MCP assessment only when profile plans it — tooling already present (D35, D63)
 - [ ] Cite-checked `vuln_review` — drop uncited claims (D48)
-- [ ] Persist JobReceipt (verification, gates, probes, lifecycle, findings)
-- [ ] Destroy in finally; `destroyed_at` only after confirmed remove (D57)
-- [ ] Mark `completed` only after report + cleanup path (D37)
+- [ ] Persist JobReceipt (verification, gates, probes, generations, findings) **before** terminal status
+- [ ] Destroy in finally; job-level `destroyed_at` only after confirmed remove of current generation (D57, D64)
+- [ ] Apply gate table (D66); mark `completed`/`failed` only after report + cleanup path (D37)
+- [ ] Cancel path uses same finalizer ordering (D61)
 
 ## Do not
 
 - Weaponize CVEs / generic app exploit suites
 - Clear readiness when findings exist
 - Destroy on readiness alone
+- Run live in-guest `npm audit` against the registry after offline
+- Set terminal status before receipt
 
 ## Lint gate (required before Done when)
 

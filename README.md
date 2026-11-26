@@ -49,14 +49,16 @@ One public URL in. One disposable microVM. One durable receipt out.
 ```mermaid
 flowchart TB
   U["Paste public GitHub URL"] --> P["Pre-flight<br/>URL · admission · cheap risk"]
-  P --> A["Environment Agent Plan Loop<br/>OpenCode → Vultr Inference"]
-  A --> F["environment_profile.json<br/>git_mcp · webapp · demo"]
-  F --> V["Bootstrap Microsandbox on VX1"]
-  V --> I["Phased install · launch · readiness"]
+  P --> V["Bootstrap Microsandbox on VX1"]
+  V --> A["Environment Agent inspect / discover<br/>OpenCode → Vultr Inference"]
+  A --> F["runtime environment_profile.json<br/>git_mcp · webapp · demo"]
+  F --> I["Phased install · launch · readiness"]
   I --> S["SCA scan · optional MCP assessment"]
-  S --> R["Finalize · receipt · destroy sandbox"]
+  S --> R["Receipt · destroy sandbox · terminal status"]
   R --> UI["UI: profile · evidence · report"]
 ```
+
+Bootstrap comes **before** runtime-profile discovery ([DECISIONS.md](DECISIONS.md) D36).
 
 **Jobs are server-owned.** Close the tab — the pipeline keeps running. Reopen `/jobs/{id}` to resume. Only cancel or timeout stops a job.
 

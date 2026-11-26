@@ -46,12 +46,12 @@ Reference: Vultr [agent sandboxing guide](https://docs.vultr.com/how-to-set-up-a
 
 | API | Behavior (Microsandbox) |
 |-----|-------------------------|
-| `create_environment(job_id, plan) → environment_id` | `msb create` / SDK `Sandbox.create`; map bootstrap/runtime profile → OCI image + limits + **Killhub network policy** (D39); set absolute `expires_at` |
-| `replace_environment(job_id, plan) → environment_id` | Stop+remove current VM; create with new image; same job — never two concurrent (D36) |
+| `create_environment(job_id, plan) → environment_id` | `msb create` / SDK `Sandbox.create`; map bootstrap/runtime profile → OCI image + limits + **Killhub network policy** (D39); set absolute `expires_at`; open sandbox **generation** (D64) |
+| `replace_environment(job_id, plan) → environment_id` | Stop+remove current generation; create with new image; re-clone **`resolved_commit`**; **inherit** job `expires_at`; never two concurrent (D36, D62, D64) |
 | `wait_until_ready(environment_id)` | Block until guest `running` (not job readiness / not `completed`) |
 | `exec(environment_id, cmd) → { stdout, stderr, exit_code }` | `msb exec` / SDK; timeouts on every call |
-| `copy_in` / `copy_out` | `msb copy` host↔sandbox |
-| `destroy_environment(environment_id)` | `msb stop` + `msb remove`; return `{ confirmed }` — false ⇒ `destroy_failed`, do not set `destroyed_at` (D57) |
+| `copy_in` / `copy_out` | `msb copy` host↔sandbox with **D60 path restrictions** (helpers → guest; guest → server-selected artifact dirs only; traversal/symlink/size checks) |
+| `destroy_environment(environment_id)` | `msb stop` + `msb remove`; return `{ confirmed }` — false ⇒ `destroy_failed`, do not set job-level `destroyed_at` (D57) |
 
 Prefer the **SDK** from `harness.py`. Agent-facing MCP tools only if allowed by OpenCode lockdown (D38). Destroy on `completed` / cancel / fail / absolute expiry remains harness-owned (D23, D37, D41).
 
@@ -59,16 +59,17 @@ Prefer the **SDK** from `harness.py`. Agent-facing MCP tools only if allowed by 
 
 ## Lifecycle
 
-1. **Bootstrap create** — `MSB_DEFAULT_IMAGE` + CPU/memory defaults + Killhub network policy; absolute `expires_at` (D36, D39, D41)
-2. **Clone / inspect** — `source.url` / `source.ref` inside the sandbox
-3. **Optional replace** — if runtime `oci_image` differs: destroy bootstrap VM, create new image, re-clone (still one live VM — D36)
-4. **Provision** — attempt `packages` / `services` / `install_commands`; **flag failures**
-5. **Launch** — `mcp.launch_command` or `run_commands`
-6. **Readiness** — MCP handshake (list tools) or HTTP healthcheck (Plane 1 `verify.py`) → `readiness` field only
-7. **Optional MCP assessment** — when `mcp.security_assessment.enabled`, run MCP Inspector and/or SDK probes in this guest (D35); does not invalidate readiness
-8. **Scan / screenshot target** — SCA against this sandbox; Playwright stills in-guest when useful (D33, D38)
-9. **Containment / network probes** — adversarial absorption (D26); prove guest cannot reach Plane 1 or management endpoints (D39)
-10. **Destroy** — on `completed` / `failed` / `cancelled` / absolute `expires_at` / orphan reaper. `msb touch` may keep idle guests warm **only while** `now < expires_at` — it must not extend expiry (D41)
+1. **Bootstrap create** — `MSB_DEFAULT_IMAGE` + CPU/memory defaults + Killhub network policy; absolute `expires_at`; generation record (D36, D39, D41, D64)
+2. **Clone / inspect** — clone `source`; persist **`resolved_commit`** (D62)
+3. **Optional replace** — if runtime `oci_image` differs: destroy bootstrap generation, create new image, re-clone **same SHA**, inherit `expires_at` (still one live VM — D36, D64)
+4. **Provision** — attempt `packages` / `services` / `install_commands`; **preinstall** assessment/browser/verify helpers; **flag failures** (D63)
+5. **Network phase transition** — **deny-all remaining guest egress** (not registries-only) before verify (D43)
+6. **Launch** — `mcp.launch_command` or `run_commands` from **built checkout** when claiming original_application (D62)
+7. **Readiness** — MCP handshake (list tools) or HTTP healthcheck (Plane 1 `verify.py`) → `readiness` field only
+8. **Optional MCP assessment** — when `mcp.security_assessment.enabled`, run preinstalled Inspector/SDK probes (D35, D63); does not invalidate readiness
+9. **Scan / screenshot target** — lockfiles `copy_out` for **Plane-1 SCA**; Playwright stills in-guest when useful (D33, D38, D43)
+10. **Containment / network probes** — full matrix with known-live targets + positive controls; install-phase CP denial; classify `policy_denied` vs infra (D58, D65)
+11. **Destroy** — after receipt on terminal paths / absolute `expires_at` / orphan reaper (D61). `msb touch` may keep idle guests warm **only while** `now < expires_at` — it must not extend expiry (D41)
 
 ```mermaid
 flowchart LR
@@ -98,19 +99,36 @@ Microsandbox defaults allow public-internet egress and deny host/private/metadat
 | Sibling isolation | Inter-sandbox traffic denied |
 | Control plane | **Deny** egress to public demo hostname/IPs and Jobs API destinations |
 | Management | **Deny** Microsandbox / host management endpoints reachable from the guest |
-| Install egress | Allow documented package/git destinations (or tighter allowlist) **during install/provision only** |
-| Verify / containment | **Detach or deny remaining egress** after install (D43); denied attempts logged as findings |
-| Proof | Harness runs `network_probe` (curl/fetch to Plane 1 URL + management target must fail); stream `log.kind=network_probe` / `finding.source=network` |
+| Install egress | Allow documented package/git destinations (or tighter allowlist) **during install/provision only**; CP/management still denied |
+| Verify / containment | **Deny-all remaining guest egress** after install (loopback only — D43); denied attempts logged as findings |
+| Assessment tooling | Preinstall Playwright / MCP Inspector/SDK / verify helpers in install phase or bake into image (D63) — do **not** install them after readiness |
+| SCA | Prefer Plane-1 advisory scan of lockfiles copied to `storage/artifacts/{job_id}/`; no live registry `npm audit` after offline (D43) |
+| Proof | See containment evidence rules below (D65) — failed fetch alone is insufficient |
 
-Document the concrete SDK / `--net*` / `--net-rule` composition used in create here when implemented (deny-list on `public` vs strict allowlist are both allowed if they satisfy the table).
+Document the concrete SDK / `--net*` / `--net-rule` composition used in create here when implemented (deny-list on `public` vs strict allowlist are both allowed for **install** if they satisfy the table; **verify** is deny-all remaining).
 
-## Canaries (D44)
+## Containment evidence (D58 + D65)
+
+| Dimension | Required evidence |
+|-----------|-------------------|
+| `timeout_enforcement` | Adversarial loop absorbed by timeout/kill |
+| `host_access_denied` | Guest fetch to **known-live** Plane 1 / management URL fails with classification `policy_denied`; host-side **positive control** to the same URL succeeds in the same window |
+| `sibling_access_denied` | Guest cannot reach another job’s sandbox; same live-target + classification rules |
+| `host_liveness` | Host/control-plane healthy during probe (no crash/OOM attributed to guest) |
+| Install-phase CP denial | Also run CP/management deny probe **during install** (while package egress is allowed) so blanket offline cannot masquerade as isolation |
+| Outcome classes | `policy_denied` \| `infra_error` \| `tooling_missing` \| `inconclusive` — only `policy_denied` counts toward a proven deny claim |
+| Incomplete matrix | `containment.claim=incomplete` — not “proven” (D66) |
+
+`network_probe` streams `log.kind=network_probe` / `finding.source=network` with the classification above.
+
+## Canaries (D44 + D65)
 
 | Requirement | Behavior |
 |-------------|----------|
 | Plant | On every create/replace, write randomized canary env/files (not real Killhub secrets) |
 | Scan | After probes / before destroy, check for canary use or exfil indicators |
-| Evidence | Hits → high-severity `finding.source=canary` + `containment` event; never log canary plaintext in SSE |
+| Probe exclusion | Tag deliberate containment/canary probe sessions; exclude harness-owned probe IDs from unexpected-canary findings |
+| Evidence | Unexpected hits → high-severity `finding.source=canary` + `containment` event; never log canary plaintext in SSE |
 
 ---
 
@@ -131,9 +149,10 @@ Document the concrete SDK / `--net*` / `--net-rule` composition used in create h
 |------|--------|
 | No Killhub secrets | Control-plane / inference keys **not** in sandbox `env` by default; canaries only (D44) |
 | No install allowlist | Attempt profile commands; record failures — do not invent success (D29) |
-| Network phases | Install egress → offline/deny for verify/containment (D43) |
+| Network phases | Install egress → **deny-all remaining egress** for verify/containment (D43) |
+| Copy paths | Helpers + per-job artifact dirs only; traversal/symlink/size enforced (D60) |
 | Isolation | Separate kernel; **inter-sandbox network denied by default**; no Docker socket from control plane |
-| Plane 2 ↛ Plane 1 | Explicit deny + probe (D39) — not only sibling isolation |
+| Plane 2 ↛ Plane 1 | Explicit deny + positive-control probes in install **and** verify (D39, D65) |
 | Resource caps | CPU/memory at create; wall clock + absolute `expires_at` |
 | One VM | Explore + test are this same sandbox; replace keeps one live (D27, D36) |
 | Destroy finally | Emit `lifecycle` on every path including failure/cancel/expiry (D49) |
@@ -166,43 +185,45 @@ Document the concrete SDK / `--net*` / `--net-rule` composition used in create h
 ### T1 — Remote exec + copy
 
 - [ ] `exec` with stdout/stderr/exit_code + per-call timeouts
-- [ ] `msb copy` (or SDK) for files in/out
+- [ ] `msb copy` (or SDK) for files in/out with **D60** allowlisted helpers / artifact dirs; reject traversal, symlink escape, oversized copies
 - [ ] Confirm Killhub API keys absent from `env` inside the sandbox
 
-**Done when:** Remote command runs and output returns to Plane 1.
+**Done when:** Remote command runs and output returns to Plane 1; arbitrary host paths are rejected.
 
 ### T2 — Bootstrap + runtime provision (+ image replace)
 
 - [ ] Map bootstrap → `MSB_DEFAULT_IMAGE`; map runtime `oci_image` / `os_image` / runtime → OCI
-- [ ] Clone `source` inside the sandbox for inspect
-- [ ] `replace_environment` when runtime image differs (D36); log `sandbox_replace`; re-plant canaries
-- [ ] Apply `install_commands` / packages / services with **install-phase egress** (attempt; surface failures)
-- [ ] Transition to **offline/deny-egress** before readiness/containment (D43)
+- [ ] Clone `source` inside the sandbox; persist **`resolved_commit`** (D62)
+- [ ] `replace_environment` when runtime image differs (D36); re-clone same SHA; inherit `expires_at`; log `sandbox_replace`; re-plant canaries; prior generation `replaced` without job-level `destroyed_at` (D64)
+- [ ] Apply `install_commands` / packages / services with **install-phase egress**; **preinstall** assessment/browser/verify helpers (D63)
+- [ ] Transition to **deny-all remaining egress** before readiness/containment (D43)
 - [ ] Expose / bind ports as required for readiness
 
-**Done when:** Fixture repo cloned under bootstrap; image-change path replaces once; install attempted via runtime profile.
+**Done when:** Fixture repo cloned under bootstrap at pinned commit; image-change path replaces once and reuses SHA; install attempted via runtime profile; tooling present before offline.
 
 ### T3 — Launch + readiness surface (+ optional MCP assessment / Playwright)
 
-- [ ] Start MCP / webapp / demo processes per profile
+- [ ] Start MCP / webapp / demo processes per profile from **built checkout** when `original_application` (D62)
 - [ ] Keep process alive for Plane 1 probes (`msb touch` only while `now < expires_at`)
 - [ ] Capture failure logs (`msb logs`) for repair
-- [ ] When `mcp.security_assessment.enabled`: install/run MCP Inspector and/or SDK in-guest; return probe evidence to Plane 1 (D35)
-- [ ] Ship/run in-guest `mcp_stdio_verify` for `transport=stdio` (D51)
-- [ ] Optional Playwright browser in-guest for HTTP stills (D38)
+- [ ] When `mcp.security_assessment.enabled`: run **preinstalled** MCP Inspector and/or SDK in-guest; return probe evidence to Plane 1 (D35, D63)
+- [ ] Ship/run in-guest `mcp_stdio_verify` for `transport=stdio` via D60 `copy_in` (D51)
+- [ ] Optional Playwright browser in-guest for HTTP stills (D38) — browsers preinstalled
+- [ ] `copy_out` lockfiles to artifact dir for Plane-1 SCA
 
-**Done when:** Plane 1 can complete MCP stdio or HTTP handshake (list tools) or HTTP healthcheck; MCP assessment and in-guest screenshot paths work when enabled.
+**Done when:** Plane 1 can complete MCP stdio or HTTP handshake (list tools) or HTTP healthcheck against the resolved commit; MCP assessment and in-guest screenshot paths work when enabled without post-offline installs.
 
 ### T4 — Hardening
 
-- [ ] Sibling isolation evidence (`sibling_access_denied`)
-- [ ] Host-access deny + control-plane/management deny; `network_probe` + `host_access_denied` (D39, D58)
+- [ ] Sibling isolation evidence (`sibling_access_denied`) with live target + positive control (D65)
+- [ ] Host-access deny + control-plane/management deny in **install and verify**; classify `policy_denied` vs infra (D39, D58, D65)
 - [ ] Host-liveness check during adversarial probe (`host_liveness`) — timeout loop alone is not enough (D58)
-- [ ] Mid-job cancel destroys sandbox (confirm-only `destroyed_at`)
+- [ ] Deliberate probe traffic excluded from unexpected canary findings (D65)
+- [ ] Mid-job cancel: freeze → finalizer receipt → destroy → terminal `cancelled` (D61); confirm-only job-level `destroyed_at`
 - [ ] Absolute expiry destroy even if Plane 1 is down / touch is running
 - [ ] No secret leakage in sandbox logs / metrics
 
-**Done when:** Failed/cancelled/completed/expiry paths reclaim the microVM when confirmed; containment matrix complete; Plane 2 cannot call Plane 1.
+**Done when:** Failed/cancelled/completed/expiry paths reclaim the microVM when confirmed; containment matrix complete with policy-vs-infra classification; Plane 2 cannot call Plane 1.
 
 ---
 

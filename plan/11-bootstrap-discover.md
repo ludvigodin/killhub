@@ -6,12 +6,13 @@
 
 - [09-preflight.md](09-preflight.md)
 - [10-opencode-lockdown.md](10-opencode-lockdown.md)
+- [10b-pin-fixtures.md](10b-pin-fixtures.md)
 - [08-net-policy-canaries.md](08-net-policy-canaries.md)
 
 ## Read first
 
-- [DECISIONS.md](../DECISIONS.md) D36, D34, D6
-- [DATABASE.md](../DATABASE.md) — bootstrap vs runtime profile
+- [DECISIONS.md](../DECISIONS.md) D36, D34, D6, D62, D64
+- [DATABASE.md](../DATABASE.md) — bootstrap vs runtime profile revisions
 - [IMPLEMENTATION_EXPLORE_SANDBOX.md](../IMPLEMENTATION_EXPLORE_SANDBOX.md) § E2
 
 ## Vultr / msb tooling (required)
@@ -20,32 +21,28 @@ Use **`msb` CLI/SDK** (and Vultr MCP / `vultr-cli` to verify the VX1 host) per [
 
 ## Do
 
-- [ ] Trusted bootstrap profile → `MSB_DEFAULT_IMAGE` create
+- [ ] Trusted bootstrap profile → `MSB_DEFAULT_IMAGE` create (before discovery — D36)
 - [ ] Clone/inspect **inside** sandbox (copy/exec) — not privileged host install
+- [ ] Persist **`resolved_commit`**; require `source.commit` on runtime profiles (D62)
 - [ ] Prompts: `discover_environment` + `validate_environment_spec`
-- [ ] Write runtime profile under `storage/profiles/{job_id}/`
+- [ ] Append runtime profile as a **revision** under `storage/profiles/{job_id}/` (D64)
 - [ ] Invalid runtime profile blocks provision
 - [ ] Stream plan-loop steps as `span` / `log` / status
+- [ ] Consume pinned fixtures from step 10b
 
 ## Do not
 
 - Run full install/readiness yet
 - Create a second concurrent VM for explore vs test
+- Discover/write runtime profile before bootstrap create
 
 ## Lint gate (required before Done when)
 
-Run Biome + Knip and fix all findings before marking this step done (see [LINT.md](LINT.md)):
-
-```bash
-cd frontend
-pnpm lint:fix && pnpm lint && pnpm knip
-```
-
-Must exit **0**. Do **not** start the next step while either tool fails. Python-only changes still require a green gate.
+Run the full quality gate ([LINT.md](LINT.md)).
 
 ## Done when
 
-Pinned webapp + MCP fixture URLs emit valid runtime profiles after bootstrap inspect. Biome + Knip lint gate passes ([LINT.md](LINT.md)).
+Pinned webapp + MCP fixture URLs emit valid runtime profiles (with commit SHAs) after bootstrap inspect. Quality gate passes ([LINT.md](LINT.md)).
 
 ## Next
 

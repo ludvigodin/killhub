@@ -67,7 +67,7 @@ Prefer [`plan/`](plan/README.md) steps **01→20** for agent sessions. Mapping t
 | 2 | Durable ledger + Internal Worker API; Next proxy + SSE cursor + admission | 03–05 | N1 · E1 (D52, D55) |
 | 3 | Microsandbox create / exec / destroy + reaper + net policy + canaries | 06–08 | T0–T1 |
 | 4 | Pre-flight + OpenCode lockdown + bootstrap + discover + image replace | 09–12 | E2 (D51) |
-| 5 | Install egress → offline verify + readiness/verification gates | 13–14 | E3 · T2–T3 |
+| 5 | Install egress → deny-all remaining egress + readiness/verification gates | 13–14 | E3 · T2–T3 |
 | 6 | Containment matrix + network + canary probes | 15 | E3 · T4 (D58) |
 | 7 | Optional screenshots + status UI | 16–17 | E4 · N2 |
 | 8 | Vuln scan + cite-checked report + receipt + destroy → `completed` | 18 | E5 (D57) |
@@ -81,7 +81,7 @@ Prefer [`plan/`](plan/README.md) steps **01→20** for agent sessions. Mapping t
 - [ ] **M1:** Durable ledger + Jobs API/SSE + admission from Plane 1
 - [ ] **M2:** Harness creates / execs / destroys a Microsandbox; host reaper; net policy; canaries
 - [ ] **M3:** Pre-flight + bootstrap + plan loop emits valid runtime `environment_profile.json` (`git_mcp` \| `webapp` \| `demo`); OpenCode lockdown
-- [ ] **M4:** Install-phase egress → offline verify + readiness gates (MCP handshake or HTTP); image replace path
+- [ ] **M4:** Install-phase egress → deny-all remaining egress + readiness gates (MCP handshake or HTTP); image replace reuses resolved commit
 - [ ] **M5:** Optional in-guest screenshots when useful
 - [ ] **M6:** Vuln **scan + cite-checked report** + **receipt** + `finalizing` → `completed` (including fail path); optional MCP assessment when planned (D35); no CVE weaponization / generic exploit suites
 - [ ] **M6b:** Containment + network + canary probes logged then sandbox destroyed (D26, D39, D44)

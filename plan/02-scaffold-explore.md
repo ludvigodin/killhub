@@ -14,6 +14,7 @@
 ## Do
 
 - [ ] Scaffold `explore/` (`main.py`, `config.py`, `models.py`, empty `jobs.py`, `requirements.txt`)
+- [ ] Add **Ruff** to the explore toolchain (`ruff check` / `ruff format`) per [LINT.md](LINT.md) / D68
 - [ ] Local health endpoint for compose
 - [ ] Compose service `explore` on same network as frontend
 - [ ] `.env.example` with `VULTR_*`, `OPENCODE_*`, `MSB_*`, timeouts (no real secrets committed)

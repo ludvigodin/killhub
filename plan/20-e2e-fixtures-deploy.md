@@ -23,8 +23,8 @@
 
 ## Do
 
-- [ ] Pin M7 commit SHAs in fixture config (D53)
-- [ ] Assert webapp → `original_application`; MCP filesystem → original readiness; controlled fail → `setup_failed`
+- [ ] **Assert** (do not first-time pin) fixtures from [10b-pin-fixtures.md](10b-pin-fixtures.md) still match D53
+- [ ] Assert webapp → `original_application`; MCP filesystem → original readiness from **built checkout**; controlled fail → `setup_failed`
 - [ ] Absolute expiry + cancel + completed always reclaim sandbox across Plane 1 restart
 - [ ] Demo deploy: reverse proxy faces internet; app binds `127.0.0.1` (D46)
 - [ ] Admission + ledger + host reaper live before public URL
@@ -35,6 +35,7 @@
 - Deploy demo off Vultr
 - Use NodeGoat as the deterministic fail fixture (D53)
 - Fake fixture greens without `msb`
+- Treat this step as the owner of first-time SHA pinning (that is 10b)
 
 ## Lint gate (required before Done when)
 

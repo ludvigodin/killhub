@@ -9,14 +9,14 @@
 ## Read first
 
 - [IMPLEMENTATION_NEXTJS.md](../IMPLEMENTATION_NEXTJS.md) § N1
-- [DECISIONS.md](../DECISIONS.md) D40, D15, D55
+- [DECISIONS.md](../DECISIONS.md) D40, D15, D55, D67
 - [API.md](../API.md)
 
 ## Do
 
 - [ ] URL form + `POST /api/jobs` → Internal API (server-side token only)
 - [ ] `GET /api/jobs/{id}` + `/events` proxy; hydrate snapshot then SSE with cursor
-- [ ] Cursor expired → client re-snapshots (D55)
+- [ ] Cursor expired / pruned-range → client re-snapshots (D55, D67); no silent middle gaps
 - [ ] Admission: `400` bad URL; `429` rate/inference; `503` queue/concurrency (D40)
 - [ ] Navigate to `/jobs/{id}` after create
 

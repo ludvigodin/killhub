@@ -9,15 +9,15 @@
 ## Read first
 
 - [API.md](../API.md) — Jobs shapes (public contract)
-- [DECISIONS.md](../DECISIONS.md) D52, D55, D56
+- [DECISIONS.md](../DECISIONS.md) D52, D55, D61, D67
 - [IMPLEMENTATION_EXPLORE_SANDBOX.md](../IMPLEMENTATION_EXPLORE_SANDBOX.md) § E1
 
 ## Do
 
 - [ ] Freeze Internal API: `POST/GET/DELETE /internal/jobs…`, `GET …/events` (SSE), auth via `INTERNAL_API_TOKEN`
 - [ ] Bind explore API to localhost / compose-internal only
-- [ ] Snapshot includes `event_cursor`; SSE supports `Last-Event-ID` / `?after=`
-- [ ] Cancel idempotent; freezes writers after cancel (D56)
+- [ ] Snapshot includes `event_cursor`; SSE supports `Last-Event-ID` / `?after=`; contiguous prune + `gap` (D67)
+- [ ] Cancel: `cancel_requested_at` → freeze ordinary writers → finalizer allowlist (receipt + cleanup) → terminal `cancelled` (D61)
 - [ ] Background worker stub that can pick up a job (no sandbox yet)
 
 ## Do not

@@ -110,9 +110,10 @@ Versioned executable schema (`schema_version: "1"`) — see [DATABASE.md](DATABA
 - [ ] Durable job/event ledger (SQLite default; D41) **owned by this sidecar** (D52)
 - [ ] Implement Internal Worker API **before** N1: create / snapshot (`event_cursor`) / events / cancel / screenshots / health ([API.md](API.md))
 - [ ] SSE replay + `cursor_expired` (D55); keep-alives (D50); structured types (D49)
-- [ ] Cancel idempotent; freeze non-cleanup writes after cancel; abort create-in-flight (D56)
+- [ ] Cancel: `cancel_requested_at` → freeze ordinary writers → finalizer (receipt + destroy) → terminal `cancelled` (D61); idempotent when already cancelled
+- [ ] SSE cursor + contiguous prune/`gap` events (D55, D67)
 - [ ] Startup reconciliation vs live Microsandbox inventory; set absolute `expires_at`
-- [ ] Persist profile, readiness, verification, vuln_report, **receipt**, screenshots[], `sandbox_id`, `inference_model`, `expires_at`, `cleanup`, `destroyed_at` (confirm-only — D57)
+- [ ] Persist profile **revisions**, sandbox **generations**, `resolved_commit`, readiness, verification, vuln_report, **receipt** (before terminal), screenshots[], `sandbox_id`, `inference_model`, `expires_at`, `cleanup`, `destroyed_at` (confirm-only — D57, D64)
 - [ ] Admission hooks: concurrency / queue / rate / inference / disk budgets (D40)
 
 **Done when:** Internal API serves create/snapshot/SSE/cancel; Next can proxy without a local store; restart keeps ledger.
@@ -124,9 +125,9 @@ Versioned executable schema (`schema_version: "1"`) — see [DATABASE.md](DATABA
 - [ ] Wire OpenCode → **Vultr Serverless Inference** (D25); fail closed if not Vultr
 - [ ] Persist `inference_model` + usage toward budgets
 - [ ] Bootstrap create via harness before inspect (D36); plant canaries (D44)
-- [ ] `discover.py`: inspect → infer → validate (inspect via sandbox clone/copy/exec — not privileged host exec of untrusted install)
-- [ ] On runtime `oci_image` ≠ bootstrap: `replace_environment` (log `sandbox_replace`); re-clone; still one live VM
-- [ ] `profile.py` + `schemas/environment_profile.v1.json` (D51): services, CommandSpec cwd/env/timeout, processes/supervision, probes, `mcp.transport` (`stdio` \| `streamable_http`), `verification_target`
+- [ ] `discover.py`: inspect → infer → validate (inspect via sandbox clone/copy/exec — not privileged host exec of untrusted install); persist **`resolved_commit`** (D62)
+- [ ] On runtime `oci_image` ≠ bootstrap: `replace_environment` (log `sandbox_replace`); re-clone **same SHA**; inherit `expires_at`; still one live VM (D64)
+- [ ] `profile.py` + `schemas/environment_profile.v1.json` (D51): services, CommandSpec cwd/env/timeout, processes/supervision, probes, `mcp.transport` (`stdio` \| `streamable_http`), `verification_target`, required `source.commit`; append **revisions** (D64)
 - [ ] In-guest `mcp_stdio_verify` helper: launch subprocess, JSON-RPC `initialize` → `notifications/initialized` → `tools/list`; evidence via `mcp_stdio_verify`
 - [ ] Prompts: discover + validate
 - [ ] Intent: `git_mcp` \| `webapp` \| `demo` (agent decides; D34)
@@ -141,17 +142,17 @@ Versioned executable schema (`schema_version: "1"`) — see [DATABASE.md](DATABA
 
 Depends on [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md).
 
-- [ ] `harness.py`: create / replace / wait / exec / copy / destroy (one sandbox per job)
+- [ ] `harness.py`: create / replace / wait / exec / copy / destroy (one sandbox per job); **D60** path restrictions on copy
 - [ ] Map bootstrap + runtime profile → OCI image + CPU/memory + network policy + canaries
-- [ ] Record `sandbox_id` / `expires_at`; emit create/replace/destroy **lifecycle** events
-- [ ] Clone + **attempt** install/run from runtime profile with **install-phase egress**; **flag failures** (do not invent success — D29, D43)
-- [ ] Enter offline/deny-egress phase; supervise processes; `verify.py`:
+- [ ] Record sandbox **generations**, `sandbox_id` / `expires_at`; emit create/replace/destroy **lifecycle** events
+- [ ] Clone + **attempt** install from runtime profile with **install-phase egress**; preinstall assessment tooling; **flag failures** (D29, D43, D63)
+- [ ] Enter **deny-all remaining egress** phase; supervise processes; `verify.py` launches **built checkout** for original_application (D62):
   - `git_mcp` + `stdio` → in-guest `mcp_stdio_verify` (list tools) (D30, D51)
   - `git_mcp` + `streamable_http` → HTTP MCP handshake listing tools
   - `webapp` / `demo` → declared probe
-- [ ] On probe pass: set `readiness` + `verification.kind` via **gates** (D47, D54); retain `original_failure` for generated demos; **do not** destroy or mark `completed` yet (D37)
-- [ ] Repair within `MAX_REPAIR_ATTEMPTS`; log attempt number
-- [ ] **Containment matrix** (D58) + **network_probe** (D39) + **canary scan** (D44) — stream `containment` / `finding`; **not** CVE exploitation (D33)
+- [ ] On probe pass: set `readiness` + `verification.kind` via **gates** (D47, D66, D54); retain `original_failure` for generated demos; **do not** destroy or mark `completed` yet (D37)
+- [ ] Repair within `MAX_REPAIR_ATTEMPTS`; log attempt number; profile repairs append revisions
+- [ ] **Containment matrix** (D58, D65) + **network_probe** (D39) + **canary scan** (D44) — stream `containment` / `finding`; **not** CVE exploitation (D33)
 
 **Done when:** Getting-started webapp and pinned filesystem MCP fixture set readiness; controlled fail fixture is `setup_failed` without demo escape; containment matrix + network + canary visible; sandbox still alive after readiness until finalizing.
 
@@ -168,16 +169,16 @@ Depends on [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md).
 **In scope:** SCA / lockfile / known-advisory scanners + AI `vuln_review`; optional **MCP Inspector/SDK** assessment when `mcp.security_assessment.enabled` (D35).  
 **Out of scope:** weaponizing CVEs or generic app/web exploit suites ([DECISIONS.md](DECISIONS.md) D11, D33).
 
-- [ ] `vulnscan.py` against sandbox / lockfiles / detected stack (advisory databases only)
-- [ ] When profile plans it: run MCP Inspector and/or SDK probes in Plane 2 after readiness; stream `log.kind=mcp_assessment` / `finding`; attach `vuln_report.mcp_assessment`
+- [ ] `vulnscan.py` on Plane 1 against lockfiles copied to artifact dir (D43, D63)
+- [ ] When profile plans it: run **preinstalled** MCP Inspector and/or SDK probes in Plane 2 after readiness; stream `log.kind=mcp_assessment` / `finding`; attach `vuln_report.mcp_assessment`
 - [ ] `vuln_review.md` AI summary → job `vuln_report` with **citations to finding ids** (D48); drop uncited claims
 - [ ] Persist severity-grouped `VulnFinding[]` with `source` `sca` \| `mcp_assessment` \| `canary` \| `network` \| `containment` \| `preflight`; emit `finding` SSE
 - [ ] Best-effort SCA on **failure** paths (controlled fail fixture must still produce **scan** findings — D53)
-- [ ] Persist **JobReceipt** before terminal status; destroy in finally with confirm-only `destroyed_at`; emit `lifecycle` (D49, D57)
-- [ ] Findings and MCP assessment do not invalidate readiness or block `completed` (D11, D35, D37); scan tool crash → `partial` / `failed` report without erasing readiness
+- [ ] Persist **JobReceipt** before terminal status (incl. cancel — D61); destroy in finally with confirm-only job-level `destroyed_at`; emit `lifecycle` (D49, D57)
+- [ ] Apply gate table (D66); findings and MCP assessment do not invalidate readiness; scan tool crash → `partial` / `failed` report without erasing readiness
 - [ ] **Do not** add CVE exploit PoCs or generic offensive suites against non-MCP app targets
 - [ ] Separate `findings.source=sca` from `intentional_app` (D53)
-- [ ] `finalizing`: persist receipt → destroy with confirm → `destroyed_at` only if confirmed else `destroy_failed` (D57) → `completed` / `failed`
+- [ ] `finalizing`: persist receipt → destroy with confirm → `destroyed_at` only if confirmed else `destroy_failed` (D57) → terminal per D66
 
 **Done when:** At least one stack produces real SCA advisories or a clean bill; MCP assessment path works when planned; controlled fail fixture has SCA without pretending original app readiness; destroy confirm-only.
 
