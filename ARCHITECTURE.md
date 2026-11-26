@@ -1,140 +1,101 @@
 # Killhub — Proposed Architecture
 
-Killhub turns a public GitHub URL into a running Vultr environment: an AI figures out how to run the project, writes setup instructions, provisions and installs automatically, verifies it works, scans for known vulnerabilities, and streams live status, progress, and process screenshots to the UI.
+Killhub turns a public GitHub URL into a verified running environment: the user submits a link in the UI; an **Explore Sandbox** agent figures out how to run the repo and drives a separate **Test VM**; progress, status, screenshots, setup docs, and a vulnerability report flow back to the frontend.
 
-For phased build tasks and milestones, see [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
+Implementation is split by plane:
+
+| Plane | Implementation doc |
+|------:|--------------------|
+| 1 Next.js | [IMPLEMENTATION_NEXTJS.md](IMPLEMENTATION_NEXTJS.md) |
+| 2 Explore Sandbox | [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md) |
+| 3 Test VM | [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md) |
+
+Index: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
 
 ---
 
-## High-level architecture
+## Three planes
+
+Killhub is split into three planes with hard boundaries.
 
 ```
-┌─────────────┐  SSE: status·progress·logs·shots  ┌──────────────┐
-│  Next.js UI │ ◄───────────────────────────────► │   FastAPI    │
-│  (frontend) │   POST /jobs · GET status         │   (backend)  │
-└──────┬──────┘                                   └──────┬───────┘
-       │ status · docs · report · screenshots            │
-       ▼                                                 ▼
-┌─────────────┐                                   ┌──────────────┐
-│  Job view   │                                   │  Orchestrator│
-│  timeline   │                                   │  jobs+agent  │
-└─────────────┘                                   └──────┬───────┘
-                                                         │
-              ┌──────────────────┬───────────────────────┼──────────────┐
-              ▼                  ▼                       ▼              ▼
-        ┌───────────┐     ┌────────────┐         ┌────────────┐  ┌───────────┐
-        │ OpenCode  │     │   Vultr    │         │  Verify +  │  │Screenshot │
-        │ + Vultr   │     │  instance  │         │  vuln scan │  │ capture   │
-        │ Inference │     │  / env     │         │            │  │(Playwright│
-        └───────────┘     └────────────┘         └────────────┘  │ / term)   │
-                                                                 └───────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│  PLANE 1 — Frontend + Server (Next.js)                                  │
+│  Input window · status · progress · screenshots · setup docs · report   │
+└───────────────────────────────┬─────────────────────────────────────────┘
+                                │ jobs API · SSE (status / progress / shots)
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│  PLANE 2 — Explore Sandbox                                              │
+│  Environment Agent Plan Loop → environment_profile.json                 │
+│  inspect → infer services → validate → provision deps → launch MCP      │
+└───────────────────────────────┬─────────────────────────────────────────┘
+                                │ profile + harness → provision · exec
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│  PLANE 3 — Test VM                                                      │
+│  Created from environment_profile.json · deps · MCP / app readiness     │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ```mermaid
 flowchart TB
-  User(["User"]) --> UI["Next.js<br/>status · progress · screenshot timeline"]
-  UI -->|"POST /api/jobs · poll · SSE"| API["FastAPI"]
-  API --> Jobs["Job store<br/>status + progress + events"]
-  Jobs --> Agent["OpenCode + Vultr Inference"]
-  Agent --> Env["Vultr environment"]
-  Env --> Verify["Works?"]
-  Verify -->|"fail · under cap"| Agent
-  Verify -->|pass| Scan["Vulnerability check"]
-  Jobs --> Shots["Screenshot capture<br/>per stage + on fail"]
-  Shots -->|"SSE screenshot events"| UI
-  Scan --> UI
+  subgraph plane1 ["Plane 1 · Next.js"]
+    Input["Input window<br/>GitHub URL"]
+    Status["Status · progress · logs"]
+    Report["Report window<br/>docs · vulns · screenshots"]
+  end
+
+  subgraph plane2 ["Plane 2 · Explore Sandbox"]
+    InRepo["IN: Git repo"]
+    Loop["Environment Agent Plan Loop"]
+    Profile["environment_profile.json"]
+    Harness["Harness · deps · MCP readiness"]
+  end
+
+  subgraph plane3 ["Plane 3 · Test VM"]
+    VM["VM from profile"]
+    Run["Deps · launch · ready"]
+  end
+
+  Input -->|"create job"| InRepo
+  InRepo --> Loop
+  Loop --> Profile
+  Profile --> Harness
+  Harness -->|"control"| VM
+  Run --> Harness
+  Harness -->|"status · progress · screenshots · report"| Status
+  Harness --> Report
+  Profile --> Report
 ```
 
-**Control plane:** Next.js UI + FastAPI orchestrator (job store, agent, verify, vulnscan, screenshots).  
-**Data plane:** Per-job Vultr environment where the repo is installed and run.  
-**Inference:** OpenCode + Vultr Inference on the backend host — not inside the job instance.
+| Plane | What it is | Owns |
+|-------|------------|------|
+| **1. Frontend + Server** | Next.js app (UI + server) | Input window; status/progress; screenshot timeline; setup docs; vuln report; job create/poll/SSE to the user |
+| **2. Explore Sandbox** | Environment Agent Plan Loop + harness | Inspect → infer → validate → provision deps → launch MCP / verify readiness; `environment_profile.json`; report to Plane 1 |
+| **3. Test VM** | Disposable VM (e.g. Vultr) | Supported deps + project runtime — created **from** `environment_profile.json` |
 
 ---
 
-## Component responsibilities
+## Plane 1 — Frontend + Server (Next.js)
 
-| Component | Role |
-|-----------|------|
-| **Next.js frontend** | URL input, job view, status/progress UI, live logs, screenshot timeline, setup docs, env status, vuln report |
-| **FastAPI (`main.py`)** | HTTP/SSE API; starts background job workers |
-| **`jobs.py`** | Job state machine, in-memory store (later Redis/Postgres), event timeline, server-owned lifetime |
-| **`agent.py`** | OpenCode client → Vultr Inference; analyze, write setup, repair, vuln review |
-| **`vultr.py`** | Provision / wait / remote exec / destroy Vultr environments |
-| **`setup.py`** | Clone repo; apply install commands from the run plan |
-| **`verify.py`** | Smoke / health checks (HTTP or CLI) |
-| **`vulnscan.py`** | Dependency / OS advisory scanners; structured findings |
-| **`screenshots.py`** | Browser (Playwright) and terminal stills; store + SSE notify |
-| **`config.py` / `models.py`** | Env-based settings; Pydantic schemas |
-| **`prompts/`** | Analyze, write setup, repair, vuln review prompt packs |
-| **`storage/screenshots/`** | Local/dev artifact store per `job_id` (object storage in prod) |
+**Role:** The only surface the user interacts with. Next.js provides both the UI and the server that accepts jobs and proxies/streams updates from the Explore Sandbox.
 
-### Frontend surfaces
+### Windows
 
-- Landing: GitHub URL + start
-- Job view (`/jobs/{id}`): status badge, progress bar, `current_step`, SSE log, screenshot timeline, setup docs, env status, vuln report, cancel
+| Window | Contents |
+|--------|----------|
+| **Input** | Public GitHub URL + start |
+| **Status** | Live `status`, `progress`, `current_step`, execution log, screenshot timeline |
+| **Report** | Setup instructions, environment/Test VM status, vulnerability findings, final outcome |
 
-### Agent structured plan output
+### Responsibilities
 
-```text
-{ runtime, os_image, packages[], install_commands[], run_commands[],
-  healthcheck, ports[], summary }
-```
+- `POST` create job, `GET` job snapshot, SSE events, screenshot list/images, cancel
+- Render poll + SSE consistently; reconnect restores status, logs, and screenshots
+- Does **not** provision VMs or run agent tools itself — that is Plane 2
 
----
-
-## End-to-end data flow
-
-1. User submits a public GitHub URL → `POST /api/jobs` → `job_id` returned immediately.
-2. Worker sets status `analyzing`; agent inspects the repo and decides how to run it on Vultr; status/progress/screenshot emitted.
-3. Agent writes setup instructions (`planning`); docs persisted on the job.
-4. Orchestrator provisions a Vultr environment (`provisioning`).
-5. Repo is cloned and install commands run inside that environment (`installing`).
-6. Verify runs smoke/health checks (`verifying`). On failure → `repairing` (capped) then retry install/verify.
-7. Vulnerability scan runs (`scanning`); findings + AI summary attached.
-8. Job reaches `ready` with setup docs, env info, vuln report, and full screenshot timeline. UI has been updated throughout via poll + SSE.
-
-Each stage updates `status`, `progress`, and `current_step`, appends log events, and captures screenshots.
-
----
-
-## Job lifecycle
-
-```
-pending → analyzing → planning → provisioning → installing
-       → verifying ⇄ repairing
-       → scanning → ready | failed | cancelled
-```
-
-```mermaid
-flowchart LR
-  pending --> analyzing --> planning --> provisioning --> installing
-  installing --> verifying
-  verifying -->|"fail under cap"| repairing
-  repairing --> verifying
-  verifying -->|pass| scanning
-  scanning --> ready
-  verifying -->|"repair cap"| failed
-  pending -.-> cancelled
-```
-
-- **Repair loop:** `verifying → repairing → installing|verifying`, capped by `MAX_REPAIR_ATTEMPTS`, then `failed`.
-- **Server-owned jobs:** Closing the tab or dropping SSE does **not** cancel the pipeline. Only `DELETE /api/jobs/{id}` or `JOB_TIMEOUT_SECONDS` stops it. Reopen `/jobs/{id}` to poll, reconnect SSE, and reload screenshots.
-
----
-
-## API and realtime contracts
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/api/jobs` | Create job `{ github_url }` → `{ job_id }` |
-| `GET` | `/api/jobs/{id}` | Full snapshot: status, progress, current_step, env, docs, vuln summary, screenshot ids |
-| `GET` | `/api/jobs/{id}/events` | SSE: status, progress, logs, screenshots, errors |
-| `GET` | `/api/jobs/{id}/screenshots` | Ordered timeline `{ id, step, caption, url, created_at }` |
-| `GET` | `/api/jobs/{id}/screenshots/{shot_id}` | Image bytes (or object-storage redirect) |
-| `DELETE` | `/api/jobs/{id}` | Cancel + environment cleanup |
-| `GET` | `/health` | Backend liveness |
-
-### Status payload
+### Job snapshot (always available to the UI)
 
 ```json
 {
@@ -148,7 +109,205 @@ flowchart LR
 }
 ```
 
-Clients may **poll** and/or subscribe to SSE; both must stay consistent. SSE supports reconnect / catch-up from last event id.
+---
+
+## Plane 2 — Explore Sandbox
+
+**Role:** Take a Git repository (or package), run the **Environment Agent Plan Loop**, emit **`environment_profile.json`**, provision supported dependencies on the Test VM, and (for MCP intents) launch MCP and verify readiness. Status streams back to Plane 1 throughout.
+
+### Contract
+
+```
+IN:  Git repo (URL / cloned tree / package)
+       │
+       ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Environment Agent Plan Loop                                │
+│  1. Inspect repo and docs                                   │
+│  2. Infer required services                                 │
+│  3. Validate environment and spec                           │
+│  4. Provision supported deps                                │
+│  5. Launch MCP and verify readiness                         │
+│     (loop on failure → re-inspect / patch profile / retry)  │
+└─────────────────────────────────────────────────────────────┘
+       │
+       ▼
+OUT: environment_profile.json  (+ ready MCP / env when applicable)
+```
+
+| | |
+|--|--|
+| **IN** | Submitted Git repository or package |
+| **Agent** | Environment Agent (Discover + Plan Loop) |
+| **Classify intent** | `git_mcp` or `webapp` (primary v1 intents) |
+| **OUT** | `environment_profile.json` — structured environment specification; readiness confirmed when MCP/webapp checks pass |
+
+### Environment Agent Plan Loop
+
+The agent iteratively plans and executes until the environment spec is valid and the target is ready (or the repair/attempt cap is hit).
+
+```mermaid
+flowchart TD
+  Start["IN: Git repo"] --> Inspect["1. Inspect repo and docs"]
+  Inspect --> Infer["2. Infer required services"]
+  Infer --> Validate["3. Validate environment and spec"]
+  Validate -->|"invalid / incomplete"| Inspect
+  Validate -->|"valid profile"| Provision["4. Provision supported deps"]
+  Provision --> Launch["5. Launch MCP and verify readiness"]
+  Launch -->|"not ready"| Validate
+  Launch -->|"ready"| Done["OUT: environment_profile.json + ready"]
+```
+
+| Step | What the agent does |
+|------|---------------------|
+| **1. Inspect repo and docs** | Read tree, README, manifests, lockfiles, Docker/compose, scripts; classify intent `git_mcp` \| `webapp` |
+| **2. Infer required services** | Derive runtimes, databases, queues, ports, MCP server entrypoints, and other deps the project needs |
+| **3. Validate environment and spec** | Check the draft `environment_profile.json` for completeness, supported deps, and consistency; reject or patch until valid |
+| **4. Provision supported deps** | Via harness on Plane 3: install only **supported** packages/services from the profile; skip or flag unsupported ones |
+| **5. Launch MCP and verify readiness** | Start MCP (or webapp health endpoint per intent); probe readiness; on failure re-enter the loop (validate → provision → launch) within caps |
+
+Each step emits Plane 1 status/progress/log events and may capture screenshots.
+
+### `environment_profile.json`
+
+Canonical artifact produced and refined during the plan loop; consumed to create/configure the Test VM. Illustrative shape:
+
+```json
+{
+  "intent": "git_mcp",
+  "source": {
+    "type": "git",
+    "url": "https://github.com/org/repo",
+    "ref": "main"
+  },
+  "runtime": "python",
+  "os_image": "ubuntu-24.04",
+  "services": [],
+  "packages": [],
+  "install_commands": [],
+  "run_commands": [],
+  "mcp": {
+    "launch_command": "",
+    "readiness": { "type": "mcp_handshake", "timeout_seconds": 60 }
+  },
+  "healthcheck": { "type": "http", "path": "/", "port": 8000 },
+  "ports": [8000],
+  "summary": "..."
+}
+```
+
+- `intent`: `git_mcp` | `webapp`
+- `services`: inferred required services from step 2
+- `mcp`: present when intent is `git_mcp` (launch + readiness probe)
+- Profile is persisted on the job and shown in Plane 1’s report window
+- Steps 4–5 run only after step 3 accepts the profile
+
+### Harness (executes steps 4–5 on Plane 3)
+
+| Concern | Behavior |
+|---------|----------|
+| **Harness** | OpenCode + Vultr Inference; tools limited to sandbox + Test VM APIs |
+| **Control VM** | Provision / exec / destroy Plane 3 from profile; install supported deps; launch MCP/webapp; readiness probes; repair; vuln scan |
+| **Report** | Stream status, progress, logs, screenshots, profile, readiness, and vuln report to Plane 1 |
+
+### Prompt pack
+
+- `discover_environment` — inspect repo/docs; infer services; classify intent; draft `environment_profile.json`
+- `validate_environment_spec` — validate profile against supported deps and readiness requirements
+- `repair_from_errors` — plan-loop retry after provision/launch/readiness failure
+- `vuln_review` — summarize scanner output for the report window
+
+### Security
+
+- Control-plane / inference secrets stay in Plane 2 (or host config), **not** on the Test VM by default
+- Environment Agent and harness tools target the Explore Sandbox and/or Test VM APIs only — never Plane 1 host arbitrary shell
+- Only **supported** dependencies are provisioned; unsupported deps are recorded on the job, not silently invented---
+
+## Plane 3 — Test VM
+
+**Role:** A disposable VM created **from `environment_profile.json`**. The plan loop provisions **supported deps** here, launches MCP (or webapp), and verifies readiness.
+
+### Lifecycle
+
+1. Plan loop validates profile → harness provisions VM (image/plan from profile)
+2. Clone repo into the VM (`source` from profile)
+3. Provision supported deps (`packages` / `services` / `install_commands`)
+4. Launch MCP or app (`run_commands` / `mcp.launch_command`); verify readiness
+5. Vulnerability scan against what is installed
+6. Destroy on job complete / fail / cancel / TTL
+### Constraints
+
+- No Killhub control-plane API keys in VM `env` by default
+- Outbound only as needed (git, package registries)
+- Resource/time caps; automatic cleanup
+- Prefer non-root user; no Docker socket mount of the control plane
+
+---
+
+## End-to-end flow across planes
+
+```
+Plane 1          Plane 2 (Explore Sandbox)              Plane 3 (Test VM)
+───────          ─────────────────────────              ─────────────────
+Enter URL   →    IN: Git repo
+Status…     ←    Plan loop: inspect repo and docs
+            ←    Infer required services
+            ←    Validate environment and spec
+Report      ←    environment_profile.json
+            ←    Provision supported deps ───────────►  VM + deps
+            ←    Launch MCP / verify readiness ◄─────  Ready or retry
+            ←    (loop on failure, capped)
+            ←    Vuln scan ──────────────────────────►  Scan target
+Report      ←    Final profile + readiness + findings
+Cancel/TTL  →    Destroy ────────────────────────────►  VM removed
+```
+
+1. User pastes GitHub URL in Plane 1 input window.
+2. Environment Agent Plan Loop inspects the repo/docs and infers required services.
+3. Loop validates the environment spec and writes `environment_profile.json`.
+4. Supported deps are provisioned on the Test VM from the profile.
+5. MCP (or webapp) is launched and readiness is verified; failures re-enter the loop within caps.
+6. Vulnerability checks run; Plane 1 shows progress, screenshots, profile, and findings.
+---
+
+## Job lifecycle
+
+```
+pending → analyzing → planning → provisioning → installing
+       → verifying ⇄ repairing
+       → scanning → ready | failed | cancelled
+```
+
+- **analyzing / planning** — Plan loop steps 1–3 → validated `environment_profile.json`
+- **provisioning / installing / verifying** — Plan loop steps 4–5 on Plane 3 (deps, MCP launch, readiness)
+- **scanning** — vuln scan after readiness (or best-effort after partial failure per policy)
+- **Repair:** `verifying → repairing → installing|verifying`, capped by `MAX_REPAIR_ATTEMPTS`
+- Jobs are **server-owned** (Plane 1/2). Closing the browser does not cancel; only explicit cancel or timeout does
+
+```mermaid
+flowchart LR
+  pending --> analyzing --> planning --> provisioning --> installing
+  installing --> verifying
+  verifying -->|"fail under cap"| repairing
+  repairing --> verifying
+  verifying -->|pass| scanning
+  scanning --> ready
+  verifying -->|"repair cap"| failed
+  pending -.-> cancelled
+```
+
+---
+
+## API and realtime (Plane 1 ↔ Plane 2)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/jobs` | Create job `{ github_url }` → `{ job_id }` |
+| `GET` | `/api/jobs/{id}` | Status, progress, docs, vuln summary, screenshot ids |
+| `GET` | `/api/jobs/{id}/events` | SSE: status, progress, logs, screenshots, errors |
+| `GET` | `/api/jobs/{id}/screenshots` | Ordered timeline |
+| `GET` | `/api/jobs/{id}/screenshots/{shot_id}` | Image bytes |
+| `DELETE` | `/api/jobs/{id}` | Cancel + destroy Test VM |
 
 ### SSE event types
 
@@ -156,38 +315,28 @@ Clients may **poll** and/or subscribe to SSE; both must stay consistent. SSE sup
 |--------|---------|
 | `status` | State machine transition |
 | `progress` | Numeric progress + `current_step` |
-| `log` | Chronological execution / agent message |
-| `screenshot` | New still (`screenshot_id`, `step`, `caption`, `url`) |
-| `error` | Failure detail (stream stays open until terminal state) |
+| `log` | Execution / agent message |
+| `screenshot` | New process still |
+| `error` | Failure detail |
 
-GitHub URLs must be public HTTPS on `github.com`; invalid URLs → `400`.
+GitHub URLs: public HTTPS on `github.com` only; invalid → `400`.
 
 ---
 
 ## Progress and screenshots
 
-| Channel | Client receives |
-|---------|-----------------|
-| `GET /api/jobs/{id}` | `status`, `progress`, `current_step`, timestamps, latest error |
-| SSE `/events` | Live logs, status transitions, progress, screenshot attachments |
-| `/screenshots` | Ordered process screenshot timeline |
-
-### Capture policy
+Emitted by Plane 2, displayed in Plane 1. Captures cover Explore Sandbox milestones and Test VM activity (terminal stills; Playwright browser shot when the Test VM exposes HTTP).
 
 | When | What |
 |------|------|
-| State transition | Terminal frame and/or rendered step summary |
-| Environment ready | Console / first session frame when available |
-| Install milestones | Terminal screenshot of command output |
-| Verify | **Browser screenshot** of the app URL when HTTP; else CLI frame |
-| Repair | Before/after failure context |
-| Scan complete | Scanner output / summary still when useful |
-| Failed | Last useful screen + error annotation |
+| Explore / plan transitions | Step / terminal stills |
+| Test VM ready | Session / console frame |
+| Install milestones | Terminal command output |
+| Verify | Browser screenshot of app URL when HTTP; else CLI frame |
+| Repair / fail | Failure context stills |
+| Scan complete | Scanner / summary still when useful |
 
-- Prefer Playwright browser shots when a URL/port exists; otherwise terminal/session stills.
-- Store under `storage/screenshots/{job_id}/` (or object storage); cap with `MAX_SCREENSHOTS_PER_JOB`; clean up with job/env TTL.
-- Redact secrets from terminal captures when possible.
-- Stills only in v1 — no continuous session video.
+Caps: `MAX_SCREENSHOTS_PER_JOB`; cleanup with job/Test VM TTL. Redact secrets from captures. Stills only in v1.
 
 ---
 
@@ -195,25 +344,25 @@ GitHub URLs must be public HTTPS on `github.com`; invalid URLs → `400`.
 
 ```mermaid
 flowchart LR
-  subgraph controlPlane ["Control plane"]
-    API["FastAPI"]
-    Agent["OpenCode + Inference"]
-    Keys["VULTR_API_KEY · OPENCODE_*"]
+  subgraph p1 ["Plane 1"]
+    Next["Next.js"]
   end
-  subgraph dataPlane ["Job environment"]
-    Inst["Vultr instance"]
-    Repo["Cloned repo"]
+  subgraph p2 ["Plane 2"]
+    Sandbox["Explore Sandbox + harness"]
+    Keys["Inference / API secrets"]
   end
-  API -->|"provision · exec · destroy"| Inst
-  Agent -->|"tools only via env APIs"| Inst
-  Keys -.->|"never injected by default"| Inst
+  subgraph p3 ["Plane 3"]
+    TestVM["Test VM + repo"]
+  end
+  Next -->|"jobs · SSE"| Sandbox
+  Sandbox -->|"provision · exec"| TestVM
+  Keys -.->|"not injected by default"| TestVM
 ```
 
-- Killhub control-plane secrets stay on the backend; they are **not** injected into the instance `env` by default.
-- Agent shell/code tools target the **job environment only**.
-- Prefer non-root remote user; no Docker socket or host mounts of Killhub secrets into the instance.
-- Destroy removes the Vultr resource (and screenshot artifacts) on complete / fail / cancel / TTL.
-- No Killhub API keys in instance logs, `env`, or screenshots.
+- Plane 1 never receives control-plane secrets in client bundles
+- Plane 2 holds harness + inference credentials
+- Plane 3 runs untrusted project code only; destroyed after TTL/cancel
+- No Killhub API keys in Test VM logs, `env`, or screenshots
 
 ---
 
@@ -221,10 +370,10 @@ flowchart LR
 
 ```
 killhub/
-├── frontend/                 # Next.js app
+├── frontend/                 # Plane 1 — Next.js (UI + server)
 │   ├── app/
-│   │   ├── page.tsx
-│   │   ├── jobs/[id]/page.tsx
+│   │   ├── page.tsx          # Input window
+│   │   ├── jobs/[id]/page.tsx  # Status + report windows
 │   │   └── layout.tsx
 │   ├── components/
 │   │   ├── UrlForm.tsx
@@ -238,45 +387,52 @@ killhub/
 │   │   └── ErrorBanner.tsx
 │   └── lib/
 │       └── api.ts
-├── backend/
-│   ├── main.py
-│   ├── agent.py
-│   ├── vultr.py
-│   ├── setup.py
+├── explore/                  # Plane 2 — Explore Sandbox + harness
+│   ├── main.py               # API / worker entry
+│   ├── discover.py           # Environment Agent Plan Loop
+│   ├── agent.py              # OpenCode + Vultr Inference
+│   ├── harness.py            # Control surface for Test VM
+│   ├── profile.py            # environment_profile.json schema + IO
 │   ├── verify.py
 │   ├── vulnscan.py
 │   ├── screenshots.py
-│   ├── jobs.py
+│   ├── jobs.py               # Job state + events → Plane 1
 │   ├── config.py
 │   ├── models.py
 │   └── requirements.txt
-├── storage/
-│   └── screenshots/
 ├── prompts/
-│   ├── analyze_repo.md
-│   ├── write_setup.md
+│   ├── discover_environment.md  # IN repo → intent + profile.json
 │   ├── repair_from_errors.md
 │   └── vuln_review.md
-├── docker-compose.yml
+├── storage/
+│   ├── screenshots/
+│   └── profiles/             # environment_profile.json per job
+├── docker-compose.yml        # Plane 1 + Plane 2 locally; Plane 3 via Vultr API
 ├── .env.example
 ├── ARCHITECTURE.md
-├── IMPLEMENTATION_PLAN.md
+├── IMPLEMENTATION_PLAN.md              # Index
+├── IMPLEMENTATION_NEXTJS.md            # Plane 1
+├── IMPLEMENTATION_EXPLORE_SANDBOX.md   # Plane 2
+├── IMPLEMENTATION_TEST_VM.md           # Plane 3
 └── README.md
 ```
+
+Plane 3 is **not** a long-lived folder in the repo — it is a remote VM created per job from `environment_profile.json` (Vultr).
 
 ### Key configuration
 
 | Variable | Purpose |
 |----------|---------|
-| `VULTR_API_KEY` | Provisioning (+ inference as configured; host only) |
-| `OPENCODE_*` | Agent client settings |
-| `VULTR_PLAN` / region / OS | Per-job environment defaults |
+| `VULTR_API_KEY` | Provision Test VMs (+ inference as configured; Plane 2 only) |
+| `OPENCODE_*` | Agent harness settings |
+| `VULTR_PLAN` / region / OS | Test VM defaults |
 | `JOB_TIMEOUT_SECONDS` | Hard wall clock |
 | `MAX_REPAIR_ATTEMPTS` | Repair loop cap |
-| `ENV_TTL_SECONDS` | Auto-destroy environments |
-| `VULN_SCAN_*` | Scanner enablement / severity |
+| `ENV_TTL_SECONDS` | Auto-destroy Test VM |
+| `VULN_SCAN_*` | Scanner settings |
 | `MAX_SCREENSHOTS_PER_JOB` | Screenshot cap |
-| `SCREENSHOT_STORAGE` | Local path or object storage |
+| `SCREENSHOT_STORAGE` | Artifact store |
+| `EXPLORE_SANDBOX_URL` | Plane 1 → Plane 2 base URL |
 
 ---
 
@@ -284,14 +440,17 @@ killhub/
 
 - Private GitHub repos / OAuth
 - Multi-user auth / billing
-- Long-lived production hosting beyond job TTL
+- Long-lived Test VMs beyond job TTL
 - GPU workloads
 - Auto-patching vulnerabilities (report only)
-- Non-Vultr cloud targets
-- Full session video / continuous screen recording
+- Non-Vultr Test VM providers
+- Full session video (stills only)
 
 ---
 
 ## Related
 
-- Build order, phases, milestones, and risks: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
+- Implementation index: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
+- Plane 1: [IMPLEMENTATION_NEXTJS.md](IMPLEMENTATION_NEXTJS.md)
+- Plane 2: [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md)
+- Plane 3: [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md)
