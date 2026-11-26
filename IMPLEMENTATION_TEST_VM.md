@@ -141,14 +141,19 @@ Plane 2 owns intent classification and profile validation before any of this run
 
 **Done when:** Plane 2 can complete MCP handshake or HTTP healthcheck against the sandbox.
 
-### T4 — Hardening
+### T4 — Hardening + containment
 
 - [ ] Cross-job isolation checks (sibling sandboxes cannot reach each other)
 - [ ] Mid-job kill / cancel destroys sandbox
-- [ ] TTL destroy after success
+- [ ] TTL destroy after success; CPU/memory caps enforced at create
 - [ ] No secret leakage in sandbox logs / metrics
+- [ ] **Containment scenarios** ([DECISIONS.md](DECISIONS.md) D26) verified via harness `exec` timeouts / kill:
+  - Destructive filesystem command (e.g. `rm -rf /` or equivalent) does not affect VX1 host or Plane 2
+  - Infinite loop / busy-wait is killed by per-`exec` timeout
+  - Optional memory/CPU bomb stays within sandbox caps
+- [ ] Plane 2 receives stdout/stderr/exit evidence for the probe so Plane 1 can show the containment moment
 
-**Done when:** Failed/cancelled/TTL paths always reclaim the microVM on the host.
+**Done when:** Failed/cancelled/TTL paths always reclaim the microVM on the host; containment probes are absorbed inside the sandbox with observable harness output.
 
 ---
 
@@ -171,7 +176,7 @@ Plane 2 owns intent classification and profile validation before any of this run
 - [ ] **T-M1:** Remote exec (+ copy) with output
 - [ ] **T-M2:** Clone + supported deps from profile
 - [ ] **T-M3:** MCP/app launch reachable for readiness
-- [ ] **T-M4:** Cancel/TTL/fail always destroys sandbox; no secret leakage; sibling isolation verified
+- [ ] **T-M4:** Cancel/TTL/fail always destroys sandbox; no secret leakage; sibling isolation + containment probes verified
 
 ---
 
@@ -181,9 +186,10 @@ Plane 2 owns intent classification and profile validation before any of this run
 - Plan loop / profile generation / vuln AI review (Plane 2)
 - Private registries / GPU / long-lived sandboxes beyond TTL
 - Building custom OCI images beyond documented Microsandbox defaults (unless product/DECISIONS change)
+- Running containment probes on the VX1 host outside a job sandbox
 
 ---
 
 ## Definition of done (Plane 3)
 
-From a validated `environment_profile.json`, a Microsandbox microVM on the Vultr VX1 host can be created, populated with supported deps, launch MCP or webapp for readiness checks, and be stopped/removed when the agent finishes instructions and all tests (`ready`), or on failure, cancel, or TTL — without Killhub control-plane secrets in the sandbox environment or logs.
+From a validated `environment_profile.json`, a Microsandbox microVM on the Vultr VX1 host can be created, populated with supported deps, launch MCP or webapp for readiness checks, absorb containment probes without host impact, and be stopped/removed when the agent finishes instructions and all tests (`ready`), or on failure, cancel, or TTL — without Killhub control-plane secrets in the sandbox environment or logs.

@@ -22,7 +22,7 @@ flowchart LR
 | Next.js → Explore (`EXPLORE_SANDBOX_URL`) | HTTP/SSE | Private network / compose; tighten later |
 | Explore → Vultr API | HTTPS | `VULTR_API_KEY` on Plane 2 only (host/ops; not per-job VM create) |
 | Explore → Test VM | Microsandbox `msb` / SDK on VX1 host | Host access for Plane 2; sandbox is job-scoped |
-| Explore → OpenCode/Inference | HTTPS | `OPENCODE_*` / Vultr inference on Plane 2 only |
+| Explore → Vultr Serverless Inference | HTTPS `https://api.vultrinference.com/v1` | `VULTR_INFERENCE_*` (+ `OPENCODE_*` client) on Plane 2 only ([DECISIONS.md](DECISIONS.md) D25) |
 
 ---
 
@@ -67,11 +67,22 @@ Full job snapshot for poll/hydrate.
   "error": null,
   "profile": { },
   "readiness": null,
+  "sandbox_id": "…",
+  "inference_model": "…",
+  "destroyed_at": null,
   "environment": { "environment_id": "…", "state": "running" },
   "vuln_report": null,
   "screenshot_ids": []
 }
 ```
+
+Optional job fields for lifecycle / demo evidence ([DECISIONS.md](DECISIONS.md) D25–D26):
+
+| Field | Meaning |
+|-------|---------|
+| `sandbox_id` | Microsandbox name / id (same as `environment.environment_id` when set) |
+| `inference_model` | Vultr Serverless Inference model id used for this job |
+| `destroyed_at` | UTC timestamp when Plane 3 sandbox was stopped/removed; null while alive |
 
 **Errors:** `404` unknown job.
 
@@ -87,9 +98,11 @@ Server-Sent Events stream.
 |------------|----------------------|
 | `status` | `{ status }` |
 | `progress` | `{ progress, current_step }` |
-| `log` | `{ message }` |
+| `log` | `{ message, kind?, sandbox_id?, attempt?, detail? }` — use `kind` for lifecycle moments: `sandbox_create` \| `sandbox_destroy` \| `repair_attempt` \| `containment_probe` \| `agent` \| `harness` |
 | `screenshot` | `{ screenshot_id, step, caption, url }` |
 | `error` | `{ message }` |
+
+`log` payloads must not include secrets. Containment and destroy moments should be emitted as `log` (or `status` + `log`) so Plane 1 can show the execution loop without a new SSE type in v1.
 
 - Support **Last-Event-ID** / event id resume for catch-up.
 - Stream stays open through `error` events until terminal job state.
@@ -173,14 +186,14 @@ Not an HTTP public API. Internal interface in `explore/harness.py`:
 
 ## Plane 2 → Inference
 
-OpenCode client uses Vultr Inference with prompts under `prompts/`:
+OpenCode client uses **Vultr Serverless Inference** only (`VULTR_INFERENCE_BASE_URL` default `https://api.vultrinference.com/v1`) with prompts under `prompts/`:
 
 - `discover_environment.md`
 - `validate_environment_spec.md`
 - `repair_from_errors.md`
 - `vuln_review.md`
 
-Tool use is limited to Explore Sandbox + harness APIs ([AGENTS.md](AGENTS.md)).
+Persist `inference_model` on the job. Tool use is limited to Explore Sandbox + harness APIs ([AGENTS.md](AGENTS.md)). Do not route agent reasoning to non-Vultr providers without a new [DECISIONS.md](DECISIONS.md) entry.
 
 ---
 

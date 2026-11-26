@@ -120,21 +120,24 @@ Jobs are **server-owned** (Plane 2). Closing the tab or dropping SSE does **not*
 ### N3 — Report window
 
 - [ ] Show `environment_profile.json` / setup docs when available
-- [ ] `EnvStatus`: provisioning / running / ready / destroyed
+- [ ] `EnvStatus`: provisioning / running / ready / destroyed (include `sandbox_id` / `destroyed_at` when present)
+- [ ] Surface repair attempts (`attempt n / MAX_REPAIR_ATTEMPTS`) and containment-probe log lines from SSE `log` payloads
 - [ ] `VulnReport`: severity-grouped findings when scan completes
 - [ ] Error banner for agent / provision / install failures
 - [ ] Cancel control (explicit); optional retry
+- [ ] Optional status copy that execution + inference run on Vultr (judges / operators)
 
-**Done when:** Ready job shows profile, readiness, vuln report, and full screenshot timeline.
+**Done when:** Ready job shows profile, readiness, vuln report, screenshot timeline, and a clear sandbox-destroyed state.
 
-### N4 — Hardening
+### N4 — Hardening + public Vultr deploy
 
 - [ ] Reconnect / event-id catch-up UX
 - [ ] Empty and error states for each window
 - [ ] No control-plane secrets in client bundles
 - [ ] E2E happy path against mocked or real Explore Sandbox
+- [ ] Deploy Plane 1 (with Plane 2) to **Vultr Cloud Compute** with a public HTTPS URL ([DECISIONS.md](DECISIONS.md) D24); local compose remains for development only
 
-**Done when:** Leave/return to `/jobs/{id}` restores full UI; errors are human-readable.
+**Done when:** Leave/return to `/jobs/{id}` restores full UI; errors are human-readable; demo is reachable on Vultr.
 
 ---
 
@@ -152,8 +155,8 @@ Jobs are **server-owned** (Plane 2). Closing the tab or dropping SSE does **not*
 - [ ] **N-M0:** Frontend boots in compose
 - [ ] **N-M1:** Input creates job and opens status view
 - [ ] **N-M2:** Live status, progress, logs, screenshots
-- [ ] **N-M3:** Report window shows profile + vulns + timeline
-- [ ] **N-M4:** Reconnect / cancel UX verified
+- [ ] **N-M3:** Report window shows profile + vulns + timeline + sandbox lifecycle
+- [ ] **N-M4:** Reconnect / cancel UX verified; public Vultr demo URL live
 
 ---
 
@@ -162,9 +165,10 @@ Jobs are **server-owned** (Plane 2). Closing the tab or dropping SSE does **not*
 - Environment Agent Plan Loop
 - Provisioning or destroying Test VMs (Plane 2 closes the Test VM when the agent finishes its instructions and all tests — readiness + vuln scan — or on cancel/fail/TTL)
 - Running scanners or Playwright capture (Plane 2 produces screenshots; Plane 1 only displays them)
+- Hosting the public demo on non-Vultr platforms (D24)
 
 ---
 
 ## Definition of done (Plane 1)
 
-User can paste a GitHub URL, watch live status/progress/screenshots, and read the report (profile, readiness, vulns) without refreshing — entirely via Explore Sandbox APIs.
+User can paste a GitHub URL (on the public Vultr demo when deployed), watch live status/progress/screenshots/sandbox lifecycle, and read the report (profile, readiness, vulns) without refreshing — entirely via Explore Sandbox APIs.

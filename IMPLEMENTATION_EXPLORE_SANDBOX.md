@@ -131,7 +131,7 @@ Illustrative shape (validated in step 3 before steps 4–5):
 
 - [ ] Scaffold `explore/` service with `GET /health`
 - [ ] `docker-compose.yml` service `explore`
-- [ ] `.env.example`: `VULTR_API_KEY`, `OPENCODE_*`, timeouts, caps
+- [ ] `.env.example`: `VULTR_API_KEY`, `VULTR_INFERENCE_*`, `OPENCODE_*`, timeouts, caps
 - [ ] Empty `jobs.py` / `models.py` / `config.py`
 
 **Done when:** `explore` boots; `/health` returns `200`.
@@ -142,23 +142,25 @@ Illustrative shape (validated in step 3 before steps 4–5):
 - [ ] Validate GitHub URL (public HTTPS, `github.com` only)
 - [ ] Implement API surface above; SSE with reconnect / event-id catch-up
 - [ ] On every state change: update `status` + `progress` + `current_step`; emit events
-- [ ] Persist profile, readiness, vuln_report, screenshots[] on the job
+- [ ] Persist profile, readiness, vuln_report, screenshots[], `sandbox_id`, `inference_model`, `destroyed_at` on the job
 
 **Done when:** Plane 1 can create a job, poll status, and subscribe to stub SSE events.
 
 ### E2 — Environment Agent Plan Loop (steps 1–3)
 
-- [ ] Wire OpenCode → Vultr Inference in `agent.py`
+- [ ] Wire OpenCode → **Vultr Serverless Inference** in `agent.py` (`VULTR_INFERENCE_BASE_URL` default `https://api.vultrinference.com/v1`, API key, model) — [DECISIONS.md](DECISIONS.md) D25
+- [ ] Refuse / fail closed if inference is not configured for Vultr (no silent alternate provider)
+- [ ] Persist `inference_model` on the job for Plane 1 / demo evidence
 - [ ] `discover.py` state machine: inspect → infer → validate
 - [ ] `profile.py` schema validation + `storage/profiles/{job_id}/`
 - [ ] Prompts: `discover_environment.md`, `validate_environment_spec.md`
-- [ ] Intent: `git_mcp` \| `webapp` only in v1
+- [ ] Intent: `git_mcp` \| `webapp` only in v1 (hackathon slice may ship one intent first)
 - [ ] Supported-deps allowlist; unsupported services recorded, not invented
 - [ ] Cap turns / tokens / wall-clock for discovery
 - [ ] Stream each step to SSE; attach profile to job for Plane 1 report window
 - [ ] Invalid profile blocks step 4 with clear `error` event
 
-**Done when:** Fixture webapp and MCP repos emit valid `environment_profile.json` with correct intent.
+**Done when:** Fixture webapp and MCP repos emit valid `environment_profile.json` with correct intent; inference calls hit Vultr only.
 
 ### E3 — Harness integration (steps 4–5)
 
@@ -166,13 +168,15 @@ Depends on Plane 3 APIs documented in [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION
 
 - [ ] `harness.py` calls: create / wait / exec / copy / destroy Microsandbox (Plane 3)
 - [ ] Map profile → OCI image + CPU/memory (`msb` / SDK on Vultr VX1)
+- [ ] Record `sandbox_id` / environment ref on the job; emit SSE `log` on create and destroy
 - [ ] Clone + install **supported** deps only from profile
 - [ ] Launch MCP or webapp; readiness via `verify.py`
-- [ ] On failure: `repair_from_errors.md`; re-enter plan loop within `MAX_REPAIR_ATTEMPTS`
-- [ ] Record `verify_result` / `readiness` on the job
+- [ ] On failure: `repair_from_errors.md`; re-enter plan loop within `MAX_REPAIR_ATTEMPTS`; log attempt number in SSE
+- [ ] **Containment probe** ([D26](DECISIONS.md)): run adversarial command/loop inside Plane 3, capture timeout/kill, stream to Plane 1, then continue or destroy — never on Plane 1/2 host
+- [ ] Record `verify_result` / `readiness` on the job; set `destroyed_at` when sandbox is removed
 - [ ] Do not mark `ready` until readiness passes (scan still required — E5)
 
-**Done when:** Deps → launch → readiness green for one fixture; failed readiness retries once.
+**Done when:** Deps → launch → readiness green for one fixture; failed readiness retries once; containment probe visible in logs; sandbox destroy recorded.
 
 ### E4 — Process screenshots
 
@@ -197,12 +201,13 @@ Depends on Plane 3 APIs documented in [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION
 ### E6 — Orchestration hardening
 
 - [ ] Single pipeline in `main.py` / `jobs.py` wiring E1–E5
-- [ ] Chaos: bad URL, install failure, agent loop prevention, mid-job cancel
-- [ ] Assert SSE order for happy path
+- [ ] Chaos: bad URL, install failure, agent loop prevention, mid-job cancel, containment probe
+- [ ] Assert SSE order for happy path (including create → probe/retry → destroy)
 - [ ] No Killhub secrets in Test VM env, logs, or screenshots
 - [ ] Cleanup profiles/screenshots with job TTL
+- [ ] Deploy Explore with Plane 1 on Vultr Cloud Compute for public demo (D24)
 
-**Done when:** Three public repos reach `ready` with profile, readiness, vulns, and screenshot timeline.
+**Done when:** Three public repos reach `ready` with profile, readiness, vulns, and screenshot timeline; demo deploy uses Vultr Inference + Microsandbox only.
 
 ---
 
@@ -210,8 +215,11 @@ Depends on Plane 3 APIs documented in [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION
 
 | Variable | Purpose |
 |----------|---------|
-| `VULTR_API_KEY` | Inference + VX1 host ops (never injected into sandboxes) |
-| `OPENCODE_*` | Agent client |
+| `VULTR_API_KEY` | VX1 host ops (never injected into sandboxes) |
+| `VULTR_INFERENCE_BASE_URL` | Default `https://api.vultrinference.com/v1` |
+| `VULTR_INFERENCE_API_KEY` | Serverless Inference (Plane 2 only) |
+| `VULTR_INFERENCE_MODEL` | Model id from Vultr model list |
+| `OPENCODE_*` | Agent client (must target Vultr Inference) |
 | `JOB_TIMEOUT_SECONDS` | Hard wall clock |
 | `MAX_REPAIR_ATTEMPTS` | Plan-loop / readiness retry cap |
 | `VULN_SCAN_*` | Scanner settings |
@@ -225,11 +233,11 @@ Depends on Plane 3 APIs documented in [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION
 
 - [ ] **E-M0:** Explore service boots
 - [ ] **E-M1:** Jobs API + SSE stubs
-- [ ] **E-M2:** Plan loop steps 1–3 → valid profile
-- [ ] **E-M3:** Steps 4–5 readiness green via harness
+- [ ] **E-M2:** Plan loop steps 1–3 → valid profile via Vultr Inference
+- [ ] **E-M3:** Steps 4–5 readiness green via harness + containment probe logged
 - [ ] **E-M4:** Screenshots streamed to Plane 1
 - [ ] **E-M5:** Vuln report attached
-- [ ] **E-M6:** Three-repo E2E + cleanup
+- [ ] **E-M6:** Three-repo E2E + cleanup; Vultr public control-plane deploy
 
 ---
 
@@ -238,6 +246,7 @@ Depends on Plane 3 APIs documented in [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION
 - Inference / API secrets stay in Plane 2 — **not** injected into Test VM by default
 - Agent tools only use Explore Sandbox + harness APIs (never Plane 1 host shell)
 - Only **supported** deps provisioned on Plane 3
+- All agent LLM calls via Vultr Serverless Inference (D25); containment probes only inside Plane 3 (D26)
 
 ---
 
@@ -245,9 +254,10 @@ Depends on Plane 3 APIs documented in [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION
 
 - Next.js UI components (Plane 1)
 - VX1 host bootstrap / `msb` install details beyond harness contract (Plane 3 doc)
+- Non-Vultr inference providers for the Environment Agent
 
 ---
 
 ## Definition of done (Plane 2)
 
-Given a GitHub URL job from Plane 1, the Environment Agent Plan Loop produces a validated `environment_profile.json`, drives Plane 3 through supported deps + MCP/app readiness, streams status/screenshots, attaches a vuln report, and destroys the Test VM when instructions and all tests complete (`ready`) — or on cancel/fail/TTL — without leaking Killhub secrets.
+Given a GitHub URL job from Plane 1, the Environment Agent Plan Loop (Vultr Inference) produces a validated `environment_profile.json`, drives Plane 3 through supported deps + MCP/app readiness, streams status/screenshots/sandbox lifecycle (including a containment probe when enabled), attaches a vuln report, and destroys the Test VM when instructions and all tests complete (`ready`) — or on cancel/fail/TTL — without leaking Killhub secrets.

@@ -17,6 +17,7 @@ Product intent: [PRODUCT.md](PRODUCT.md) · Structure: [ARCHITECTURE.md](ARCHITE
 | D5 | Primary v1 intents: **`git_mcp` \| `webapp`** | Focused classification; unknown intents blocked/flagged |
 | D6 | Canonical artifact: **`environment_profile.json`** | Clear handoff from discovery to Test VM provisioning |
 | D22 | Plane 3 runtime = **[Microsandbox on Vultr Cloud Compute](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute)** (`msb` / SDK over KVM+libkrun) | Official Vultr agent-sandboxing path; separate kernel per sandbox, CPU/memory caps, inter-sandbox network deny-by-default — stronger than shared-kernel containers |
+| D24 | **Public / demo control plane** (Plane 1 + Plane 2) runs on **Vultr Cloud Compute**; local `docker-compose` remains for development only | Vultr is the orchestration fabric, not only Plane 3; public demo URL must be reachable on Vultr infra |
 
 ---
 
@@ -25,6 +26,7 @@ Product intent: [PRODUCT.md](PRODUCT.md) · Structure: [ARCHITECTURE.md](ARCHITE
 | ID | Decision | Rationale |
 |----|----------|-----------|
 | D7 | Agent stack: **OpenCode + Vultr Inference** | Align compute/inference with Vultr footprint |
+| D25 | All Environment Agent LLM calls go through **[Vultr Serverless Inference](https://docs.vultr.com/products/serverless/inference/provisioning)** OpenAI-compatible API (`https://api.vultrinference.com/v1`); configure via `VULTR_INFERENCE_BASE_URL` / `VULTR_INFERENCE_API_KEY` / `VULTR_INFERENCE_MODEL` (Plane 2 only) | Mandatory single inference path; no alternate providers for agent reasoning without a new decision |
 | D8 | Plan loop steps 1–3 can run before Plane 3 exists; steps 4–5 require harness + VM | Spec first, then mutate remote state |
 | D9 | Only **supported** deps are provisioned; unsupported are recorded | Prevents silent invention of unsafe/unknown services |
 | D10 | Repair/readiness retries capped by **`MAX_REPAIR_ATTEMPTS`** | Bound cost and infinite loops |
@@ -61,6 +63,7 @@ Product intent: [PRODUCT.md](PRODUCT.md) · Structure: [ARCHITECTURE.md](ARCHITE
 | D20 | Agent tools may only target Explore Sandbox + Test VM harness APIs | No privileged exec of untrusted code on Plane 1 |
 | D21 | Prefer non-root on Test VM; no Docker socket mount from control plane | Reduce breakout risk |
 | D23 | Harness drives Plane 3 via **`msb` CLI / Microsandbox SDK** (create / exec / copy / stop / remove); OpenCode may optionally use `microsandbox-mcp` for agent-side tools | Job-owned lifecycle stays in `harness.py`; MCP is additive, not a substitute for ready/cancel/fail/TTL destroy |
+| D26 | **Containment proof** is a first-class path: harness (or a demo job mode) must run an adversarial probe inside Plane 3 (e.g. destructive command, infinite loop, or resource bomb), show absorption via timeout/kill without host impact, stream the moment to Plane 1 logs/SSE, then destroy the sandbox | Isolation is only demonstrable if unsafe execution is visible and contained |
 
 ---
 

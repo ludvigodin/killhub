@@ -53,10 +53,13 @@ When acting as the Environment Agent:
 ## 4. Security
 
 - Never commit secrets (`.env`, API keys, tokens). Use env vars only.
-- Never inject `VULTR_API_KEY` / `OPENCODE_*` into the Test VM environment by default.
+- Never inject `VULTR_API_KEY` / `VULTR_INFERENCE_*` / `OPENCODE_*` into the Test VM environment by default.
 - Redact secrets from logs and screenshots when possible.
 - Public GitHub HTTPS URLs on `github.com` only in v1; reject others with `400`.
 - Destroy Plane 3 sandboxes (Microsandbox stop + remove) when the Environment Agent finishes its instructions and all tests (`ready`), or on cancel, failure, or `ENV_TTL_SECONDS` / orphan reaper.
+- **Inference:** Environment Agent LLM calls must go through **Vultr Serverless Inference** (`https://api.vultrinference.com/v1`) only ([DECISIONS.md](DECISIONS.md) D25). Do not add alternate providers without a new decision.
+- **Containment:** Adversarial / containment probes run only inside Plane 3; stream create/probe/destroy evidence to Plane 1 ([DECISIONS.md](DECISIONS.md) D26).
+- **Demo deploy:** Public control-plane demos (Plane 1 + 2) run on **Vultr Cloud Compute**, not non-Vultr hosts, unless [DECISIONS.md](DECISIONS.md) is updated (D24).
 
 ---
 
@@ -77,7 +80,8 @@ Every meaningful step must update the job:
 
 - `status`, `progress`, `current_step`
 - SSE events: `status` | `progress` | `log` | `screenshot` | `error`
-- Persist `environment_profile.json`, readiness, vuln report, screenshot metadata per [DATABASE.md](DATABASE.md)
+- Persist `environment_profile.json`, readiness, vuln report, screenshot metadata, and sandbox lifecycle fields (`sandbox_id`, `destroyed_at`, `inference_model`) per [DATABASE.md](DATABASE.md)
+- Log sandbox **create**, repair **attempt n**, containment probe results, and **destroy** so Plane 1 can show the execution loop
 
 Jobs are **server-owned**: client disconnect does not cancel the pipeline.
 
@@ -85,4 +89,4 @@ Jobs are **server-owned**: client disconnect does not cancel the pipeline.
 
 ## 7. Out of scope (v1) — do not build unless PRODUCT/DECISIONS change
 
-Private repos/OAuth · multi-user auth/billing · long-lived hosting beyond TTL · GPU · auto-patching CVEs · non-Vultr clouds · session video
+Private repos/OAuth · multi-user auth/billing · long-lived customer envs beyond TTL · GPU · auto-patching CVEs · non-Vultr clouds for demo control plane or Test VMs · alternate agent LLM providers · session video

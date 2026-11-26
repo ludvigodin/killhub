@@ -371,6 +371,29 @@ flowchart LR
 - Plane 2 holds harness + inference credentials
 - Plane 3 runs untrusted project code only; destroyed when the job reaches `ready` (or on TTL/cancel/fail)
 - No Killhub API keys in Test VM logs, `env`, or screenshots
+- Containment probes (adversarial commands / loops) run **only** in Plane 3 and must be visible in Plane 1 logs before destroy ([DECISIONS.md](DECISIONS.md) D26)
+
+---
+
+## Deployment topology
+
+Vultr is the **central control and execution fabric**, not static hosting for Plane 3 alone ([DECISIONS.md](DECISIONS.md) D24, D25).
+
+```mermaid
+flowchart TB
+  User["Public browser"] --> CP["Vultr Cloud Compute<br/>Plane 1 Next.js + Plane 2 Explore"]
+  CP -->|"Serverless Inference<br/>api.vultrinference.com/v1"| Inf["Vultr Inference"]
+  CP -->|"msb create / exec / destroy"| VX1["Vultr VX1 host<br/>Microsandbox Plane 3"]
+```
+
+| Environment | Plane 1 + 2 | Plane 3 | Inference |
+|-------------|-------------|---------|-----------|
+| **Local dev** | `docker-compose` on laptop | Microsandbox on reachable VX1 (`MSB_HOST`) | Vultr Serverless Inference |
+| **Public / demo** | Same app stack on **Vultr Cloud Compute** (public HTTPS URL) | Microsandbox on Vultr VX1 | Vultr Serverless Inference only |
+
+- Do not treat Vercel (or any non-Vultr host) as the production demo control plane without updating [DECISIONS.md](DECISIONS.md).
+- Agent reasoning always uses `https://api.vultrinference.com/v1` from Plane 2.
+- Sandboxes never run inside the Plane 1/2 app process.
 
 ---
 
@@ -415,7 +438,7 @@ killhub/
 ├── storage/
 │   ├── screenshots/
 │   └── profiles/             # environment_profile.json per job
-├── docker-compose.yml        # Plane 1 + Plane 2 locally; Plane 3 via Microsandbox on VX1
+├── docker-compose.yml        # Local Plane 1 + Plane 2; public demo deploys same stack on Vultr VM
 ├── .env.example
 ├── AGENTS.md
 ├── PRODUCT.md
@@ -436,8 +459,11 @@ Plane 3 is **not** a long-lived folder in the repo — it is a Microsandbox micr
 
 | Variable | Purpose |
 |----------|---------|
-| `VULTR_API_KEY` | VX1 host ops + inference as configured (Plane 2 only; never in sandboxes) |
-| `OPENCODE_*` | Agent harness settings |
+| `VULTR_API_KEY` | VX1 host ops (Plane 2 only; never in sandboxes) |
+| `VULTR_INFERENCE_BASE_URL` | Default `https://api.vultrinference.com/v1` (Plane 2) |
+| `VULTR_INFERENCE_API_KEY` | Serverless Inference key (Plane 2; may equal or derive from Vultr account key) |
+| `VULTR_INFERENCE_MODEL` | Model id from Vultr live model list |
+| `OPENCODE_*` | Agent harness settings (must target Vultr Inference per D25) |
 | `MSB_HOST` / `MSB_DEFAULT_IMAGE` / CPU·memory defaults | Microsandbox harness → Plane 3 |
 | `JOB_TIMEOUT_SECONDS` | Hard wall clock |
 | `MAX_REPAIR_ATTEMPTS` | Repair loop cap |
@@ -453,11 +479,12 @@ Plane 3 is **not** a long-lived folder in the repo — it is a Microsandbox micr
 
 - Private GitHub repos / OAuth
 - Multi-user auth / billing
-- Long-lived Test VMs beyond job TTL
+- Long-lived **customer** Test VMs / hosted envs beyond job TTL (public control-plane demo on Vultr is in scope per D24)
 - GPU workloads
 - Auto-patching vulnerabilities (report only)
-- Non-Vultr Test VM providers
+- Non-Vultr clouds for control plane (demo) or Test VMs
 - Full session video (stills only)
+- Alternate LLM providers for the Environment Agent
 
 ---
 

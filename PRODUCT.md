@@ -32,19 +32,23 @@ A user pastes a public GitHub URL and, without refreshing, sees:
 - Live status and progress  
 - A growing screenshot timeline  
 - A validated `environment_profile.json`  
-- MCP/webapp readiness  
+- **Verifiable execution** — MCP/webapp readiness (or a clear failed probe), not a chat description of work  
+- Sandbox lifecycle signals (create → work → **destroyed**)  
 - An AI-reviewed vulnerability report  
 
-…while Killhub secrets never enter the Test VM, and the Microsandbox is destroyed when the agent finishes its instructions and all tests (or on TTL/cancel).
+…while Killhub secrets never enter the Test VM, adversarial probes stay contained in the Microsandbox, and the sandbox is destroyed when the agent finishes its instructions and all tests (or on TTL/cancel).
+
+Public demos run the control plane (Plane 1 + 2) on **Vultr Cloud Compute** with agent reasoning via **Vultr Serverless Inference** and execution in Microsandbox on VX1.
 
 ## Non-goals (v1)
 
 - Private repos / OAuth  
 - Multi-user auth / billing  
-- Long-lived production hosting  
+- Long-lived **customer** environments / production hosting beyond job TTL (a publicly reachable control-plane demo on Vultr is in scope)  
 - GPU workloads  
 - Auto-remediating vulnerabilities  
-- Clouds other than Vultr for Test VMs  
+- Clouds other than Vultr for the demo control plane or Test VMs  
+- Alternate LLM providers for the Environment Agent  
 - Full session video (stills only)
 
 ## Doc map

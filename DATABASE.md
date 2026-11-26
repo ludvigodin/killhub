@@ -34,6 +34,9 @@ erDiagram
     int progress
     string current_step
     string error
+    string sandbox_id
+    string inference_model
+    datetime destroyed_at
     datetime created_at
     datetime updated_at
   }
@@ -93,6 +96,9 @@ erDiagram
 | `error` | string \| null | Set on failure; cleared on retry entry if applicable |
 | `readiness` | object \| null | `{ passed, probe, detail }` |
 | `verify_result` | object \| null | Smoke/readiness evidence |
+| `sandbox_id` | string \| null | Microsandbox id/name while provisioned; retained after destroy for the report UI |
+| `inference_model` | string \| null | Vultr Serverless Inference model id used for this job ([DECISIONS.md](DECISIONS.md) D25) |
+| `destroyed_at` | datetime \| null | Set when Plane 3 sandbox is stopped/removed; null while alive |
 | `created_at` / `updated_at` | datetime | UTC |
 
 ---
@@ -107,7 +113,7 @@ Append-only timeline (SSE source of truth).
 | `job_id` | string | FK |
 | `type` | enum | `status` \| `progress` \| `log` \| `screenshot` \| `error` |
 | `message` | string | Safe for UI |
-| `payload` | object | Type-specific; no secrets |
+| `payload` | object | Type-specific; no secrets. For `log`, optional `kind` (`sandbox_create` \| `sandbox_destroy` \| `repair_attempt` \| `containment_probe` \| `agent` \| `harness`), plus `sandbox_id` / `attempt` / `detail` as needed ([API.md](API.md)) |
 | `timestamp` | datetime | UTC |
 
 ---
@@ -179,7 +185,7 @@ Findings do not delete readiness evidence.
 | `cpus` / `memory` | number / string | Resource caps at create |
 | `state` | enum | `provisioning` \| `running` \| `destroyed` \| `failed` |
 
-On destroy, set `state=destroyed` and ensure the microsandbox is stopped/removed (Plane 3 reaper).
+On destroy, set `state=destroyed`, mirror `Job.destroyed_at`, and ensure the microsandbox is stopped/removed (Plane 3 reaper). `Job.sandbox_id` should match `environment_id` when both are set.
 
 ---
 
