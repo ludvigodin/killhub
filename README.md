@@ -1,148 +1,155 @@
 # Killhub
 
-Turn a public GitHub repository into an interactive Gradio demo — generated and repaired by an AI agent running inside an isolated sandbox.
+Turn a public GitHub repository into a **verified running environment** — Environment Agent plan, disposable Test VM, readiness checks, and a vulnerability report — without running untrusted code on your laptop.
 
 ## What it does
 
-Given a GitHub URL, Killhub:
+Given a public GitHub URL, Killhub:
 
-1. Clones the repo into a sandboxed container
-2. Analyzes the codebase with an AI agent (OpenCode + Vultr Inference)
-3. Generates a Gradio UI wired to real repository functions
-4. Runs automated Playwright tests and auto-repairs failures
-5. Streams progress to the frontend and serves an isolated preview URL
-
-## Architecture
-
-```
-┌─────────────┐     SSE (progress)     ┌──────────────┐
-│  Next.js UI │ ◄────────────────────► │   FastAPI    │
-│  (frontend) │   POST /jobs           │   (backend)  │
-└──────┬──────┘                        └──────┬───────┘
-       │ iframe preview                       │
-       ▼                                      ▼
-┌─────────────┐                        ┌──────────────┐
-│   Caddy     │ ─── /demos/{id} ─────► │   Sandbox    │
-│  (routing)  │                        │ Docker+gVisor│
-└─────────────┘                        └──────┬───────┘
-                                              │
-                       ┌──────────────────────┼──────────────────────┐
-                       ▼                      ▼                      ▼
-                 ┌───────────┐         ┌────────────┐         ┌────────────┐
-                 │ OpenCode  │         │   Gradio   │         │ Playwright │
-                 │ + Vultr   │         │   demo     │         │   tests    │
-                 └───────────┘         └────────────┘         └────────────┘
-```
-
-**Data flow:** User submits URL → job created → agent analyzes repo in sandbox → Gradio app generated → Playwright validates → demo URL returned → Caddy routes preview traffic.
+1. Accepts the link in a Next.js app (input · status · report)
+2. Runs an **Environment Agent Plan Loop** in the Explore Sandbox
+3. Writes a structured **`environment_profile.json`** (intent: `git_mcp` or `webapp`)
+4. Creates a disposable **Test VM** (Microsandbox microVM on Vultr VX1) from that profile
+5. Installs supported deps, launches MCP or webapp, and verifies **readiness** (capped repair loop)
+6. Scans known vulnerabilities and summarizes findings
+7. Streams status, progress, screenshots, profile, and reports back to the UI
 
 Jobs are **server-owned**. Closing the tab or dropping the SSE connection does not cancel the pipeline. Reopen `/jobs/{id}` to resume status and logs. Only an explicit cancel or timeout stops a job.
 
-## Repo structure
+## Architecture
+
+Three planes with hard boundaries:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  PLANE 1 — Frontend + Server (Next.js)                                  │
+│  Input window · status · progress · screenshots · setup docs · report   │
+└───────────────────────────────┬─────────────────────────────────────────┘
+                                │ jobs API · SSE (status / progress / shots)
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│  PLANE 2 — Explore Sandbox                                              │
+│  Environment Agent Plan Loop → environment_profile.json                 │
+│  inspect → infer → validate → provision deps → launch / readiness       │
+└───────────────────────────────┬─────────────────────────────────────────┘
+                                │ profile + harness → provision · exec
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│  PLANE 3 — Test VM (Microsandbox microVM on Vultr VX1)                  │
+│  Created from environment_profile.json · deps · MCP / app readiness     │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Data flow:** User submits URL → job created → plan loop emits profile → harness provisions Test VM → readiness + vuln scan → UI shows profile, screenshots, and report. Killhub secrets never enter the Test VM.
+
+## Docs
+
+| Doc | Purpose |
+|-----|---------|
+| [PRODUCT.md](PRODUCT.md) | What and why |
+| [AGENTS.md](AGENTS.md) | Rules every AI agent must follow |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Three planes and boundaries |
+| [DECISIONS.md](DECISIONS.md) | Agreed technical decisions |
+| [DATABASE.md](DATABASE.md) | Data model and rules |
+| [API.md](API.md) | How components communicate |
+| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Implementation index by plane |
+| [IMPLEMENTATION_NEXTJS.md](IMPLEMENTATION_NEXTJS.md) | Plane 1 |
+| [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md) | Plane 2 |
+| [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md) | Plane 3 |
+
+## Repo structure (planned)
 
 ```
 killhub/
-├── frontend/                 # Next.js app
-│   ├── app/
-│   ├── components/
-│   └── lib/
-├── backend/
-│   ├── main.py               # FastAPI endpoints
-│   ├── agent.py              # OpenCode + Vultr integration
-│   ├── sandbox.py            # Docker / gVisor management
-│   ├── demo.py               # Gradio template + generation helpers
-│   ├── testing.py            # Playwright runner
-│   ├── jobs.py               # Job state machine + storage
-│   ├── config.py
-│   ├── models.py
-│   └── requirements.txt
-├── sandbox/
-│   └── Dockerfile            # Agent/demo runtime image
-├── prompts/
-│   ├── analyze_repo.md
-│   ├── generate_gradio.md
-│   └── repair_from_errors.md
-├── docker-compose.yml
-├── Caddyfile
-├── .env.example
+├── frontend/                 # Plane 1 — Next.js
+├── explore/                  # Plane 2 — jobs API, agent, harness
+├── prompts/                  # Agent prompts
+├── storage/                  # profiles/ + screenshots/ (dev)
+├── PRODUCT.md … API.md       # Canonical product docs
 └── README.md
 ```
 
+Plane 3 is not a checked-in app folder — it is an ephemeral Microsandbox microVM created per job on a Vultr VX1 host.
+
 ## Quick start
 
-```bash
-cp .env.example .env   # fill in VULTR_API_KEY and related settings
-docker compose up --build
-```
+Docs-first for now: product and plane docs are the source of truth while code is scaffolded.
 
-- Frontend: proxied via Caddy at `/`
-- Backend health: `GET /health` (via `/api` as configured)
-- Demo previews: `/demos/{job_id}`
-
-> Full gVisor isolation targets a Linux host. On macOS, use a soft-sandbox mode for UI/agent iteration when documented.
+1. Read [PRODUCT.md](PRODUCT.md) and [ARCHITECTURE.md](ARCHITECTURE.md)
+2. Follow plane work in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
+3. When compose lands: Plane 1 + Plane 2 boot together; Plane 3 is harness-provisioned at job time
 
 ## API
+
+Jobs API is offered by Plane 2; Plane 1 proxies/consumes it. Full contracts: [API.md](API.md).
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/api/jobs` | Create job `{ github_url }` → `{ job_id }` |
-| `GET` | `/api/jobs/{id}` | Job status + demo URL when ready |
-| `GET` | `/api/jobs/{id}/events` | SSE stream of progress / logs |
-| `DELETE` | `/api/jobs/{id}` | Cancel job + trigger cleanup |
+| `GET` | `/api/jobs/{id}` | Snapshot (status, profile, readiness, vulns, screenshots) |
+| `GET` | `/api/jobs/{id}/events` | SSE: `status` · `progress` · `log` · `screenshot` · `error` |
+| `GET` | `/api/jobs/{id}/screenshots` | Screenshot timeline |
+| `DELETE` | `/api/jobs/{id}` | Cancel + destroy Test VM |
+| `GET` | `/health` | Plane 2 liveness |
 
 ### Job states
 
 ```
-pending → provisioning → cloning → analyzing → generating
-       → installing → starting → testing ⇄ repairing
-       → ready | failed | cancelled
+pending → analyzing → planning → provisioning → installing
+       → verifying ⇄ repairing
+       → scanning → ready | failed | cancelled
 ```
 
-Repair loop: `testing → repairing → testing`, capped by `MAX_REPAIR_ATTEMPTS`, then `failed`.
+Repair loop: `verifying → repairing → verifying`, capped by `MAX_REPAIR_ATTEMPTS`, then `failed`.
 
 ## Configuration
 
-Copy `.env.example` and set:
+Cross-cutting env (details in [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)):
 
-| Variable | Purpose |
-|----------|---------|
-| `VULTR_API_KEY` | Inference API (host/backend only — never injected into the sandbox) |
-| `OPENCODE_*` | Agent client settings |
-| `SANDBOX_MEMORY` / `SANDBOX_CPUS` | Per-job resource limits |
-| `JOB_TIMEOUT_SECONDS` | Hard wall-clock timeout |
-| `MAX_REPAIR_ATTEMPTS` | Repair loop cap |
-| `DEMO_BASE_URL` | Public base for preview links |
-| `CADDY_*` | Routing / TLS as needed |
+| Variable | Plane | Purpose |
+|----------|------:|---------|
+| `EXPLORE_SANDBOX_URL` | 1 | Plane 1 → Plane 2 |
+| `VULTR_API_KEY` | 2 | Inference + VX1 host ops (never injected into sandboxes) |
+| `OPENCODE_*` | 2 | Agent harness |
+| `MSB_HOST` / image / CPU·memory | 2→3 | Microsandbox defaults |
+| `JOB_TIMEOUT_SECONDS` | 2 | Wall clock |
+| `MAX_REPAIR_ATTEMPTS` | 2 | Plan-loop / readiness cap |
+| `ENV_TTL_SECONDS` | 3 | Auto-destroy sandbox |
+| `VULN_SCAN_*` / `MAX_SCREENSHOTS_PER_JOB` | 2 | Scan + screenshot caps |
 
 ## Security
 
-- Agent tool use (`exec`, file IO) runs only inside the sandbox
-- API keys stay on the host/backend; they never enter the container env
-- Resource limits (memory, CPU, pids, timeouts) and no Docker socket mount into sandboxes
-- Prefer non-root, dropped capabilities, and no host network
+- Untrusted repo code runs on **Plane 3** (or tightly scoped Explore discovery), never as privileged Plane 1 server code
+- `VULTR_API_KEY` / `OPENCODE_*` stay on Plane 2; they are not injected into the Test VM by default
+- Public HTTPS `github.com` URLs only in v1; others rejected with `400`
+- Destroy sandboxes when the agent finishes instructions and all tests (`ready`), or on cancel, failure, or `ENV_TTL_SECONDS`
+- Prefer non-root in the sandbox; no Docker socket mount from the control plane
 
 ## Out of scope (v1)
 
 - Private GitHub repos / OAuth
-- Non-Python primary languages
 - Multi-user auth / billing
-- Persistent demo hosting beyond job TTL
-- GPU workloads inside the sandbox
+- Long-lived Test VMs beyond TTL
+- GPU workloads
+- Auto-patching vulnerabilities (report only)
+- Non-Vultr Test VM providers
+- Full session video (stills only)
 
 ## Roadmap
 
-See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for phased tasks, acceptance criteria, and milestones.
+See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for phased tasks and plane docs.
 
 | Milestone | Goal |
 |-----------|------|
-| **M0** | Compose stack boots (frontend + backend + Caddy) |
-| **M1** | Jobs API + SSE with stub pipeline |
-| **M2** | Sandbox clone/exec/cleanup with limits |
-| **M3** | Agent generates Gradio + install script for one fixture repo |
-| **M4** | Live Gradio preview via Caddy iframe |
-| **M5** | Playwright gate + one successful auto-repair |
-| **M6** | Three public repos demo successfully; isolation verified |
+| **M0** | Compose boots Plane 1 + Plane 2 |
+| **M1** | Jobs API + SSE reach Plane 1 |
+| **M2** | Harness provisions / execs / destroys a Test VM |
+| **M3** | Plan loop emits valid `environment_profile.json` (`git_mcp` \| `webapp`) |
+| **M4** | Supported deps + MCP/app readiness green on Test VM |
+| **M5** | Screenshots live in Plane 1 |
+| **M6** | Vuln report in Plane 1 report window |
+| **M7** | Three public repos end-to-end; isolation + TTL cleanup verified |
 
 ## Definition of done (v1)
 
-A user can paste a public Python GitHub URL, watch live agent/sandbox logs, and interact with a Gradio demo in an iframe. The demo is generated from real repo functions, validated by Playwright, served through Caddy from a gVisor-isolated container, and torn down automatically — with API keys never entering the sandbox.
+A user can paste a public GitHub URL in Plane 1 and, without refreshing, see live status/progress, screenshots, `environment_profile.json`, and a vuln report while Plane 2’s plan loop drives a Plane 3 Microsandbox microVM — with Killhub secrets never entering the sandbox or screenshots, and sandboxes/artifacts torn down after TTL or cancel.

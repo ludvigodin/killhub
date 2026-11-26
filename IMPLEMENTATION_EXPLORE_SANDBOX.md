@@ -164,8 +164,8 @@ Illustrative shape (validated in step 3 before steps 4–5):
 
 Depends on Plane 3 APIs documented in [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md).
 
-- [ ] `harness.py` calls: create / wait / exec / destroy Test VM
-- [ ] Map profile → VM plan / image / region
+- [ ] `harness.py` calls: create / wait / exec / copy / destroy Microsandbox (Plane 3)
+- [ ] Map profile → OCI image + CPU/memory (`msb` / SDK on Vultr VX1)
 - [ ] Clone + install **supported** deps only from profile
 - [ ] Launch MCP or webapp; readiness via `verify.py`
 - [ ] On failure: `repair_from_errors.md`; re-enter plan loop within `MAX_REPAIR_ATTEMPTS`
@@ -190,8 +190,9 @@ Depends on Plane 3 APIs documented in [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION
 - [ ] Persist `VulnFinding[]`; emit progress via SSE
 - [ ] Scan tool crash → `partial` / `failed` report without erasing readiness
 - [ ] Job → `ready` when readiness passed and scan finished (findings do not hard-fail by default)
+- [ ] On `ready`: harness destroys the Test VM immediately (report artifacts stay on Plane 2)
 
-**Done when:** At least one stack produces real advisories or a clean bill; UI can show severity groups.
+**Done when:** At least one stack produces real advisories or a clean bill; UI can show severity groups; sandbox is gone after `ready`.
 
 ### E6 — Orchestration hardening
 
@@ -209,14 +210,14 @@ Depends on Plane 3 APIs documented in [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION
 
 | Variable | Purpose |
 |----------|---------|
-| `VULTR_API_KEY` | Inference + passed to harness for Plane 3 provisioning |
+| `VULTR_API_KEY` | Inference + VX1 host ops (never injected into sandboxes) |
 | `OPENCODE_*` | Agent client |
 | `JOB_TIMEOUT_SECONDS` | Hard wall clock |
 | `MAX_REPAIR_ATTEMPTS` | Plan-loop / readiness retry cap |
 | `VULN_SCAN_*` | Scanner settings |
 | `MAX_SCREENSHOTS_PER_JOB` | Screenshot cap |
 | `SCREENSHOT_STORAGE` | Artifact store |
-| `VULTR_PLAN` / region / OS | Defaults forwarded when creating Test VMs |
+| `MSB_HOST` / `MSB_DEFAULT_IMAGE` / CPU·memory | Harness → Microsandbox defaults |
 
 ---
 
@@ -243,10 +244,10 @@ Depends on Plane 3 APIs documented in [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION
 ## Out of scope (this plane)
 
 - Next.js UI components (Plane 1)
-- Vultr instance image internals beyond harness contract (Plane 3 doc)
+- VX1 host bootstrap / `msb` install details beyond harness contract (Plane 3 doc)
 
 ---
 
 ## Definition of done (Plane 2)
 
-Given a GitHub URL job from Plane 1, the Environment Agent Plan Loop produces a validated `environment_profile.json`, drives Plane 3 through supported deps + MCP/app readiness, streams status/screenshots, attaches a vuln report, and tears down resources on cancel/TTL — without leaking Killhub secrets.
+Given a GitHub URL job from Plane 1, the Environment Agent Plan Loop produces a validated `environment_profile.json`, drives Plane 3 through supported deps + MCP/app readiness, streams status/screenshots, attaches a vuln report, and destroys the Test VM when instructions and all tests complete (`ready`) — or on cancel/fail/TTL — without leaking Killhub secrets.

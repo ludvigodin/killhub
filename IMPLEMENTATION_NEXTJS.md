@@ -160,7 +160,7 @@ Jobs are **server-owned** (Plane 2). Closing the tab or dropping SSE does **not*
 ## Out of scope (this plane)
 
 - Environment Agent Plan Loop
-- Provisioning or destroying Test VMs
+- Provisioning or destroying Test VMs (Plane 2 closes the Test VM when the agent finishes its instructions and all tests — readiness + vuln scan — or on cancel/fail/TTL)
 - Running scanners or Playwright capture (Plane 2 produces screenshots; Plane 1 only displays them)
 
 ---

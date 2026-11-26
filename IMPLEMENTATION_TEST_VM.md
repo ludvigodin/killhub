@@ -1,8 +1,10 @@
-# Plane 3 — Test VM
+# Plane 3 — Test VM (Microsandbox on Vultr)
 
-Implementation plan for the disposable runtime VM created from `environment_profile.json`. Plane 3 does **not** call Plane 1. It is created, controlled, and destroyed **only** by the Explore Sandbox harness (Plane 2).
+Implementation plan for the disposable runtime created from `environment_profile.json`. Plane 3 does **not** call Plane 1. It is created, controlled, and destroyed **only** by the Explore Sandbox harness (Plane 2).
 
-Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Index: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) · Plane 1: [IMPLEMENTATION_NEXTJS.md](IMPLEMENTATION_NEXTJS.md) · Plane 2: [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md)
+**Runtime:** [Microsandbox on Vultr VX1 Cloud Compute](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute) — each job gets a **microVM** (`libkrun` / KVM), not a shared-kernel container and not a full Vultr instance per job.
+
+Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Index: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) · Plane 1: [IMPLEMENTATION_NEXTJS.md](IMPLEMENTATION_NEXTJS.md) · Plane 2: [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md) · Decision: [DECISIONS.md](DECISIONS.md) D4, D22, D23
 
 ---
 
@@ -12,45 +14,57 @@ Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Index: [IMPLEMENTATION_PLAN.
 IN:  environment_profile.json  (from Plane 2 plan loop)
        │
        ▼
-  Provision VM → clone repo → install supported deps
+  Create microsandbox → clone repo → install supported deps
        → launch MCP / webapp → readiness probes
        │
        ▼
 OUT: Running environment (or failure stdout/stderr for plan-loop retry)
-     Destroy on job complete / fail / cancel / TTL
+     Stop + remove sandbox on job complete / fail / cancel / TTL
 ```
 
-Plane 3 is a **remote resource per job** (Vultr), not a long-lived app folder in the monorepo.
+Plane 3 is a **Microsandbox microVM per job** on a Vultr VX1 host. The host is pooled/long-lived; the sandbox is ephemeral. Nothing under a monorepo `test-vm/` app folder.
+
+---
+
+## Host vs sandbox
+
+| Layer | What | Lifetime |
+|-------|------|----------|
+| **VX1 host** | Ubuntu 24.04 Vultr VX1 with `/dev/kvm`, `msb` + `libkrunfw` installed (`msb doctor` green) | Pooled; provisioned/ops outside the per-job loop |
+| **Plane 3 sandbox** | Named microVM from an OCI image (`msb create` / SDK `Sandbox.create`) | Per job; CPU/memory capped; destroyed with job |
+
+Reference setup: Vultr’s [agent sandboxing guide](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute) (kvm group, install script, `msb doctor`, create/exec/stop/remove).
 
 ---
 
 ## Harness contract (implemented in Plane 2, targets this plane)
 
-| API | Behavior |
-|-----|----------|
-| `create_environment(job_id, plan) → environment_id` | Create VM from profile (`os_image`, size, region) |
-| `wait_until_ready(environment_id)` | Block until SSH/exec available |
-| `exec(environment_id, cmd) → { stdout, stderr, exit_code }` | Run install, launch, probes |
-| `destroy_environment(environment_id)` | Tear down instance + network aliases |
+| API | Behavior (Microsandbox) |
+|-----|-------------------------|
+| `create_environment(job_id, plan) → environment_id` | `msb create --name … --cpus … --memory … IMAGE` (or Python/TS SDK); map profile → OCI image + resource limits |
+| `wait_until_ready(environment_id)` | Block until sandbox `running` (`msb status` / SDK) |
+| `exec(environment_id, cmd) → { stdout, stderr, exit_code }` | `msb exec NAME -- …` (or SDK `sandbox.exec`); timeouts on every call |
+| `copy_in` / `copy_out` | `msb copy` host↔`NAME:/path` for profiles, artifacts, logs as needed |
+| `destroy_environment(environment_id)` | `msb stop` + `msb remove` (idempotent); reclaim name |
 
-All calls are initiated by Plane 2. Timeouts on every `exec`.
+All calls are initiated by Plane 2. Prefer the **SDK** from `harness.py` for structured lifecycle; CLI is fine for ops/debug. OpenCode may register `microsandbox-mcp` as an **optional** agent tool surface — destroy on `ready` / cancel / fail / TTL remains harness-owned ([DECISIONS.md](DECISIONS.md) D23).
 
 ---
 
 ## Lifecycle
 
-1. **Provision** — Map profile → Vultr plan / OS image / region; create instance
-2. **Bootstrap** — Non-root user where feasible; outbound for git + package registries only
-3. **Clone** — `source.url` / `source.ref` from profile
+1. **Create sandbox** — Map profile → OCI base image + `--cpus` / `--memory`; `create_environment`
+2. **Bootstrap** — Exec allowlisted setup inside the microVM (non-root where feasible)
+3. **Clone** — `source.url` / `source.ref` from profile (outbound git from sandbox)
 4. **Provision supported deps** — `packages`, `services`, `install_commands` (allowlisted by Plane 2)
 5. **Launch** — `mcp.launch_command` or `run_commands` per intent
 6. **Readiness** — MCP handshake or HTTP `healthcheck`; Plane 2 records result
-7. **Scan target** — Plane 2 may run vuln tools against this VM / its lockfiles
-8. **Destroy** — On `ready` TTL, `failed`, `cancelled`, or `ENV_TTL_SECONDS`
+7. **Scan target** — Plane 2 may run vuln tools against this sandbox / its lockfiles
+8. **Destroy** — When the Environment Agent finishes its instructions and all tests (job reaches `ready` after readiness + vuln scan), stop + remove the sandbox immediately. Also destroy on `failed`, `cancelled`, `ENV_TTL_SECONDS` / orphan reaper as a safety net (`msb touch` only while the job is still active)
 
 ```mermaid
 flowchart LR
-  Profile["environment_profile.json"] --> Create["create_environment"]
+  Profile["environment_profile.json"] --> Create["msb create / SDK"]
   Create --> Ready["wait_until_ready"]
   Ready --> Clone["clone source"]
   Clone --> Deps["supported deps"]
@@ -59,7 +73,7 @@ flowchart LR
   Probe -->|fail| Retry["Plane 2 plan loop"]
   Retry --> Deps
   Probe -->|pass| Scan["vuln target"]
-  Scan --> Destroy["destroy_environment"]
+  Scan --> Destroy["msb stop + remove"]
 ```
 
 ---
@@ -68,16 +82,17 @@ flowchart LR
 
 | Rule | Detail |
 |------|--------|
-| No Killhub secrets | Control-plane / inference keys **not** in VM `env` by default |
+| No Killhub secrets | Control-plane / inference keys **not** in sandbox `env` by default |
 | Supported deps only | Unsupported services skipped/flagged by Plane 2 — not installed here |
-| Isolation | No host network share; no Docker socket mount from control plane |
-| Resource caps | Memory/CPU/disk/time per `VULTR_PLAN` and `JOB_TIMEOUT_SECONDS` |
-| Cleanup | Destroy removes instance and DNS/IP mappings within TTL |
-| Non-root | Prefer non-root SSH/user for exec |
+| Isolation | Separate kernel per sandbox (KVM/libkrun); **inter-sandbox network denied by default**; no Docker socket from control plane |
+| Resource caps | CPU/memory at create time; wall clock via `JOB_TIMEOUT_SECONDS` / `ENV_TTL_SECONDS` |
+| Cleanup | Destroy removes the microVM; host stays for the next job |
+| Non-root | Prefer non-root user for exec inside the sandbox |
+| Host hygiene | Host holds `msb` only; untrusted repo code runs **inside** sandboxes, never as privileged host processes |
 
 ---
 
-## What runs on the VM (examples)
+## What runs in the sandbox (examples)
 
 | Intent | Typical workload |
 |--------|------------------|
@@ -90,26 +105,29 @@ Plane 2 owns intent classification and profile validation before any of this run
 
 ## Implementation phases
 
-### T0 — Provision / destroy
+### T0 — Host + create / destroy
 
-- [ ] Vultr create instance from plan/image/region defaults
-- [ ] `wait_until_ready` (SSH or agent channel)
-- [ ] `destroy_environment` + orphan reaper
-- [ ] Cost/time caps; fail safely on quota errors
+- [ ] VX1 host ready: kvm group, `msb` installed, `msb doctor` passes
+- [ ] Harness `create_environment` → named sandbox with CPU/memory limits
+- [ ] `wait_until_ready` (status running)
+- [ ] `destroy_environment` (stop + remove) + orphan reaper for leftover names
+- [ ] Cost/time caps; fail safely when host/KVM/quota unavailable
 
-**Done when:** Harness can create and destroy a VM for a job id.
+**Done when:** Harness can create and destroy a microsandbox for a job id.
 
-### T1 — Remote exec
+### T1 — Remote exec + copy
 
-- [ ] `exec` with stdout/stderr/exit_code capture
+- [ ] `exec` with stdout/stderr/exit_code capture (SDK or `msb exec`)
 - [ ] Per-call timeouts
-- [ ] Confirm Killhub API keys absent from `env` inside the VM
+- [ ] `msb copy` (or SDK equivalent) for files in/out
+- [ ] Confirm Killhub API keys absent from `env` inside the sandbox
 
 **Done when:** Remote command runs and output returns to Plane 2.
 
 ### T2 — Profile-driven bootstrap
 
-- [ ] Clone `source` from profile
+- [ ] Map profile `os_image` / runtime → OCI image defaults
+- [ ] Clone `source` from profile inside the sandbox
 - [ ] Apply allowlisted `install_commands` / packages / services
 - [ ] Expose / bind ports from profile as required for readiness
 
@@ -118,19 +136,19 @@ Plane 2 owns intent classification and profile validation before any of this run
 ### T3 — Launch + readiness surface
 
 - [ ] Start MCP or webapp processes per profile
-- [ ] Keep process alive for Plane 2 readiness probes
-- [ ] Capture useful failure logs for plan-loop repair
+- [ ] Keep process alive for Plane 2 readiness probes (`msb touch` if idle timeout risks stop)
+- [ ] Capture useful failure logs (`msb logs`) for plan-loop repair
 
-**Done when:** Plane 2 can complete MCP handshake or HTTP healthcheck against the VM.
+**Done when:** Plane 2 can complete MCP handshake or HTTP healthcheck against the sandbox.
 
 ### T4 — Hardening
 
-- [ ] Cross-job isolation checks
-- [ ] Mid-job kill / cancel destroys VM
+- [ ] Cross-job isolation checks (sibling sandboxes cannot reach each other)
+- [ ] Mid-job kill / cancel destroys sandbox
 - [ ] TTL destroy after success
-- [ ] No secret leakage in VM logs
+- [ ] No secret leakage in sandbox logs / metrics
 
-**Done when:** Failed/cancelled/TTL paths always reclaim the Vultr resource.
+**Done when:** Failed/cancelled/TTL paths always reclaim the microVM on the host.
 
 ---
 
@@ -138,20 +156,22 @@ Plane 2 owns intent classification and profile validation before any of this run
 
 | Variable | Purpose |
 |----------|---------|
-| `VULTR_API_KEY` | Provisioning (held by Plane 2) |
-| `VULTR_PLAN` / region / OS defaults | Instance shape |
-| `ENV_TTL_SECONDS` | Auto-destroy |
-| `JOB_TIMEOUT_SECONDS` | Wall clock affecting VM lifetime |
+| `VULTR_API_KEY` | Host provisioning / ops only (Plane 2); **never** injected into sandboxes |
+| `MSB_HOST` / SSH or local path | How harness reaches the VX1 host running `msb` |
+| `MSB_DEFAULT_IMAGE` | Default OCI image when profile does not override |
+| `MSB_DEFAULT_CPUS` / `MSB_DEFAULT_MEMORY` | Default sandbox resource caps |
+| `ENV_TTL_SECONDS` | Auto-destroy sandbox |
+| `JOB_TIMEOUT_SECONDS` | Wall clock affecting sandbox lifetime |
 
 ---
 
 ## Milestones (Plane 3)
 
-- [ ] **T-M0:** Create + destroy VM
-- [ ] **T-M1:** Remote exec with output
+- [ ] **T-M0:** Create + destroy microsandbox
+- [ ] **T-M1:** Remote exec (+ copy) with output
 - [ ] **T-M2:** Clone + supported deps from profile
 - [ ] **T-M3:** MCP/app launch reachable for readiness
-- [ ] **T-M4:** Cancel/TTL/fail always destroys VM; no secret leakage
+- [ ] **T-M4:** Cancel/TTL/fail always destroys sandbox; no secret leakage; sibling isolation verified
 
 ---
 
@@ -159,10 +179,11 @@ Plane 2 owns intent classification and profile validation before any of this run
 
 - UI / SSE (Plane 1)
 - Plan loop / profile generation / vuln AI review (Plane 2)
-- Private registries / GPU / long-lived hosting beyond TTL
+- Private registries / GPU / long-lived sandboxes beyond TTL
+- Building custom OCI images beyond documented Microsandbox defaults (unless product/DECISIONS change)
 
 ---
 
 ## Definition of done (Plane 3)
 
-From a validated `environment_profile.json`, a Test VM can be provisioned, populated with supported deps, launch MCP or webapp for readiness checks, and be destroyed on completion, failure, cancel, or TTL — without Killhub control-plane secrets in the instance environment or logs.
+From a validated `environment_profile.json`, a Microsandbox microVM on the Vultr VX1 host can be created, populated with supported deps, launch MCP or webapp for readiness checks, and be stopped/removed when the agent finishes instructions and all tests (`ready`), or on failure, cancel, or TTL — without Killhub control-plane secrets in the sandbox environment or logs.

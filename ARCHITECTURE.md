@@ -1,16 +1,21 @@
-# Killhub — Proposed Architecture
+# ARCHITECTURE.md — How the platform is structured
 
-Killhub turns a public GitHub URL into a verified running environment: the user submits a link in the UI; an **Explore Sandbox** agent figures out how to run the repo and drives a separate **Test VM**; progress, status, screenshots, setup docs, and a vulnerability report flow back to the frontend.
+Killhub is a three-plane system: **Next.js** (UI + server), **Explore Sandbox** (Environment Agent Plan Loop + harness), and **Test VM** (ephemeral Microsandbox microVM from `environment_profile.json` on Vultr VX1). Status, progress, screenshots, profile, and vuln reports flow back to the UI over the Jobs API/SSE.
 
-Implementation is split by plane:
+| Doc | Purpose |
+|-----|---------|
+| [PRODUCT.md](PRODUCT.md) | What and why |
+| [AGENTS.md](AGENTS.md) | Rules for every AI agent |
+| [DECISIONS.md](DECISIONS.md) | Agreed technical decisions |
+| [DATABASE.md](DATABASE.md) | Data model and rules |
+| [API.md](API.md) | How components communicate |
+| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Implementation index |
 
 | Plane | Implementation doc |
 |------:|--------------------|
 | 1 Next.js | [IMPLEMENTATION_NEXTJS.md](IMPLEMENTATION_NEXTJS.md) |
 | 2 Explore Sandbox | [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md) |
 | 3 Test VM | [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md) |
-
-Index: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
 
 ---
 
@@ -33,7 +38,7 @@ Killhub is split into three planes with hard boundaries.
                                 │ profile + harness → provision · exec
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  PLANE 3 — Test VM                                                      │
+│  PLANE 3 — Test VM (Microsandbox microVM on Vultr VX1)                  │
 │  Created from environment_profile.json · deps · MCP / app readiness     │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -53,8 +58,8 @@ flowchart TB
     Harness["Harness · deps · MCP readiness"]
   end
 
-  subgraph plane3 ["Plane 3 · Test VM"]
-    VM["VM from profile"]
+  subgraph plane3 ["Plane 3 · Test VM · Microsandbox"]
+    VM["microVM from profile"]
     Run["Deps · launch · ready"]
   end
 
@@ -73,7 +78,7 @@ flowchart TB
 |-------|------------|------|
 | **1. Frontend + Server** | Next.js app (UI + server) | Input window; status/progress; screenshot timeline; setup docs; vuln report; job create/poll/SSE to the user |
 | **2. Explore Sandbox** | Environment Agent Plan Loop + harness | Inspect → infer → validate → provision deps → launch MCP / verify readiness; `environment_profile.json`; report to Plane 1 |
-| **3. Test VM** | Disposable VM (e.g. Vultr) | Supported deps + project runtime — created **from** `environment_profile.json` |
+| **3. Test VM** | Disposable Microsandbox microVM on Vultr VX1 | Supported deps + project runtime — created **from** `environment_profile.json` |
 
 ---
 
@@ -207,7 +212,7 @@ Canonical artifact produced and refined during the plan loop; consumed to create
 | Concern | Behavior |
 |---------|----------|
 | **Harness** | OpenCode + Vultr Inference; tools limited to sandbox + Test VM APIs |
-| **Control VM** | Provision / exec / destroy Plane 3 from profile; install supported deps; launch MCP/webapp; readiness probes; repair; vuln scan |
+| **Control** | Create / exec / destroy Plane 3 microsandbox from profile (`msb` / SDK); install supported deps; launch MCP/webapp; readiness probes; repair; vuln scan |
 | **Report** | Stream status, progress, logs, screenshots, profile, readiness, and vuln report to Plane 1 |
 
 ### Prompt pack
@@ -221,26 +226,29 @@ Canonical artifact produced and refined during the plan loop; consumed to create
 
 - Control-plane / inference secrets stay in Plane 2 (or host config), **not** on the Test VM by default
 - Environment Agent and harness tools target the Explore Sandbox and/or Test VM APIs only — never Plane 1 host arbitrary shell
-- Only **supported** dependencies are provisioned; unsupported deps are recorded on the job, not silently invented---
+- Only **supported** dependencies are provisioned; unsupported deps are recorded on the job, not silently invented
+
+---
 
 ## Plane 3 — Test VM
 
-**Role:** A disposable VM created **from `environment_profile.json`**. The plan loop provisions **supported deps** here, launches MCP (or webapp), and verifies readiness.
+**Role:** A disposable **Microsandbox microVM** on a Vultr VX1 host, created **from `environment_profile.json`**. The plan loop provisions **supported deps** here, launches MCP (or webapp), and verifies readiness. See [Vultr agent sandboxing](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute) and [DECISIONS.md](DECISIONS.md) D22.
 
 ### Lifecycle
 
-1. Plan loop validates profile → harness provisions VM (image/plan from profile)
-2. Clone repo into the VM (`source` from profile)
+1. Plan loop validates profile → harness creates microsandbox (OCI image + CPU/memory from profile)
+2. Clone repo into the sandbox (`source` from profile)
 3. Provision supported deps (`packages` / `services` / `install_commands`)
 4. Launch MCP or app (`run_commands` / `mcp.launch_command`); verify readiness
 5. Vulnerability scan against what is installed
-6. Destroy on job complete / fail / cancel / TTL
+6. Stop + remove sandbox when the agent finishes instructions + all tests (`ready`), or on fail / cancel / TTL (host may remain pooled)
+
 ### Constraints
 
-- No Killhub control-plane API keys in VM `env` by default
-- Outbound only as needed (git, package registries)
-- Resource/time caps; automatic cleanup
-- Prefer non-root user; no Docker socket mount of the control plane
+- No Killhub control-plane API keys in sandbox `env` by default
+- Outbound only as needed (git, package registries); inter-sandbox traffic denied by default
+- Resource/time caps at create time; automatic sandbox cleanup
+- Prefer non-root user; no Docker socket mount of the control plane; untrusted code never as privileged host processes
 
 ---
 
@@ -254,12 +262,12 @@ Status…     ←    Plan loop: inspect repo and docs
             ←    Infer required services
             ←    Validate environment and spec
 Report      ←    environment_profile.json
-            ←    Provision supported deps ───────────►  VM + deps
+            ←    Provision supported deps ───────────►  microVM + deps
             ←    Launch MCP / verify readiness ◄─────  Ready or retry
             ←    (loop on failure, capped)
             ←    Vuln scan ──────────────────────────►  Scan target
 Report      ←    Final profile + readiness + findings
-Cancel/TTL  →    Destroy ────────────────────────────►  VM removed
+Ready/cancel/TTL → Destroy ──────────────────────────►  sandbox removed
 ```
 
 1. User pastes GitHub URL in Plane 1 input window.
@@ -361,7 +369,7 @@ flowchart LR
 
 - Plane 1 never receives control-plane secrets in client bundles
 - Plane 2 holds harness + inference credentials
-- Plane 3 runs untrusted project code only; destroyed after TTL/cancel
+- Plane 3 runs untrusted project code only; destroyed when the job reaches `ready` (or on TTL/cancel/fail)
 - No Killhub API keys in Test VM logs, `env`, or screenshots
 
 ---
@@ -407,28 +415,33 @@ killhub/
 ├── storage/
 │   ├── screenshots/
 │   └── profiles/             # environment_profile.json per job
-├── docker-compose.yml        # Plane 1 + Plane 2 locally; Plane 3 via Vultr API
+├── docker-compose.yml        # Plane 1 + Plane 2 locally; Plane 3 via Microsandbox on VX1
 ├── .env.example
+├── AGENTS.md
+├── PRODUCT.md
 ├── ARCHITECTURE.md
-├── IMPLEMENTATION_PLAN.md              # Index
-├── IMPLEMENTATION_NEXTJS.md            # Plane 1
-├── IMPLEMENTATION_EXPLORE_SANDBOX.md   # Plane 2
-├── IMPLEMENTATION_TEST_VM.md           # Plane 3
+├── DECISIONS.md
+├── DATABASE.md
+├── API.md
+├── IMPLEMENTATION_PLAN.md
+├── IMPLEMENTATION_NEXTJS.md
+├── IMPLEMENTATION_EXPLORE_SANDBOX.md
+├── IMPLEMENTATION_TEST_VM.md
 └── README.md
 ```
 
-Plane 3 is **not** a long-lived folder in the repo — it is a remote VM created per job from `environment_profile.json` (Vultr).
+Plane 3 is **not** a long-lived folder in the repo — it is a Microsandbox microVM per job on a Vultr VX1 host ([agent sandboxing guide](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute)).
 
 ### Key configuration
 
 | Variable | Purpose |
 |----------|---------|
-| `VULTR_API_KEY` | Provision Test VMs (+ inference as configured; Plane 2 only) |
+| `VULTR_API_KEY` | VX1 host ops + inference as configured (Plane 2 only; never in sandboxes) |
 | `OPENCODE_*` | Agent harness settings |
-| `VULTR_PLAN` / region / OS | Test VM defaults |
+| `MSB_HOST` / `MSB_DEFAULT_IMAGE` / CPU·memory defaults | Microsandbox harness → Plane 3 |
 | `JOB_TIMEOUT_SECONDS` | Hard wall clock |
 | `MAX_REPAIR_ATTEMPTS` | Repair loop cap |
-| `ENV_TTL_SECONDS` | Auto-destroy Test VM |
+| `ENV_TTL_SECONDS` | Auto-destroy Plane 3 sandbox |
 | `VULN_SCAN_*` | Scanner settings |
 | `MAX_SCREENSHOTS_PER_JOB` | Screenshot cap |
 | `SCREENSHOT_STORAGE` | Artifact store |
@@ -450,6 +463,7 @@ Plane 3 is **not** a long-lived folder in the repo — it is a remote VM created
 
 ## Related
 
+- [PRODUCT.md](PRODUCT.md) · [AGENTS.md](AGENTS.md) · [DECISIONS.md](DECISIONS.md) · [DATABASE.md](DATABASE.md) · [API.md](API.md)
 - Implementation index: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
 - Plane 1: [IMPLEMENTATION_NEXTJS.md](IMPLEMENTATION_NEXTJS.md)
 - Plane 2: [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md)
