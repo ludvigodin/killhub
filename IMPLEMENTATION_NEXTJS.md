@@ -12,7 +12,7 @@ Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Index: [IMPLEMENTATION_PLAN.
 |--------|----------|
 | **Input** | Public GitHub URL + start |
 | **Status** | Live `status`, `progress`, `current_step`, execution log, **optional** screenshot timeline |
-| **Report** | `environment_profile.json`, sandbox / readiness status, vulnerability findings, final outcome |
+| **Report** | `environment_profile.json`, sandbox / readiness status, vulnerability findings (SCA + optional MCP assessment), final outcome |
 
 Plane 1 **owns** job create/poll/SSE. Browser talks only to Next.js. Secrets never go to the client.
 
@@ -97,11 +97,12 @@ Jobs are **server-owned** (Plane 1). Closing the tab does **not** cancel. Resume
 - [ ] Show `environment_profile.json` when available
 - [ ] `EnvStatus`: provisioning / running / ready / destroyed (`sandbox_id` / `destroyed_at`)
 - [ ] Repair attempts + containment-probe log lines
-- [ ] `VulnReport` when **scan** completes (including fail path) — severity-grouped advisories; do not imply exploits were run
-- [ ] Optional copy/empty state clarifying report is scan-based (not a pentest)
+- [ ] `VulnReport` when **scan** completes (including fail path) — severity-grouped advisories by `source` (`sca` \| `mcp_assessment`)
+- [ ] When present, show `vuln_report.mcp_assessment` (Inspector/SDK) separately from SCA; clarify assessment was agent-planned (D35)
+- [ ] Optional copy clarifying default report is scan-based; MCP assessment appears only when planned — not a generic app pentest
 - [ ] Cancel control; optional retry
 
-**Done when:** Terminal jobs show profile, readiness or clear failure, vulns, and sandbox-destroyed state.
+**Done when:** Terminal jobs show profile, readiness or clear failure, vulns (and MCP assessment when planned), and sandbox-destroyed state.
 
 ### N4 — Hardening + public Vultr deploy
 

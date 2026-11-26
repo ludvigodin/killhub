@@ -13,7 +13,7 @@ Given a public GitHub URL, Killhub:
 3. **Decides** how to demo the repo and writes **`environment_profile.json`** (intent: `git_mcp`, `webapp`, or `demo`)
 4. Creates **one disposable Microsandbox** per job (explore + test are the same VM)
 5. Attempts install/run from the profile (**no allowlist** — failures are flagged), launches the chosen target, verifies **readiness** (MCP handshake listing tools, or HTTP / profile probe)
-6. **Scans** known vulnerabilities (SCA / advisories; including best-effort on fail paths) and summarizes findings — does **not** run exploits or pentest the app
+6. **Scans** known vulnerabilities (SCA / advisories; including best-effort on fail paths) and summarizes findings; when the agent plans it for MCP repos, may also run **MCP Inspector/SDK** assessment — does **not** weaponize CVEs or run generic app/web exploit suites
 7. Streams status and progress (screenshots **when useful**, optional)
 8. Destroys the sandbox (and can demonstrate a **containment** probe absorbing unsafe commands inside it — isolation proof, not CVE exploitation)
 
@@ -36,7 +36,7 @@ Two planes ([DECISIONS.md](DECISIONS.md) D27–D28):
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Data flow:** User submits URL → Plane 1 creates job → plan loop emits profile → harness provisions one sandbox → readiness + vuln scan → UI shows profile and report → sandbox destroyed. Killhub secrets never enter the sandbox.
+**Data flow:** User submits URL → Plane 1 creates job → plan loop emits profile → harness provisions one sandbox → readiness + SCA (+ optional MCP assessment when planned) → UI shows profile and report → sandbox destroyed. Killhub secrets never enter the sandbox.
 
 ### Golden fixtures (M7)
 
@@ -140,9 +140,10 @@ Repair loop capped by `MAX_REPAIR_ATTEMPTS`, then `failed`.
 ## Out of scope (v1)
 
 - Private GitHub repos / OAuth · multi-user auth / billing
-- Long-lived customer sandboxes beyond TTL · GPU · auto-patch CVEs · active exploits / pentest of submitted apps
+- Long-lived customer sandboxes beyond TTL · GPU · auto-patch CVEs · weaponizing CVEs / generic app/web exploit suites
 - Non-Vultr clouds · alternate agent LLM providers · session video
 - Separate Explore VM vs Test VM · install allowlist
+- MCP Inspector on every job (only when `mcp.security_assessment` is planned — D35)
 
 ## Roadmap
 
@@ -154,10 +155,10 @@ Repair loop capped by `MAX_REPAIR_ATTEMPTS`, then `failed`.
 | **M3** | Plan loop → valid `environment_profile.json` |
 | **M4** | Install + MCP/HTTP readiness on sandbox |
 | **M5** | Optional screenshots when useful |
-| **M6** | Vuln scan report (incl. fail path); no exploits |
+| **M6** | Vuln scan report (incl. fail path); optional MCP assessment when planned |
 | **M6b** | Containment probe (isolation only) |
 | **M7** | Golden fixtures (D32) + isolation + TTL cleanup |
 
 ## Definition of done (v1)
 
-A user can paste a public GitHub URL in Plane 1 and, without refreshing, see live status/progress, `environment_profile.json`, and a vuln report while the plan loop drives a single Plane 2 Microsandbox — with Killhub secrets never entering the sandbox, screenshots optional, containment absorbed in Plane 2, and sandboxes torn down after TTL or cancel.
+A user can paste a public GitHub URL in Plane 1 and, without refreshing, see live status/progress, `environment_profile.json`, and a vuln report (plus optional MCP assessment findings when planned) while the plan loop drives a single Plane 2 Microsandbox — with Killhub secrets never entering the sandbox, screenshots optional, containment absorbed in Plane 2, and sandboxes torn down after TTL or cancel.

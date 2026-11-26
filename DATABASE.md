@@ -1,6 +1,6 @@
 # DATABASE.md — Database structure and rules
 
-v1 persistence is **in-memory job state** in Plane 2 (`explore/jobs.py`) plus **filesystem artifacts** for profiles and screenshots. This document defines the logical model so a later Redis/Postgres migration stays compatible.
+v1 persistence is **in-memory job state** on Plane 1 (`explore/jobs.py`) plus **filesystem artifacts** for profiles and screenshots (D16–D17). This document defines the logical model so a later Redis/Postgres migration stays compatible.
 
 Related: [API.md](API.md) · [DECISIONS.md](DECISIONS.md) (D16–D18) · [ARCHITECTURE.md](ARCHITECTURE.md)
 
@@ -114,7 +114,7 @@ Append-only timeline (SSE source of truth).
 | `job_id` | string | FK |
 | `type` | enum | `status` \| `progress` \| `log` \| `screenshot` \| `error` |
 | `message` | string | Safe for UI |
-| `payload` | object | Type-specific; no secrets. For `log`, optional `kind` (`sandbox_create` \| `sandbox_destroy` \| `repair_attempt` \| `containment_probe` \| `agent` \| `harness`), plus `sandbox_id` / `attempt` / `detail` as needed ([API.md](API.md)) |
+| `payload` | object | Type-specific; no secrets. For `log`, optional `kind` (`sandbox_create` \| `sandbox_destroy` \| `repair_attempt` \| `mcp_assessment` \| `containment_probe` \| `agent` \| `harness`), plus `sandbox_id` / `attempt` / `detail` as needed ([API.md](API.md)) |
 | `timestamp` | datetime | UTC |
 
 ---
@@ -140,10 +140,21 @@ Append-only timeline (SSE source of truth).
 | `packages` | yes | Attempted at provision time; failures flagged |
 | `install_commands` | yes | Executed in sandbox; failures flagged |
 | `run_commands` | yes | App / demo launch |
-| `mcp` | if `git_mcp` | `{ launch_command, readiness }` — readiness `mcp_handshake` must list tools (D30) |
+| `mcp` | if `git_mcp` | `{ launch_command, readiness, security_assessment? }` — readiness `mcp_handshake` must list tools (D30) |
 | `healthcheck` | if `webapp` or `demo` (typical) | `{ type, path, port }` — or other declared probe for `demo` |
 | `ports` | yes | Exposed/probed ports |
 | `summary` | yes | Human-readable |
+
+#### `mcp.security_assessment` (optional — D35)
+
+| Key | Required | Notes |
+|-----|----------|-------|
+| `enabled` | yes | `true` to run Inspector/SDK probes after readiness; omit block or `false` to skip |
+| `tools` | no | Subset of `inspector` \| `sdk` (default both when enabled) |
+| `probes` | no | Agent-declared probe hints (e.g. list tools, schema inspect, fixture-backed safe tool calls) |
+| `notes` | no | Why assessment was planned for this repo |
+
+Assessment findings land on `VulnReport` (source `mcp_assessment`) and must **not** gate `ready`.
 
 Invalid profiles **must not** trigger Plane 2 create.
 
@@ -169,11 +180,17 @@ Cap: `MAX_SCREENSHOTS_PER_JOB`. Delete with job TTL.
 | Field | Type | Rules |
 |-------|------|-------|
 | `job_id` | string | PK/FK |
-| `summary` | string | AI-reviewed plain language |
-| `findings` | array | `{ id, severity, package, title, advisory_url? }[]` |
+| `summary` | string | AI-reviewed plain language (SCA + optional MCP assessment) |
+| `findings` | array | `{ id, severity, package?, title, advisory_url?, source, detail? }[]` |
+| `mcp_assessment` | object \| null | Present when D35 ran: `{ status, tools_used[], summary?, findings[] }` |
 | `status` | enum | `ok` \| `partial` \| `failed` |
 
-Findings do not delete readiness evidence.
+| `findings[].source` | Meaning |
+|---------------------|---------|
+| `sca` | Lockfile / advisory scanner |
+| `mcp_assessment` | MCP Inspector/SDK probe (only when profile planned it) |
+
+Findings do not delete readiness evidence. MCP assessment absence is valid when the profile omitted `security_assessment`.
 
 ---
 

@@ -32,8 +32,8 @@ Given a public GitHub URL:
 1. Plane 1 accepts the link, owns the job, and shows live status / report
 2. Plane 1 runs the Environment Agent Plan Loop → `environment_profile.json`
 3. Plane 2 is **one** disposable sandbox for that job (inspect + install + launch)
-4. Readiness: MCP handshake (list tools) or HTTP healthcheck; vulns **scanned and reported**; screenshots optional
-5. Containment probe available as isolation demo (not app exploitation)
+4. Readiness: MCP handshake (list tools) or HTTP healthcheck; vulns **scanned and reported**; optional MCP Inspector/SDK assessment when agent plans it (D35); screenshots optional
+5. Containment probe available as isolation demo (not CVE exploitation)
 
 ---
 
@@ -44,8 +44,9 @@ Given a public GitHub URL:
 | SCA / lockfile / known-advisory scan | **Yes** | E5 · `vulnscan.py` | Surface known risk in the report |
 | AI `vuln_review` summary | **Yes** | E5 · prompts | Make findings readable |
 | Best-effort scan on fail path | **Yes** | E5 (NodeGoat) | Vuln report even when readiness fails |
+| MCP Inspector/SDK assessment | **Yes, when planned** | E5 · T3 · D35 | Agent-elected MCP protocol/tool security assessment; does not gate `ready` |
 | Auto-patch / remediate | **No** | — | Non-goal (D11) |
-| Active exploits / pentest of submitted app | **No** | — | Non-goal (D33) |
+| Weaponize CVEs / generic app/web exploit suites | **No** | — | Non-goal (D33) |
 | Containment probe (adversarial cmd in sandbox) | **Yes** | E3 / D26 | Prove isolation; **not** CVE exploitation |
 
 NodeGoat fixture: expect **readiness fail** + **vuln findings from scan** — not Killhub weaponizing OWASP flaws.
@@ -63,7 +64,7 @@ NodeGoat fixture: expect **readiness fail** + **vuln findings from scan** — no
 | 5 | Provision + MCP/app readiness (no allowlist; flag failures) | E3 · T2–T3 |
 | 6 | Containment probe path (isolation demo) | E3 · T4 |
 | 7 | Optional screenshots + report window | E4 · N2–N3 |
-| 8 | Vuln **scan + report** only (no exploits; incl. best-effort on fail) | E5 |
+| 8 | Vuln **scan + report**; optional MCP assessment when profile plans it; no CVE weaponization (incl. best-effort SCA on fail) | E5 |
 | 9 | E2E on golden fixtures (D32) | E6 · T4 · N4 |
 
 ---
@@ -76,7 +77,7 @@ NodeGoat fixture: expect **readiness fail** + **vuln findings from scan** — no
 - [ ] **M3:** Plan loop emits valid `environment_profile.json` (`git_mcp` \| `webapp` \| `demo`)
 - [ ] **M4:** Install + readiness green on sandbox (MCP handshake or HTTP)
 - [ ] **M5:** Optional screenshots when useful
-- [ ] **M6:** Vuln **scan report** attached (including fail path); no exploit/pentest tooling
+- [ ] **M6:** Vuln **scan report** attached (including fail path); optional MCP assessment when planned (D35); no CVE weaponization / generic exploit suites
 - [ ] **M6b:** Containment probe logged then sandbox destroyed (D26)
 - [ ] **M7:** Golden fixtures (D32): heroku getting-started · mcp servers · NodeGoat fail+**scan** vulns; TTL cleanup verified
 
@@ -104,9 +105,10 @@ NodeGoat fixture: expect **readiness fail** + **vuln findings from scan** — no
 - Private GitHub repos / OAuth
 - Multi-user auth / billing
 - Long-lived customer sandboxes beyond TTL
-- GPU · auto-patch CVEs · active exploits / pentest of submitted apps · non-Vultr clouds · session video
+- GPU · auto-patch CVEs · weaponizing CVEs / generic app/web exploit suites · non-Vultr clouds · session video
 - Separate Explore VM vs Test VM · install allowlist
+- MCP Inspector on every job (only when `mcp.security_assessment` is planned — D35)
 
 ### Definition of done (v1)
 
-A user can paste a public GitHub URL in Plane 1 and, without refreshing, see live status/progress, `environment_profile.json`, and a **scan-based** vuln report while Plane 1’s plan loop drives a single Plane 2 Microsandbox — with Killhub secrets never entering the sandbox, screenshots optional, optional containment proof, and sandboxes torn down after TTL or cancel. No exploit/pentest of the target project.
+A user can paste a public GitHub URL in Plane 1 and, without refreshing, see live status/progress, `environment_profile.json`, and a **scan-based** vuln report (plus optional MCP assessment findings when the agent planned them) while Plane 1’s plan loop drives a single Plane 2 Microsandbox — with Killhub secrets never entering the sandbox, screenshots optional, optional containment proof, and sandboxes torn down after TTL or cancel.

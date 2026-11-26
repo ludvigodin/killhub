@@ -64,7 +64,7 @@ flowchart TB
 | Plane | What it is | Owns |
 |-------|------------|------|
 | **1. Control plane** | Next.js + `explore/` workers on the same durable host | UI; **Jobs API/SSE**; plan loop; profile; harness; optional screenshots; vuln review; inference keys |
-| **2. Disposable Microsandbox** | One Microsandbox microVM per job | Untrusted clone/install/run; readiness target; scan target; containment probes |
+| **2. Disposable Microsandbox** | One Microsandbox microVM per job | Untrusted clone/install/run; readiness target; scan target; optional MCP Inspector/SDK assessment (D35); containment probes |
 
 There is **no** separate Explore VM vs Test VM.
 
@@ -80,7 +80,7 @@ There is **no** separate Explore VM vs Test VM.
 |--------|----------|
 | **Input** | Public GitHub URL + start |
 | **Status** | Live `status`, `progress`, `current_step`, execution log, optional screenshot timeline |
-| **Report** | Setup / profile, sandbox lifecycle, vulnerability findings, final outcome |
+| **Report** | Setup / profile, sandbox lifecycle, vulnerability findings (SCA + optional MCP assessment), final outcome |
 
 ### Responsibilities
 
@@ -129,11 +129,11 @@ OUT: environment_profile.json  (+ readiness / failure + vuln report)
 
 | Step | What the agent does |
 |------|---------------------|
-| **1. Inspect** | Read tree, README, manifests, lockfiles, scripts inside/via Plane 2; **decide** `git_mcp` \| `webapp` \| `demo` (D34) |
+| **1. Inspect** | Read tree, README, manifests, lockfiles, scripts inside/via Plane 2; **decide** `git_mcp` \| `webapp` \| `demo` (D34); for MCP, whether to plan `mcp.security_assessment` (D35) |
 | **2. Infer** | Runtimes, services, ports, MCP entrypoints — or invent a minimal demo plan for oddball repos |
-| **3. Validate** | Complete `environment_profile.json` (OCI image, commands, readiness); reject incomplete specs |
+| **3. Validate** | Complete `environment_profile.json` (OCI image, commands, readiness, optional assessment); reject incomplete specs |
 | **4. Provision** | Attempt install/run commands from profile (**no allowlist** — flag failures, D29) |
-| **5. Launch + ready** | Start target; **`git_mcp`** = MCP handshake that lists tools (D30); `webapp` / `demo` = profile probe (typically HTTP) |
+| **5. Launch + ready** | Start target; **`git_mcp`** = MCP handshake that lists tools (D30); `webapp` / `demo` = profile probe (typically HTTP). Optional MCP Inspector/SDK runs after ready when planned — does not gate ready |
 
 ### `environment_profile.json`
 
@@ -154,7 +154,13 @@ OUT: environment_profile.json  (+ readiness / failure + vuln report)
   "run_commands": [],
   "mcp": {
     "launch_command": "",
-    "readiness": { "type": "mcp_handshake", "timeout_seconds": 60 }
+    "readiness": { "type": "mcp_handshake", "timeout_seconds": 60 },
+    "security_assessment": {
+      "enabled": false,
+      "tools": ["inspector", "sdk"],
+      "probes": [],
+      "notes": "Set enabled true when the agent plans MCP security testing (D35)"
+    }
   },
   "healthcheck": { "type": "http", "path": "/", "port": 8000 },
   "ports": [8000],
@@ -164,10 +170,10 @@ OUT: environment_profile.json  (+ readiness / failure + vuln report)
 
 ### Prompt pack
 
-- `discover_environment` — inspect → intent + draft profile
-- `validate_environment_spec` — schema + readiness requirements
+- `discover_environment` — inspect → intent + draft profile (incl. whether to enable `mcp.security_assessment`)
+- `validate_environment_spec` — schema + readiness requirements (+ assessment block if present)
 - `repair_from_errors` — capped retry after provision/launch failure
-- `vuln_review` — summarize scanner output
+- `vuln_review` — summarize scanner output (+ optional MCP assessment findings)
 
 ### Harness
 
@@ -189,8 +195,9 @@ OUT: environment_profile.json  (+ readiness / failure + vuln report)
 2. Clone `source` into the sandbox
 3. Run `install_commands` / packages (attempt; flag failures)
 4. Launch chosen target; verify readiness
-5. Vuln scan against installed tree / lockfiles (also best-effort after partial failure)
-6. Stop + remove on `ready` / fail / cancel / TTL
+5. Optional MCP Inspector/SDK assessment when profile plans it (D35)
+6. Vuln scan against installed tree / lockfiles (also best-effort after partial failure)
+7. Stop + remove on `ready` / fail / cancel / TTL
 
 ### Constraints
 
@@ -209,10 +216,12 @@ Enter URL → create job
 Plan loop: inspect / infer / validate ──► clone + read
 environment_profile.json
 Provision + launch + ready ─────────────► install / run / probe
-Vuln scan ──────────────────────────────► scan target
+Optional MCP assessment (D35) ──────────► Inspector / SDK when planned
+Vuln scan ──────────────────────────────► SCA target
 UI: status · optional shots · report
 ready/fail/cancel/TTL → destroy ────────► msb stop + remove
 ```
+
 
 ---
 
@@ -226,7 +235,7 @@ pending → analyzing → planning → provisioning → installing
 
 - **analyzing / planning** — steps 1–3 → validated profile (sandbox may already exist for inspect)
 - **provisioning / installing / verifying** — steps 4–5 on Plane 2
-- **scanning** — after readiness, or best-effort after partial failure
+- **scanning** — SCA after readiness (or best-effort after partial failure); optional MCP assessment when planned (D35)
 - Repair capped by `MAX_REPAIR_ATTEMPTS`
 - Jobs are **server-owned** on Plane 1
 
@@ -349,7 +358,7 @@ Plane 2 is **not** a checked-in app folder — it is a Microsandbox microVM per 
 - Long-lived customer sandboxes beyond job TTL
 - GPU workloads
 - Auto-patching vulnerabilities (report only)
-- Active exploits / pentest of submitted apps (SCA scan + report only; containment probes are isolation-only — D33)
+- Weaponizing CVEs / generic app/web exploit suites (SCA + report always; optional MCP Inspector/SDK only when planned — D33/D35; containment probes are isolation-only)
 - Non-Vultr clouds for control plane (demo) or sandboxes
 - Full session video
 - Alternate LLM providers for the Environment Agent

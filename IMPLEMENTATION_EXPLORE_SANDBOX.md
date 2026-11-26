@@ -103,7 +103,13 @@ SSE types: `status` · `progress` · `log` · `screenshot` · `error`
   "run_commands": [],
   "mcp": {
     "launch_command": "",
-    "readiness": { "type": "mcp_handshake", "timeout_seconds": 60 }
+    "readiness": { "type": "mcp_handshake", "timeout_seconds": 60 },
+    "security_assessment": {
+      "enabled": false,
+      "tools": ["inspector", "sdk"],
+      "probes": [],
+      "notes": ""
+    }
   },
   "healthcheck": { "type": "http", "path": "/", "port": 8000 },
   "ports": [8000],
@@ -141,11 +147,12 @@ SSE types: `status` · `progress` · `log` · `screenshot` · `error`
 - [ ] `profile.py` schema + `storage/profiles/{job_id}/`
 - [ ] Prompts: discover + validate
 - [ ] Intent: `git_mcp` \| `webapp` \| `demo` (agent decides; D34)
+- [ ] For `git_mcp`, optionally set `mcp.security_assessment` when Inspector/SDK probes are warranted (D35); omit when not
 - [ ] **No install allowlist** (D29) — profile may contain any OCI/install/run Microsandbox can attempt; invalid/incomplete profile still blocks step 4
 - [ ] Cap turns / tokens / wall-clock
 - [ ] Stream steps to job events
 
-**Done when:** Golden webapp + MCP fixtures emit valid profiles; inference hits Vultr only.
+**Done when:** Golden webapp + MCP fixtures emit valid profiles; MCP fixture may include or omit `security_assessment`; inference hits Vultr only.
 
 ### E3 — Harness (steps 4–5)
 
@@ -159,8 +166,8 @@ Depends on [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md).
   - `git_mcp` → MCP handshake that **lists tools** (D30)
   - `webapp` / `demo` → profile probe (typically HTTP)
 - [ ] Repair within `MAX_REPAIR_ATTEMPTS`; log attempt number
-- [ ] **Containment probe** (D26) inside Plane 2 only — adversarial cmd / loop absorbed by timeout/kill; stream `log.kind=containment_probe`; **not** exploiting the submitted repo (D33)
-- [ ] Set `destroyed_at` on remove; do not mark `ready` until readiness passes (scan still E5)
+- [ ] **Containment probe** (D26) inside Plane 2 only — adversarial cmd / loop absorbed by timeout/kill; stream `log.kind=containment_probe`; **not** CVE exploitation of the submitted repo (D33)
+- [ ] Set `destroyed_at` on remove; do not mark `ready` until readiness passes (scan / optional MCP assessment still E5; neither gates ready)
 
 **Done when:** Getting-started webapp and MCP servers fixture pass readiness; NodeGoat path fails honestly with logged errors; containment probe visible as isolation proof only.
 
@@ -172,20 +179,21 @@ Depends on [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md).
 
 **Done when:** HTTP webapp verify can attach a browser still; MCP-only jobs can complete with empty timeline.
 
-### E5 — Vulnerability scanning (scan + report only)
+### E5 — Vulnerability scanning + optional MCP assessment
 
-**In scope:** SCA / lockfile / known-advisory scanners + AI `vuln_review`.  
-**Out of scope:** active exploits, weaponizing CVEs, or pentesting the submitted app ([DECISIONS.md](DECISIONS.md) D11, D33).
+**In scope:** SCA / lockfile / known-advisory scanners + AI `vuln_review`; optional **MCP Inspector/SDK** assessment when `mcp.security_assessment.enabled` (D35).  
+**Out of scope:** weaponizing CVEs or generic app/web exploit suites ([DECISIONS.md](DECISIONS.md) D11, D33).
 
 - [ ] `vulnscan.py` against sandbox / lockfiles / detected stack (advisory databases only)
-- [ ] `vuln_review.md` AI summary → job `vuln_report` for Plane 1 report UI
-- [ ] Persist severity-grouped `VulnFinding[]`; emit progress via SSE
-- [ ] Best-effort scan on **failure** paths (NodeGoat must still produce **scan** findings)
-- [ ] Findings do not hard-fail `ready` by default (D11); scan tool crash → `partial` / `failed` report without erasing readiness
-- [ ] **Do not** add exploit PoCs, payload runners, or offensive probe suites against the target app
+- [ ] When profile plans it: run MCP Inspector and/or SDK probes in Plane 2 after readiness; stream `log.kind=mcp_assessment`; attach `vuln_report.mcp_assessment`
+- [ ] `vuln_review.md` AI summary → job `vuln_report` for Plane 1 report UI (include MCP findings when present)
+- [ ] Persist severity-grouped `VulnFinding[]` with `source` `sca` \| `mcp_assessment`; emit progress via SSE
+- [ ] Best-effort SCA on **failure** paths (NodeGoat must still produce **scan** findings)
+- [ ] Findings and MCP assessment do not hard-fail `ready` by default (D11, D35); scan tool crash → `partial` / `failed` report without erasing readiness
+- [ ] **Do not** add CVE exploit PoCs or generic offensive suites against non-MCP app targets
 - [ ] On `ready` (and on terminal fail after scan policy): destroy sandbox; artifacts stay on Plane 1
 
-**Done when:** At least one stack produces real advisories or a clean bill; NodeGoat fail path still has a scan-based vuln report; no exploit tooling in the pipeline; sandbox gone after terminal state.
+**Done when:** At least one stack produces real advisories or a clean bill; an MCP job with `security_assessment.enabled` produces Inspector/SDK findings or a clean assessment; NodeGoat fail path still has a scan-based vuln report; sandbox gone after terminal state.
 
 ### E6 — Orchestration hardening
 
@@ -224,7 +232,7 @@ Depends on [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md).
 - [ ] **E-M2:** Plan loop → valid profile via Vultr Inference
 - [ ] **E-M3:** Readiness via harness + containment probe logged
 - [ ] **E-M4:** Optional screenshots when useful
-- [ ] **E-M5:** Vuln **scan** report (incl. fail path); no exploits
+- [ ] **E-M5:** Vuln **scan** report (incl. fail path); optional MCP assessment when planned (D35)
 - [ ] **E-M5b:** Containment probe logged (isolation only)
 - [ ] **E-M6:** D32 fixtures + cleanup; Vultr demo deploy
 
@@ -235,8 +243,8 @@ Depends on [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md).
 - Secrets stay on Plane 1 server — **not** injected into Plane 2 by default
 - Agent tools only use harness / sandbox APIs
 - Attempt any Microsandbox-bootable OCI + install commands; flag failures (D29)
-- Containment probes only inside Plane 2 (D26) — isolation proof, not app pentest
-- Vuln path is **scan + report only** (D33)
+- Containment probes only inside Plane 2 (D26) — isolation proof, not CVE exploitation
+- Vuln path is SCA + report always (D33); MCP Inspector/SDK only when profile plans it (D35)
 
 ---
 
@@ -245,10 +253,11 @@ Depends on [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md).
 - Next.js UI components
 - VX1 `msb` install details beyond harness contract
 - Non-Vultr inference providers
-- Active exploits / pentest of submitted projects
+- Weaponizing CVEs / generic app/web exploit suites
+- Running MCP Inspector on every job without `mcp.security_assessment` (D35)
 
 ---
 
 ## Definition of done
 
-Given a GitHub URL job, the plan loop (Vultr Inference) produces a validated profile, drives **one** Plane 2 sandbox through install + MCP/HTTP readiness, streams status (optional screenshots), attaches a **scan-based** vuln report (including fail paths), optionally proves containment, and destroys the sandbox on terminal states — without leaking Killhub secrets or running exploits against the target app.
+Given a GitHub URL job, the plan loop (Vultr Inference) produces a validated profile, drives **one** Plane 2 sandbox through install + MCP/HTTP readiness, streams status (optional screenshots), attaches a **scan-based** vuln report (including fail paths and optional MCP assessment when planned), optionally proves containment, and destroys the sandbox on terminal states — without leaking Killhub secrets or weaponizing CVEs against the target app.

@@ -58,9 +58,10 @@ Prefer the **SDK** from `harness.py`. Optional `microsandbox-mcp` for agent tool
 3. **Provision** — attempt `packages` / `services` / `install_commands`; **flag failures**
 4. **Launch** — `mcp.launch_command` or `run_commands`
 5. **Readiness** — MCP handshake (list tools) or HTTP healthcheck (Plane 1 `verify.py`)
-6. **Scan target** — SCA / advisory scanners against this sandbox / lockfiles (**not** exploit runners; D33)
-7. **Containment target** — optional adversarial probe absorbed here (D26); still not app pentest
-8. **Destroy** — on `ready` / `failed` / `cancelled` / `ENV_TTL_SECONDS` / orphan reaper (`msb touch` while job still active)
+6. **Optional MCP assessment** — when `mcp.security_assessment.enabled`, run MCP Inspector and/or SDK probes in this guest (D35); does not gate ready
+7. **Scan target** — SCA / advisory scanners against this sandbox / lockfiles (D33); not CVE exploit runners
+8. **Containment target** — optional adversarial probe absorbed here (D26); isolation proof only
+9. **Destroy** — on `ready` / `failed` / `cancelled` / `ENV_TTL_SECONDS` / orphan reaper (`msb touch` while job still active)
 
 ```mermaid
 flowchart LR
@@ -72,7 +73,8 @@ flowchart LR
   Launch --> Probe["readiness"]
   Probe -->|fail| Retry["Plane 1 plan loop"]
   Retry --> Deps
-  Probe -->|pass| Scan["vuln target"]
+  Probe -->|pass| Assess["optional MCP Inspector"]
+  Assess --> Scan["vuln SCA target"]
   Scan --> Destroy["msb stop + remove"]
 ```
 
@@ -95,7 +97,7 @@ flowchart LR
 
 | Intent | Typical workload |
 |--------|------------------|
-| `git_mcp` | Install MCP server; launch; **MCP handshake listing tools** |
+| `git_mcp` | Install MCP server; launch; **MCP handshake listing tools**; optional MCP Inspector/SDK when profile plans assessment (D35) |
 | `webapp` | Install app; `run_commands`; HTTP healthcheck on `ports` |
 | `demo` | Agent-invented minimal showcase (D34); `run_commands` + profile probe (typically HTTP) |
 
@@ -130,13 +132,14 @@ flowchart LR
 
 **Done when:** Fixture repo cloned and install attempted via profile.
 
-### T3 — Launch + readiness surface
+### T3 — Launch + readiness surface (+ optional MCP assessment)
 
 - [ ] Start MCP / webapp / demo processes per profile
 - [ ] Keep process alive for Plane 1 probes (`msb touch` if idle timeout risks stop)
 - [ ] Capture failure logs (`msb logs`) for repair
+- [ ] When `mcp.security_assessment.enabled`: install/run MCP Inspector and/or SDK in-guest; return probe evidence to Plane 1 (D35)
 
-**Done when:** Plane 1 can complete MCP handshake (list tools) or HTTP healthcheck against the sandbox.
+**Done when:** Plane 1 can complete MCP handshake (list tools) or HTTP healthcheck against the sandbox; MCP assessment path works when profile enables it.
 
 ### T4 — Hardening
 
@@ -178,10 +181,10 @@ flowchart LR
 - Plan loop / profile generation / vuln AI review (Plane 1 workers)
 - Private registries / GPU / long-lived sandboxes beyond TTL
 - A second “Explore VM” distinct from this sandbox
-- Hosting exploit/pentest tooling aimed at the submitted application (sandbox is a scan + containment target only)
+- Hosting CVE exploit / generic app/web pentest tooling aimed at the submitted application (sandbox is SCA + optional MCP assessment + containment target)
 
 ---
 
 ## Definition of done
 
-From a validated `environment_profile.json`, one Microsandbox microVM can be created, used for inspect + install + launch/readiness (+ optional containment probe), and stopped/removed on terminal job states — without Killhub control-plane secrets in the sandbox environment or logs, and without running exploits against the project.
+From a validated `environment_profile.json`, one Microsandbox microVM can be created, used for inspect + install + launch/readiness (+ optional MCP Inspector/SDK assessment when planned, + optional containment probe), and stopped/removed on terminal job states — without Killhub control-plane secrets in the sandbox environment or logs, and without weaponizing CVEs against the project.

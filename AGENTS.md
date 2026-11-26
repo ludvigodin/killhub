@@ -25,7 +25,7 @@ Do not invent a third durable plane or split explore/test into two VMs without u
 | Plane | May | Must not |
 |-------|-----|----------|
 | **1 Control plane** (Next.js + `explore/` workers) | UI; **own** job create/poll/SSE; Environment Agent Plan Loop; harness; screenshots/vuln review; hold inference keys **server-side** | Put secrets in the browser; execute untrusted repo install/run on the control-plane host; inject Killhub secrets into the sandbox by default |
-| **2 Disposable Microsandbox** | Clone, install, launch, readiness target, vuln scan target, containment probes — **one microVM per job** for both explore and test | Call Plane 1; store control-plane API keys; persist beyond job TTL |
+| **2 Disposable Microsandbox** | Clone, install, launch, readiness target, vuln scan target, optional MCP Inspector/SDK assessment (D35), containment probes — **one microVM per job** for both explore and test | Call Plane 1; store control-plane API keys; persist beyond job TTL |
 
 - Untrusted repo code runs only on **Plane 2**, never as privileged control-plane host processes.
 - **No install allowlist** (D29): attempt profile install/run commands; **flag failures**, do not invent success.
@@ -45,10 +45,11 @@ When acting as the Environment Agent:
 
 - **Decide** intent: prefer `git_mcp` or `webapp` when they fit; otherwise invent a minimal `demo` and encode it in the profile (D34). Do not fail solely because the repo is not MCP/webapp.  
 - **`git_mcp` ready** = MCP handshake that can list tools (D30). `webapp` / `demo` ready = profile probe (typically HTTP).  
+- For MCP repos, the agent **may** encode `mcp.security_assessment` when Inspector/SDK probes are warranted ([DECISIONS.md](DECISIONS.md) D35). Omit it when not useful.  
 - Loop on failure only within `MAX_REPAIR_ATTEMPTS`.  
 - Emit status, progress, logs, and **optional** screenshots to the job event stream.  
-- Do not mark the job `ready` until readiness succeeds (vuln **scan** still required per product rules). Screenshots must not gate `ready` (D31).
-- **Vulns:** SCA / advisory scan + `vuln_review` only. Do **not** run exploits or pentest the submitted project (D33). Containment probes (D26) prove isolation only.
+- Do not mark the job `ready` until readiness succeeds (vuln **scan** still required per product rules). Screenshots and MCP assessment must not gate `ready` (D31, D35).
+- **Vulns:** always SCA / advisory scan + `vuln_review` (D33). Optional **MCP Inspector/SDK assessment** only when the profile plans it (D35). Do **not** weaponize CVEs or run generic app/web exploit suites. Containment probes (D26) prove isolation only.
 
 ---
 
@@ -82,8 +83,8 @@ Every meaningful step must update the job:
 
 - `status`, `progress`, `current_step`
 - SSE events: `status` | `progress` | `log` | `screenshot` | `error`
-- Persist `environment_profile.json`, readiness, vuln report, optional screenshot metadata, and sandbox lifecycle fields (`sandbox_id`, `destroyed_at`, `inference_model`) per [DATABASE.md](DATABASE.md)
-- Log sandbox **create**, repair **attempt n**, containment probe results, and **destroy**
+- Persist `environment_profile.json`, readiness, vuln report (incl. optional MCP assessment findings), optional screenshot metadata, and sandbox lifecycle fields (`sandbox_id`, `destroyed_at`, `inference_model`) per [DATABASE.md](DATABASE.md)
+- Log sandbox **create**, repair **attempt n**, optional **mcp_assessment**, containment probe results, and **destroy**
 
 Jobs are **server-owned** (Plane 1): client disconnect does not cancel the pipeline.
 

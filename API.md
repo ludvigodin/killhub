@@ -96,7 +96,7 @@ Server-Sent Events stream.
 |------------|----------------------|
 | `status` | `{ status }` |
 | `progress` | `{ progress, current_step }` |
-| `log` | `{ message, kind?, sandbox_id?, attempt?, detail? }` — `kind`: `sandbox_create` \| `sandbox_destroy` \| `repair_attempt` \| `containment_probe` \| `agent` \| `harness` |
+| `log` | `{ message, kind?, sandbox_id?, attempt?, detail? }` — `kind`: `sandbox_create` \| `sandbox_destroy` \| `repair_attempt` \| `mcp_assessment` \| `containment_probe` \| `agent` \| `harness` |
 | `screenshot` | `{ screenshot_id, step, caption, url }` — only when a still was captured |
 | `error` | `{ message }` |
 
@@ -154,9 +154,9 @@ pending → analyzing → planning → provisioning → installing
 |-------|----------------|
 | `analyzing` / `planning` | Plan loop steps 1–3 → `environment_profile.json` |
 | `provisioning` / `installing` | Plane 2 create + install attempts (no allowlist; flag failures) |
-| `verifying` / `repairing` | Launch + readiness; `git_mcp` = MCP handshake listing tools; `webapp` / `demo` = profile probe; capped retries |
-| `scanning` | Vuln scan + AI review (also best-effort after partial failure) |
-| `ready` | Profile + readiness + report available (screenshots optional) |
+| `verifying` / `repairing` | Launch + readiness; `git_mcp` = MCP handshake listing tools (D30); `webapp` / `demo` = profile probe; capped retries |
+| `scanning` | SCA + AI `vuln_review`; optional MCP Inspector/SDK assessment when `mcp.security_assessment.enabled` (D35); also best-effort SCA after partial failure |
+| `ready` | Profile + readiness + report available (screenshots and MCP assessment optional; neither gates ready) |
 
 ---
 
@@ -191,6 +191,7 @@ OpenCode client uses **Vultr Serverless Inference** only (`VULTR_INFERENCE_BASE_
 - `validate_environment_spec.md`
 - `repair_from_errors.md`
 - `vuln_review.md`
+- Optional: MCP assessment planning lives in discover/validate (encode `mcp.security_assessment` when warranted — D35)
 
 Persist `inference_model` on the job. Tool use is limited to harness / sandbox APIs ([AGENTS.md](AGENTS.md)).
 
@@ -202,8 +203,9 @@ Persist `inference_model` on the job. Tool use is limited to harness / sandbox A
 |----------|----------|----------|
 | `environment_profile.json` | Plane 1 plan loop | Harness → Plane 2; report UI |
 | Screenshots (optional) | Plane 1 `screenshots` | Timeline via Jobs API |
-| Vuln report | Plane 1 vulnscan + review | Report UI |
+| Vuln report | Plane 1 vulnscan + review (+ optional MCP assessment from Plane 2) | Report UI |
 | Readiness | Plane 1 `verify` against Plane 2 | Job snapshot + SSE |
+| MCP assessment (optional) | Plane 2 Inspector/SDK when profile plans it (D35) | `vuln_report.mcp_assessment` + `log.kind=mcp_assessment` |
 
 ---
 

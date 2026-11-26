@@ -9,7 +9,7 @@
 3. The agent **decides** how to demonstrate the repo and writes **`environment_profile.json`** (intent: `git_mcp`, `webapp`, or `demo` when inventing a minimal showcase — e.g. a lone text puzzle served over HTTP).
 4. A **single disposable Microsandbox** microVM on Vultr VX1 is created for that job (explore + test are the same sandbox); deps are installed from the profile.
 5. The chosen target is launched and **readiness** is verified (repair loop, capped). `git_mcp` = MCP handshake that lists tools; `webapp` / `demo` = profile probe (usually HTTP).
-6. Known vulnerabilities are **scanned and summarized** (SCA / advisories; including best-effort scan on failure paths). Killhub does **not** run exploits or pentest the app.
+6. Known vulnerabilities are **scanned and summarized** (SCA / advisories; including best-effort scan on failure paths). When the agent plans it for an MCP repo, Plane 2 may also run **MCP Inspector / SDK** security assessment (does **not** gate readiness). Killhub does **not** weaponize CVEs or run generic app/web exploit suites.
 7. Live **status and progress** stream back to the UI; **screenshots when useful** (optional — never gate readiness).
 8. Optional **containment probe** demonstrates the sandbox absorbs unsafe commands (isolation proof — not CVE exploitation).
 
@@ -19,7 +19,7 @@ Standing up someone else’s repo is slow, brittle, and unsafe if done on a shar
 
 - **Understand** a repo before trusting it (inspect docs, infer services, validate a spec).
 - **Isolate** execution on a short-lived Microsandbox (not the operator’s machine).
-- **Prove** it works (readiness) and **surface risk** (vuln report) before humans dig in.
+- **Prove** it works (readiness) and **surface risk** (SCA report; optional MCP assessment when planned) before humans dig in.
 - **Show work** continuously (status + optional stills) so operators trust the automation.
 
 ## Who it is for
@@ -34,7 +34,7 @@ A user pastes a public GitHub URL and, without refreshing, sees:
 - A validated `environment_profile.json`  
 - **Verifiable execution** — MCP handshake / HTTP (or other profile) readiness for whatever the agent chose to demo (or a clear failed probe), not a chat description of work  
 - Sandbox lifecycle signals (create → work → **destroyed**)  
-- An AI-reviewed vulnerability report  
+- An AI-reviewed vulnerability report (SCA; plus MCP assessment findings when the agent planned them)  
 - Screenshots when they add signal (HTTP verify); not required for every job  
 
 …while Killhub secrets never enter the sandbox, adversarial probes stay contained in the Microsandbox, and the sandbox is destroyed when the agent finishes its instructions and all tests (or on TTL/cancel).
@@ -56,7 +56,7 @@ Public demos run the control plane on **Vultr Cloud Compute** with agent reasoni
 - Long-lived **customer** environments / production hosting beyond job TTL (a publicly reachable control-plane demo on Vultr is in scope)  
 - GPU workloads  
 - Auto-remediating vulnerabilities  
-- Active exploits / weaponizing CVEs / pentesting the submitted project (scan + report only; containment probes are separate)  
+- Weaponizing CVEs / generic app/web pentest exploit suites (SCA + report always; optional MCP Inspector/SDK assessment only when the agent plans it — D35; containment probes are separate)  
 - Clouds other than Vultr for the demo control plane or sandboxes  
 - Alternate LLM providers for the Environment Agent  
 - Full session video (stills only when captured)  
