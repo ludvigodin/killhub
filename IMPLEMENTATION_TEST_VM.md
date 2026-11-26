@@ -4,7 +4,9 @@ Implementation plan for the **single disposable runtime** per job. Explore and T
 
 **Runtime:** [Microsandbox on Vultr VX1 Cloud Compute](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute) — each job gets a **microVM** (`libkrun` / KVM).
 
-Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Index: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) · Workers: [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md) · Decisions: D4, D22, D23, D27, D29
+**Operator/agent tooling:** Vultr MCP (read inventory) · `vultr-cli` (mutate Cloud Compute) · **`msb` CLI / SDK** (sandbox lifecycle) · optional `microsandbox-mcp` for debug — [plan/VULTR.md](plan/VULTR.md) · D59. Do not substitute Docker for Plane 2.
+
+Architecture: [ARCHITECTURE.md](ARCHITECTURE.md) · Index: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) · Workers: [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md) · Decisions: D4, D22, D23, D27, D29, D59
 
 ---
 

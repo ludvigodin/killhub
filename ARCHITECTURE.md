@@ -13,6 +13,7 @@ Killhub is a **two-plane** system ([DECISIONS.md](DECISIONS.md) D27–D28):
 | [DATABASE.md](DATABASE.md) | Data model and rules |
 | [API.md](API.md) | How components communicate |
 | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Implementation index |
+| [plan/README.md](plan/README.md) | Agent-sized build steps (one per session) |
 
 | Plane | Implementation docs |
 |------:|---------------------|

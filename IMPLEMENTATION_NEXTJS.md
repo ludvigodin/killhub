@@ -71,8 +71,9 @@ Jobs are **server-owned** (Plane 1). Closing the tab does **not** cancel. Resume
 - [ ] Shell pages: landing (input), `/jobs/[id]`
 - [ ] Wire into `docker-compose.yml` as `frontend`
 - [ ] Same-origin `/api` routes (no browser → separate Explore URL required)
+- [ ] **Biome + Knip** installed with `lint` / `lint:fix` / `knip` scripts; both pass ([plan/LINT.md](plan/LINT.md))
 
-**Done when:** Frontend loads; `/health` returns `200`.
+**Done when:** Frontend loads; `/health` returns `200`; Biome + Knip pass.
 
 ### N1 — Input + Jobs API proxy + admission
 

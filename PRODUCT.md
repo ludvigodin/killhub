@@ -77,3 +77,6 @@ Pinned commit SHAs live in fixture config ([DECISIONS.md](DECISIONS.md) D53).
 | [DATABASE.md](DATABASE.md) | Data model and rules |
 | [API.md](API.md) | How components communicate |
 | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Implementation index by plane |
+| [plan/README.md](plan/README.md) | Agent-sized build steps (one per session; removed after step 21) |
+| [plan/VULTR.md](plan/VULTR.md) | Vultr MCP / `vultr-cli` / `msb` tooling rules (fold into AGENTS/ARCHITECTURE at step 21) |
+| [plan/21-cleanup-docs.md](plan/21-cleanup-docs.md) | Post-M7 doc cleanup (delete scaffolding) |

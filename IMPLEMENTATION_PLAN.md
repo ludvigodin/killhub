@@ -2,6 +2,8 @@
 
 Implementation is split by the **two** architecture planes. Use this file as the map; do the work in the plane docs.
 
+**AI agents building the product:** prefer one file from [`plan/`](plan/README.md) per session (steps 01–21). Do not attempt the whole plan in one turn. Step **21** deletes the build ladder (and optionally these `IMPLEMENTATION_*.md` files) after M7.
+
 Product docs: [PRODUCT.md](PRODUCT.md) · [AGENTS.md](AGENTS.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [DECISIONS.md](DECISIONS.md) · [DATABASE.md](DATABASE.md) · [API.md](API.md)
 
 | Plane | Document | Owns |
@@ -9,6 +11,8 @@ Product docs: [PRODUCT.md](PRODUCT.md) · [AGENTS.md](AGENTS.md) · [ARCHITECTUR
 | 1 | [IMPLEMENTATION_NEXTJS.md](IMPLEMENTATION_NEXTJS.md) | Next.js UI + **Jobs API/SSE** |
 | 1 | [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md) | Environment Agent Plan Loop · harness · screenshots · vulns (`explore/` workers) |
 | 2 | [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md) | One disposable Microsandbox per job (explore + test) |
+| — | [plan/README.md](plan/README.md) | Agent-sized sequential steps (01–20) |
+| — | [plan/VULTR.md](plan/VULTR.md) | Vultr MCP · `vultr-cli` · `msb` (D59) |
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -55,17 +59,19 @@ Controlled fail fixture (D53): expect **`setup_failed`** + **SCA findings from l
 
 ## Suggested build order
 
-| Order | Work | Doc |
-|------:|------|-----|
-| 1 | Scaffold Next.js + explore workers (compose) | N0 · E0 |
-| 2 | Python Internal Worker API + durable ledger; Next proxy + SSE cursor + admission | N1 · E1 (D52, D55) |
-| 3 | Microsandbox create / exec / destroy + host reaper + net policy + canaries | T0–T1 · harness |
-| 4 | Pre-flight + OpenCode lockdown + bootstrap + versioned profile + MCP stdio helper | E2 (D51) |
-| 5 | Provision (install egress) + offline verify + readiness/verification gates; image replace | E3 · T2–T3 |
-| 6 | Containment matrix + network + canary probe paths | E3 · T4 (D58) |
-| 7 | Optional in-guest screenshots + report/receipt window | E4 · N2–N3 |
-| 8 | Vuln **scan + cite-checked report** + receipt; confirm destroy → `completed` | E5 (D57) |
-| 9 | E2E on pinned fixtures (D53) + verification kinds (D54) + public deploy (D46) | E6 · T4 · N4 |
+Prefer [`plan/`](plan/README.md) steps **01→20** for agent sessions. Mapping to plane phases:
+
+| Order | Work | plan/ | Plane phases |
+|------:|------|-------|--------------|
+| 1 | Scaffold Next.js + explore workers (compose) | 01–02 | N0 · E0 |
+| 2 | Durable ledger + Internal Worker API; Next proxy + SSE cursor + admission | 03–05 | N1 · E1 (D52, D55) |
+| 3 | Microsandbox create / exec / destroy + reaper + net policy + canaries | 06–08 | T0–T1 |
+| 4 | Pre-flight + OpenCode lockdown + bootstrap + discover + image replace | 09–12 | E2 (D51) |
+| 5 | Install egress → offline verify + readiness/verification gates | 13–14 | E3 · T2–T3 |
+| 6 | Containment matrix + network + canary probes | 15 | E3 · T4 (D58) |
+| 7 | Optional screenshots + status UI | 16–17 | E4 · N2 |
+| 8 | Vuln scan + cite-checked report + receipt + destroy → `completed` | 18 | E5 (D57) |
+| 9 | Report UI + E2E fixtures + public deploy | 19–20 | N3 · E6 · N4 · T4 |
 
 ---
 

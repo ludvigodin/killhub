@@ -15,6 +15,8 @@ Canonical product docs: [PRODUCT.md](PRODUCT.md) · [ARCHITECTURE.md](ARCHITECTU
    - [IMPLEMENTATION_NEXTJS.md](IMPLEMENTATION_NEXTJS.md) — Plane 1 UI + Jobs API/SSE
    - [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md) — Plane 1 agent/harness workers (`explore/`)
    - [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md) — Plane 2 disposable Microsandbox
+5. When **building** the product, take **one** step from [`plan/`](plan/README.md) per session (01→21). Do not attempt multiple steps or the whole roadmap in one turn. Before marking a step done or starting the next, run the **Biome + Knip** lint gate ([plan/LINT.md](plan/LINT.md)) and fix until both pass. After M7, run [plan/21-cleanup-docs.md](plan/21-cleanup-docs.md) to remove scaffolding docs.
+6. Vultr / Microsandbox work must go through **Vultr MCP**, **`vultr-cli`**, and/or **`msb` CLI/SDK** (optionally `microsandbox-mcp` for debug) — see [plan/VULTR.md](plan/VULTR.md) and [DECISIONS.md](DECISIONS.md) D59. Never substitute Docker-on-host for Plane 2 or mark sandbox steps done without real `msb`.
 
 Do not invent a third durable plane or split explore/test into two VMs without updating architecture + decisions first ([DECISIONS.md](DECISIONS.md) D27–D28).
 
@@ -73,6 +75,7 @@ When acting as the Environment Agent:
 - **Inference:** Environment Agent LLM calls must go through **Vultr Serverless Inference** (`https://api.vultrinference.com/v1`) only ([DECISIONS.md](DECISIONS.md) D25). Do not add alternate providers without a new decision.
 - **Containment:** Adversarial / containment / canary probes run only inside Plane 2; record timeout, host-access deny, sibling-access deny, and host-liveness evidence (D58); stream to the job stream (D26, D44, D49).
 - **Demo deploy:** Public control-plane demos run on **Vultr Cloud Compute** with app on `127.0.0.1` behind a reverse proxy (D24, D46). Durable ledger + host reaper required before public deploy (D41).
+- **Vultr tooling (D59):** Prefer Vultr MCP for inventory, `vultr-cli` for mutating Cloud Compute, `msb` CLI/SDK for sandboxes ([plan/VULTR.md](plan/VULTR.md)). Do not fake Plane 2 with Docker or mark sandbox work done without real `msb`.
 
 ---
 
