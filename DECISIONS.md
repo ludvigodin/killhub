@@ -34,6 +34,7 @@ Product intent: [PRODUCT.md](PRODUCT.md) · Structure: [ARCHITECTURE.md](ARCHITE
 | D29 | **No install allowlist in v1.** Any OCI image Microsandbox can boot + any install/run commands from the profile may be attempted; **failures are flagged** (job error / unsupported outcome), not silently invented into success. Still never inject Killhub secrets into the sandbox. | Match “everything Vultr/Microsandbox can run”; honesty over false green |
 | D10 | Repair/readiness retries capped by **`MAX_REPAIR_ATTEMPTS`** | Bound cost and infinite loops |
 | D11 | Vuln findings are **reported**, not auto-patched; do not hard-fail `ready` by default | Visibility without blocking exploration |
+| D33 | **Vulnerability posture in v1:** run **SCA / lockfile / known-advisory scans** and AI `vuln_review` only. **Do not** run active exploits, weaponize CVEs, or pentest the target app. **Containment probes (D26)** prove sandbox isolation and are **not** vuln exploitation of the submitted repo. | Scan + report risk; separate isolation demo from offensive testing |
 | D30 | **`git_mcp` readiness** = real **MCP handshake** that can list tools (not merely process-alive or HTTP ping) | Proves the MCP server speaks the protocol |
 | D31 | **Screenshots are optional.** Capture when useful (e.g. HTTP webapp verify); skip for CLI-only MCP or early fail. Missing screenshots must **not** block `ready` / terminal states. | Not every job has a meaningful still |
 
@@ -68,7 +69,7 @@ Product intent: [PRODUCT.md](PRODUCT.md) · Structure: [ARCHITECTURE.md](ARCHITE
 | D20 | Agent tools may only target harness / sandbox APIs — **never** execute untrusted repo install/run on the control-plane host | Discovery reads via clone/`msb` copy/exec inside the sandbox |
 | D21 | Prefer non-root in sandbox; no Docker socket mount from control plane | Reduce breakout risk |
 | D23 | Harness drives Plane 2 via **`msb` CLI / Microsandbox SDK** (create / exec / copy / stop / remove); OpenCode may optionally use `microsandbox-mcp` for agent-side tools | Job-owned lifecycle stays in harness; MCP is additive |
-| D26 | **Containment proof** is a first-class path: harness (or a demo job mode) must run an adversarial probe inside the sandbox, show absorption via timeout/kill without host impact, stream to logs/SSE, then destroy | Isolation is only demonstrable if unsafe execution is visible and contained |
+| D26 | **Containment proof** is a first-class path: harness (or a demo job mode) must run an adversarial probe inside the sandbox, show absorption via timeout/kill without host impact, stream to logs/SSE, then destroy. This is **not** exploiting the submitted project’s vulns (see D33). | Isolation is only demonstrable if unsafe execution is visible and contained |
 
 ---
 

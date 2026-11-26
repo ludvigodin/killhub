@@ -47,7 +47,8 @@ When acting as the Environment Agent:
 - **`git_mcp` ready** = MCP handshake that can list tools (D30).  
 - Loop on failure only within `MAX_REPAIR_ATTEMPTS`.  
 - Emit status, progress, logs, and **optional** screenshots to the job event stream.  
-- Do not mark the job `ready` until readiness succeeds (vuln scan still required per product rules). Screenshots must not gate `ready` (D31).
+- Do not mark the job `ready` until readiness succeeds (vuln **scan** still required per product rules). Screenshots must not gate `ready` (D31).
+- **Vulns:** SCA / advisory scan + `vuln_review` only. Do **not** run exploits or pentest the submitted project (D33). Containment probes (D26) prove isolation only.
 
 ---
 

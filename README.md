@@ -13,9 +13,9 @@ Given a public GitHub URL, Killhub:
 3. Writes a structured **`environment_profile.json`** (intent: `git_mcp` or `webapp`)
 4. Creates **one disposable Microsandbox** per job (explore + test are the same VM)
 5. Attempts install/run from the profile (**no allowlist** — failures are flagged), launches MCP or webapp, verifies **readiness** (MCP handshake listing tools, or HTTP healthcheck)
-6. Scans known vulnerabilities (including best-effort on fail paths) and summarizes findings
+6. **Scans** known vulnerabilities (SCA / advisories; including best-effort on fail paths) and summarizes findings — does **not** run exploits or pentest the app
 7. Streams status and progress (screenshots **when useful**, optional)
-8. Destroys the sandbox (and can demonstrate a **containment** probe absorbing unsafe commands inside it)
+8. Destroys the sandbox (and can demonstrate a **containment** probe absorbing unsafe commands inside it — isolation proof, not CVE exploitation)
 
 Jobs are **server-owned** by Plane 1. Closing the tab does not cancel. Reopen `/jobs/{id}` to resume. Only explicit cancel or timeout stops a job.
 
@@ -140,7 +140,7 @@ Repair loop capped by `MAX_REPAIR_ATTEMPTS`, then `failed`.
 ## Out of scope (v1)
 
 - Private GitHub repos / OAuth · multi-user auth / billing
-- Long-lived customer sandboxes beyond TTL · GPU · auto-patch CVEs
+- Long-lived customer sandboxes beyond TTL · GPU · auto-patch CVEs · active exploits / pentest of submitted apps
 - Non-Vultr clouds · alternate agent LLM providers · session video
 - Separate Explore VM vs Test VM · install allowlist
 
@@ -154,7 +154,8 @@ Repair loop capped by `MAX_REPAIR_ATTEMPTS`, then `failed`.
 | **M3** | Plan loop → valid `environment_profile.json` |
 | **M4** | Install + MCP/HTTP readiness on sandbox |
 | **M5** | Optional screenshots when useful |
-| **M6** | Vuln report (incl. fail path) |
+| **M6** | Vuln scan report (incl. fail path); no exploits |
+| **M6b** | Containment probe (isolation only) |
 | **M7** | Golden fixtures (D32) + isolation + TTL cleanup |
 
 ## Definition of done (v1)

@@ -97,7 +97,8 @@ Jobs are **server-owned** (Plane 1). Closing the tab does **not** cancel. Resume
 - [ ] Show `environment_profile.json` when available
 - [ ] `EnvStatus`: provisioning / running / ready / destroyed (`sandbox_id` / `destroyed_at`)
 - [ ] Repair attempts + containment-probe log lines
-- [ ] `VulnReport` when scan completes (including fail path)
+- [ ] `VulnReport` when **scan** completes (including fail path) — severity-grouped advisories; do not imply exploits were run
+- [ ] Optional copy/empty state clarifying report is scan-based (not a pentest)
 - [ ] Cancel control; optional retry
 
 **Done when:** Terminal jobs show profile, readiness or clear failure, vulns, and sandbox-destroyed state.

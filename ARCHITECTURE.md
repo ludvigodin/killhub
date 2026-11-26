@@ -349,6 +349,7 @@ Plane 2 is **not** a checked-in app folder — it is a Microsandbox microVM per 
 - Long-lived customer sandboxes beyond job TTL
 - GPU workloads
 - Auto-patching vulnerabilities (report only)
+- Active exploits / pentest of submitted apps (SCA scan + report only; containment probes are isolation-only — D33)
 - Non-Vultr clouds for control plane (demo) or sandboxes
 - Full session video
 - Alternate LLM providers for the Environment Agent

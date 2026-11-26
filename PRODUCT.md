@@ -9,8 +9,9 @@
 3. The agent writes a structured **`environment_profile.json`** (intent: `git_mcp` or `webapp`).
 4. A **single disposable Microsandbox** microVM on Vultr VX1 is created for that job (explore + test are the same sandbox); deps are installed from the profile.
 5. MCP (or webapp) is launched and **readiness** is verified (repair loop, capped). For `git_mcp`, readiness is a real MCP handshake that can list tools.
-6. Known vulnerabilities are scanned and summarized (including best-effort scan on failure paths).
+6. Known vulnerabilities are **scanned and summarized** (SCA / advisories; including best-effort scan on failure paths). Killhub does **not** run exploits or pentest the app.
 7. Live **status and progress** stream back to the UI; **screenshots when useful** (optional — never gate readiness).
+8. Optional **containment probe** demonstrates the sandbox absorbs unsafe commands (isolation proof — not CVE exploitation).
 
 ## Why
 
@@ -55,6 +56,7 @@ Public demos run the control plane on **Vultr Cloud Compute** with agent reasoni
 - Long-lived **customer** environments / production hosting beyond job TTL (a publicly reachable control-plane demo on Vultr is in scope)  
 - GPU workloads  
 - Auto-remediating vulnerabilities  
+- Active exploits / weaponizing CVEs / pentesting the submitted project (scan + report only; containment probes are separate)  
 - Clouds other than Vultr for the demo control plane or sandboxes  
 - Alternate LLM providers for the Environment Agent  
 - Full session video (stills only when captured)  

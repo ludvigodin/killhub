@@ -58,8 +58,9 @@ Prefer the **SDK** from `harness.py`. Optional `microsandbox-mcp` for agent tool
 3. **Provision** — attempt `packages` / `services` / `install_commands`; **flag failures**
 4. **Launch** — `mcp.launch_command` or `run_commands`
 5. **Readiness** — MCP handshake (list tools) or HTTP healthcheck (Plane 1 `verify.py`)
-6. **Scan target** — vuln tools against this sandbox / lockfiles
-7. **Destroy** — on `ready` / `failed` / `cancelled` / `ENV_TTL_SECONDS` / orphan reaper (`msb touch` while job still active)
+6. **Scan target** — SCA / advisory scanners against this sandbox / lockfiles (**not** exploit runners; D33)
+7. **Containment target** — optional adversarial probe absorbed here (D26); still not app pentest
+8. **Destroy** — on `ready` / `failed` / `cancelled` / `ENV_TTL_SECONDS` / orphan reaper (`msb touch` while job still active)
 
 ```mermaid
 flowchart LR
@@ -176,9 +177,10 @@ flowchart LR
 - Plan loop / profile generation / vuln AI review (Plane 1 workers)
 - Private registries / GPU / long-lived sandboxes beyond TTL
 - A second “Explore VM” distinct from this sandbox
+- Hosting exploit/pentest tooling aimed at the submitted application (sandbox is a scan + containment target only)
 
 ---
 
 ## Definition of done
 
-From a validated `environment_profile.json`, one Microsandbox microVM can be created, used for inspect + install + launch/readiness, and stopped/removed on terminal job states — without Killhub control-plane secrets in the sandbox environment or logs.
+From a validated `environment_profile.json`, one Microsandbox microVM can be created, used for inspect + install + launch/readiness (+ optional containment probe), and stopped/removed on terminal job states — without Killhub control-plane secrets in the sandbox environment or logs, and without running exploits against the project.
