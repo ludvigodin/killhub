@@ -1,0 +1,84 @@
+# Secrets — never commit (AGENTS.md)
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+credentials.json
+secrets/
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+*.egg
+
+# Next.js / frontend build
+frontend/.next/
+frontend/out/
+frontend/build/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# Explore / Python tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage/
+.tox/
+.nox/
+
+# Dev job artifacts (profiles, screenshots)
+storage/
+*.screenshot.png
+
+# Logs & temp
+*.log
+logs/
+tmp/
+temp/
+.cache/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.code-workspace
+
+# Cursor — keep shared MCP config; ignore local agent state
+.cursor/*
+!.cursor/mcp.json
+
+# Docker / local overrides
+docker-compose.override.yml
+.docker/
+
+# Misc
+*.local
+.vercel
+.opencode/
+.cursor/mcp.json
