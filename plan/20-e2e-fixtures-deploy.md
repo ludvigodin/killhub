@@ -1,6 +1,6 @@
-# Step 20 — E2E fixtures + demo deploy (M7)
+# Step 20 — E2E 3 baseline + 6 demo scenarios + Vultr demo deploy (M7, D46, D53, D73)
 
-**Goal:** Pinned fixtures behave as specified; public demo is on **Vultr Cloud Compute** behind edge bind + admission + durable ledger.
+**Goal:** Assert all **3 baseline fixtures** and all **6 Demo Malicious MCP Scenarios** pass on real `msb` Ubuntu 24.04 microVMs, verify key isolation and 3-layer kill switch end-to-end, and deploy the public control plane on **Vultr Cloud Compute** bound to `127.0.0.1` behind an edge reverse proxy (`D46`).
 
 ## Prerequisites
 
@@ -9,48 +9,61 @@
 
 ## Read first
 
-- [VULTR.md](VULTR.md) · [DECISIONS.md](../DECISIONS.md) D53, D54, D46, D40, D41, D24, **D59**
+- [VULTR.md](VULTR.md) · [DECISIONS.md](../DECISIONS.md) D24, D40, D41, D46, D53, D54, **D59**, **D69**–**D74**
 - [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md) — M7
 - [IMPLEMENTATION_NEXTJS.md](../IMPLEMENTATION_NEXTJS.md) § N4
 - [IMPLEMENTATION_EXPLORE_SANDBOX.md](../IMPLEMENTATION_EXPLORE_SANDBOX.md) § E6
+- [IMPLEMENTATION_TEST_VM.md](../IMPLEMENTATION_TEST_VM.md) § 8
+- [AGENTS.md](../AGENTS.md) § 5 (R2 inline docs + module frontmatter)
 
 ## Vultr tooling (required)
 
 - [ ] Inspect/confirm demo + VX1 hosts with **Vultr MCP** (read-only)
-- [ ] Provision/mutate demo control-plane VM with **`vultr-cli`** (or Vultr API) — not a non-Vultr host (D24)
-- [ ] Fixture sandboxes run via harness → **`msb`** on VX1
+- [ ] Provision/mutate demo control-plane VM with **`vultr-cli`** (or Vultr API) — not a non-Vultr host (`D24`)
+- [ ] All fixture sandboxes run via harness → **`msb`** on VX1
 - [ ] If MCP/`vultr-cli`/`msb` unavailable: stop and report — do not declare M7 done on localhost-only
 
 ## Do
 
-- [ ] **Assert** (do not first-time pin) fixtures from [10b-pin-fixtures.md](10b-pin-fixtures.md) still match D53
-- [ ] Assert webapp → `original_application`; MCP filesystem → original readiness from **built checkout**; controlled fail → `setup_failed`
-- [ ] Absolute expiry + cancel + completed always reclaim sandbox across Plane 1 restart
-- [ ] Demo deploy: reverse proxy faces internet; app binds `127.0.0.1` (D46)
-- [ ] Admission + ledger + host reaper live before public URL
+- [ ] **Assert 3 Baseline Fixtures (`explore/fixtures/m7.json`, `D53`):**
+  1. Webapp → `original_application` (`heroku/node-js-getting-started` @ pin)
+  2. `git_mcp` filesystem → `original_application` readiness from **built checkout** (`D62`)
+  3. Controlled fail → `setup_failed` with `findings.source=sca` separate from `intentional_app`
+- [ ] **Assert All 6 Demo Malicious MCP Scenarios (`D53`, `D73`):**
+  1. Indirect prompt injection via GitHub issue → caught by `mcp_wire_tap` + `mitmdump` + canary block
+  2. Delayed tool obfuscation / rug pull → caught by `t0_tools_sha256` ≠ `final_tools_sha256` + `tool_diffs`
+  3. Post-install modified package backdoor → caught by `package_sha256_before` ≠ `after` + OverlayFS `upperdir` + `strace`
+  4. Host microVM credential exfiltration via OpenCode tools & `opencode.db` → `key_isolation_verified=true` (zero `VULTR_*` keys in Plane 2) + real-time `mitmdump`/DNS canary block
+  5. External manipulation of clean MCP server via tool drift/shadowing → caught by `tool_diffs` + `mcp_wire_tap` + `mitmdump` + `strace`
+  6. Resource exhaustion via infinite agent loop → bounded by **3-Layer Kill Switch** (`L1` HTTP `429` at 12 turns/60k tokens/oscillation, `L2` cgroup v2 `512M`/`0`/`64`, `L3` watchdog flush + teardown) without impacting VX1/Plane 1 liveness
+- [ ] Assert absolute expiry + cancel + completed always reclaim sandbox & TAP/OverlayFS across Plane 1 restart (`D41`, `D72`)
+- [ ] **Vultr Reverse-Proxy Deploy (`D46`, `D71`, `ALIGNMENT_PLAN.md` S8):**
+  - Bind Next.js, `explore/`, Host LLM Proxy, and `noVNC` proxy strictly to `127.0.0.1`
+  - Configure reverse proxy (Caddy/nginx) to terminate HTTPS, flush SSE (`/api/jobs/{id}/events`), proxy authenticated **view-only `noVNC`** WebSockets (`/api/jobs/{id}/novnc`), and overwrite `X-Real-IP` / `X-Forwarded-For` from socket peer IP
+  - Verify admission (`429`/`503`), durable SQLite WAL ledger, and VX1 host reaper are live before public URL
 
 ## Do not
 
-- Deploy without ledger/reaper/admission
-- Deploy demo off Vultr
-- Use NodeGoat as the deterministic fail fixture (D53)
-- Fake fixture greens without `msb`
-- Treat this step as the owner of first-time SHA pinning (that is 10b)
+- Deploy without durable SQLite WAL ledger, host reaper, or admission controls
+- Expose interactive (write-enabled) `noVNC` or unauthenticated `/internal/*` routes
+- Use NodeGoat as the deterministic fail fixture (`D53`)
+- Fake fixture greens without real `msb`
 
 ## Lint gate (required before Done when)
 
-Run Biome + Knip and fix all findings before marking this step done (see [LINT.md](LINT.md)):
+Run the **full quality gate** ([LINT.md](LINT.md) — `D68`, `D74`) including R2 compliance:
 
 ```bash
-cd frontend
-pnpm lint:fix && pnpm lint && pnpm knip
+cd frontend && pnpm lint:fix && pnpm lint && pnpm knip && pnpm typecheck && pnpm build
+cd ../explore && ../.venv/bin/ruff check . && ../.venv/bin/ruff format --check . && ../.venv/bin/pytest -q
+cd .. && python3 -c "import json; from pathlib import Path; from jsonschema import Draft202012Validator; [Draft202012Validator.check_schema(json.loads(p.read_text())) or print('OK', p.name) for p in sorted(Path('schemas').glob('*.json'))]"
 ```
 
-Must exit **0**. Do **not** start the next step while either tool fails. Python-only changes still require a green gate.
+Must exit **0**.
 
 ## Done when
 
-Pinned fixtures pass on real **`msb`** sandboxes; demo URL is on Vultr behind edge proxy (verified via Vultr MCP/`vultr-cli`); sandboxes die on expiry even if control plane restarts. Biome + Knip lint gate passes ([LINT.md](LINT.md)).
+All 3 baseline fixtures and all 6 demo malicious MCP scenarios pass on real **`msb`** Ubuntu 24.04 microVMs with schema-valid `DetonationVerdict` JSONs; key isolation and 3-layer kill switch proven; demo URL is live on Vultr behind reverse proxy with SSE + view-only `noVNC`; sandboxes die on expiry across Plane 1 restart; full quality gate + R2 docs pass ([LINT.md](LINT.md)).
 
 ## Next
 

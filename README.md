@@ -1,29 +1,29 @@
 # Killhub
 
-**Paste a public GitHub URL. Get a verified running environment — and a receipt that outlives the sandbox.**
+**Paste a public GitHub URL or MCP registry target. Watch live in-VM detonation over view-only `noVNC` — and get a verified environment, a cross-framework `DetonationVerdict`, and a receipt that outlives the sandbox.**
 
-Killhub stands up someone else’s repo the way you’d want a security-minded operator to: understand first, isolate always, prove readiness, surface known risk, then destroy the machine.
+Killhub stands up and detonates untrusted repositories and MCP servers the way a security-minded operator should: understand first, isolate inside an Ubuntu 24.04 microVM, intercept every HTTP/S, DNS, syscall, and MCP JSON-RPC boundary, prove readiness and containment, and destroy the machine while leaving a durable forensic dossier.
 
-Built on **Vultr** end-to-end — Cloud Compute control plane, [Serverless Inference](https://docs.vultr.com/products/serverless/inference/provisioning) for the agent, [Microsandbox](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute) microVMs for untrusted code.
+Built on **Vultr** end-to-end — Cloud Compute control plane, [Serverless Inference](https://docs.vultr.com/products/serverless/inference/provisioning) (with Plane 1 Host LLM Proxy key isolation), and [Microsandbox](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute) microVMs on VX1 for untrusted execution.
 
 ---
 
 ## The problem
 
-Bringing up a stranger’s GitHub repo is slow, brittle, and unsafe on a shared laptop or production host.
+Running a stranger’s GitHub repo or third-party MCP server is slow, brittle, and dangerous on a shared laptop or production host: tool poisoning, indirect prompt injection, post-install backdoors, credential harvesting, and infinite agent loops can compromise keys or exhaust the host.
 
 ```mermaid
 flowchart LR
-  A["Public GitHub repo"] --> B{"Run it where?"}
-  B -->|"Your laptop"| C["Risk · pollution · no audit trail"]
-  B -->|"Shared host"| D["Blast radius · secret leakage"]
-  B -->|"Killhub"| E["Isolated microVM · readiness · receipt"]
+  A["GitHub repo / MCP registry target"] --> B{"Run it where?"}
+  B -->|"Your laptop"| C["Risk · secret theft · no audit trail"]
+  B -->|"Shared host"| D["Blast radius · key leakage"]
+  B -->|"Killhub"| E["Ubuntu 24.04 microVM · TAP/mitmdump · noVNC · Verdict"]
   style E fill:#1a7f37,color:#fff
   style C fill:#cf222e,color:#fff
   style D fill:#cf222e,color:#fff
 ```
 
-Killhub exists so you can **understand**, **isolate**, **prove**, and **leave a dossier** — without trusting the repo with your keys or your machine.
+Killhub exists so you can **understand**, **isolate**, **detonate & observe**, and **leave a receipt** — without trusting the target with your API keys or your machine.
 
 ---
 
@@ -31,101 +31,78 @@ Killhub exists so you can **understand**, **isolate**, **prove**, and **leave a 
 
 | Outcome | Meaning |
 |---------|---------|
-| **Live job** | Status, progress, structured evidence — no refresh required |
-| **`environment_profile.json`** | Versioned plan: how Killhub decided to demo the repo |
-| **Honest label** | `original_application` · `generated_demo` · `setup_failed` |
-| **Readiness evidence** | MCP handshake (`tools/list`) or HTTP / profile probe |
-| **Intake receipt** | Cited SCA findings (+ optional MCP assessment when planned) |
-| **Containment proof** | Isolation probes absorbed inside the sandbox — then destroy |
+| **Live job & view-only `noVNC`** | Real-time status, progress, sensor telemetry, and an authenticated **view-only `noVNC`** stream of in-VM OpenCode detonation — no refresh required (`D71`) |
+| **`environment_profile.json` & `DynamicInstallSpec`** | Versioned runtime & Ubuntu 24.04 provisioning contracts (`schemas/environment_profile.v1.json`, `schemas/dynamic_install_spec.v1.json`) |
+| **Discovery & `TestScenarioPlan`** | `@modelcontextprotocol/inspector --cli --format json` (+ Python MCP SDK fallback) feeding the Plane 1 Test-Planner Agent (`schemas/test_scenario_plan.v1.json`, `D73`) |
+| **Honest label** | `original_application` · `generated_demo` (with visible `original_failure`) · `setup_failed` (`D54`) |
+| **Readiness & integrity hashes** | MCP handshake (`tools/list`, `t0_tools_sha256` vs `final_tools_sha256`, `tool_diffs`) + `package_sha256_before`/`after` + HTTP/command probes (`D30`, `D62`, `D73`) |
+| **Canonical `DetonationVerdict` & receipt** | `schemas/detonation_verdict.v1.json` + `JobReceipt`: Plane-1 SCA + cite-checked `vuln_review` + runtime findings mapped across all **16 MITRE ATLAS tactics (`AML.TA0000`–`AML.TA0015`)** and **OWASP MCP Top 10 (`MCP01:2025`–`MCP10:2025`)** |
+| **Containment & 3-Layer Kill Switch proof** | L1 LLM Proxy breaker (`12` turns / `60k` tokens / oscillation→`429`), L2 guest cgroup v2 (`512M` / `0` swap / `64` pids), L3 watchdog flush + teardown; 4-axis containment + key-isolation verification (`D58`, `D71`, `D72`) |
 
-Screenshots appear when they add signal. They never gate completion.
+Optional Playwright stills run in-guest for HTTP webapps and never gate completion (`D31`).
 
 ---
 
 ## How it works
 
-One public URL in. One disposable microVM. One durable receipt out.
+One GitHub URL or MCP registry target in. One disposable Ubuntu 24.04 microVM. One durable `DetonationVerdict` + receipt out.
 
 ```mermaid
 flowchart TB
-  U["Paste public GitHub URL"] --> P["Pre-flight<br/>URL · admission · cheap risk"]
-  P --> V["Bootstrap Microsandbox on VX1"]
-  V --> A["Environment Agent inspect / discover<br/>OpenCode → Vultr Inference"]
-  A --> F["runtime environment_profile.json<br/>git_mcp · webapp · demo"]
-  F --> I["Phased install · launch · readiness"]
-  I --> S["SCA scan · optional MCP assessment"]
-  S --> R["Receipt · destroy sandbox · terminal status"]
-  R --> UI["UI: profile · evidence · report"]
+  U["Submit GitHub URL or MCP target (npm:/pypi:/fixture:)"] --> P["Plane 1 Pre-flight<br/>URL/registry · admission · cheap risk"]
+  P --> V["Provision Ubuntu 24.04 Microsandbox on VX1<br/>RO rootfs+OverlayFS · CA · canaries · TAP/mitmdump · AF_VSOCK"]
+  V --> A["Env/Install Planner Agent<br/>environment_profile.v1.json + DynamicInstallSpec"]
+  A --> I["Phase 1 Install (package_sha256_before/after)<br/>Discovery (Inspector/SDK -> t0_tools_sha256) -> Test Planner"]
+  I --> D["Phase 2a Monitored Detonation (in-VM OpenCode + view-only noVNC)<br/>Host LLM Proxy (L1) · cgroup v2 (L2) · strace/wire-tap/OverlayFS · canary block"]
+  D --> O["Phase 2b Offline Containment + Plane-1 SCA + Cite-Checked Review"]
+  O --> R["DetonationVerdict (16 ATLAS + 10 OWASP MCP) + JobReceipt<br/>L3 Telemetry Flush -> Destroy VM + TAP/overlay teardown"]
 ```
 
-Bootstrap comes **before** runtime-profile discovery ([DECISIONS.md](DECISIONS.md) D36).
-
-**Jobs are server-owned.** Close the tab — the pipeline keeps running. Reopen `/jobs/{id}` to resume. Only cancel or timeout stops a job.
+**Jobs are server-owned (`D12`, `D41`).** Close the tab — the pipeline keeps running. Reopen `/jobs/{id}` to resume. Only `DELETE /api/jobs/{id}` or timeout/watchdog stops a job.
 
 ---
 
 ## Architecture at a glance
 
-Two planes. Hard boundary. Secrets stay on the control plane.
+Two planes. Hard boundary. Real Vultr secrets never enter Plane 2.
 
 ```mermaid
 flowchart TB
-  subgraph plane1 ["Plane 1 · Control plane"]
-    UI["Next.js UI"]
-    API["Jobs API + SSE"]
-    Agent["Environment Agent"]
-    Harness["Harness"]
-    Ledger["Durable ledger"]
+  subgraph plane1 ["Plane 1 · Control plane (Next.js + explore/)"]
+    UI["Next.js UI + view-only noVNC proxy"]
+    API["Jobs API + SSE + Ledger (SQLite WAL)"]
+    Agents["Env Planner · Test Planner · Verdict Engine"]
+    LLMProxy["Host LLM Proxy (real key + L1 breaker)"]
+    NetMon["Host TAP + mitmdump (HTTP/S+DNS, DoH/DoT/QUIC drop, PCAP)"]
+    Harness["msb Harness + L3 Watchdog + Telemetry Receiver"]
   end
 
-  subgraph plane2 ["Plane 2 · Disposable Microsandbox"]
-    VM["One microVM per job"]
-    Work["Clone · install · launch · readiness"]
+  subgraph plane2 ["Plane 2 · Disposable Ubuntu 24.04 Microsandbox (one per job)"]
+    VM["RO rootfs + OverlayFS · /workspace + canaries (.env/.ssh/.aws)"]
+    Victim["In-VM OpenCode (dummy token) + noVNC + Inspector/SDK"]
+    Sensors["strace · OverlayFS upperdir · MCP wire tap · cgroup v2 (L2)"]
   end
 
-  UI --> API
-  API --> Agent
-  Agent --> Harness
-  Harness -->|"msb create / exec / destroy"| VM
-  Work --> Harness
-  Harness --> API
-  API --> Ledger
+  UI --> API --> Agents --> Harness
+  Harness -->|"msb create/exec/copy/destroy"| VM
+  Victim -->|"AF_VSOCK / UDS (dummy token)"| LLMProxy
+  Sensors -->|"AF_VSOCK / UDS NDJSON"| Harness
+  VM -->|"TAP bridge (Phase 1 & 2a)"| NetMon
+  VM -.->|"view-only VNC bridge"| UI
 ```
 
 | Plane | What it is | Owns |
 |------:|------------|------|
-| **1** | Next.js + `explore/` workers on Vultr Cloud Compute | UI, Jobs API/SSE, plan loop, harness, vuln review, secrets |
-| **2** | One Microsandbox microVM per job on VX1 | Untrusted clone/install/run — explore and test share the same VM |
+| **1** | Next.js + `explore/` workers on Vultr Cloud Compute | UI, Jobs API/SSE, authenticated view-only `noVNC` proxy, durable SQLite WAL ledger, Env/Install Planner, Test Planner, Cite-Checked Reviewer & Verdict synthesizer, Host LLM Proxy (`VULTR_INFERENCE_API_KEY`), Host TAP/`mitmdump`/PCAP interceptor, L3 watchdog, `AF_VSOCK`/UDS receiver |
+| **2** | One Ubuntu 24.04 Microsandbox microVM per job on VX1 | Untrusted clone/install/discovery/detonation/test, victim OpenCode (dummy bearer token only), `noVNC`, `@modelcontextprotocol/inspector` + SDK, guest sensors (`strace`, OverlayFS `upperdir`, MCP wire tap, cgroup v2 L2 caps), optional Playwright stills |
 
-There is **no** separate Explore VM vs Test VM.
+There is **no** separate Explore VM vs Test VM (`D27`).
 
-### Trust zones
+### Trust zones & Key Isolation (`D42`, `D71`)
 
-```mermaid
-flowchart LR
-  subgraph Z0["Internet"]
-    Browser["Operator browser"]
-  end
-  subgraph Host["Vultr fabric"]
-    Edge["Reverse proxy"]
-    CP["Control plane<br/>+ ledger + keys"]
-    SB["Disposable sandbox"]
-  end
-  subgraph Ext["External"]
-    Inf["Vultr Inference"]
-    GH["GitHub"]
-    Reg["Registries"]
-  end
-
-  Browser --> Edge --> CP
-  CP --> Inf
-  CP --> GH
-  CP -->|"msb + net policy"| SB
-  SB -.->|"install phase only"| Reg
-  CP -.->|"secrets never injected"| SB
-```
-
-Sandbox → control plane is **denied**. Real Killhub secrets never enter the guest (canaries only).
+- **Control-plane keys stay on Plane 1:** Guest `/proc/*/environ`, `/home/agent/.config/opencode/`, and `/home/agent/.local/share/opencode/opencode.db` hold only a per-job ephemeral dummy bearer token (`kh_proxy_*`) pointing to the Plane 1 Host LLM Proxy over `AF_VSOCK`/UDS/`mgmt0`.
+- **Host TAP + `mitmdump`:** Intercepts HTTP/S (`mitmproxy` CA baked in guest) and DNS, drops DoH/DoT/QUIC (`UDP/443`, `TCP/853`), captures optional PCAPs, and **blocks canary exfiltration in real time** (`D70`).
+- **Guest → Plane 1 / `msb` mgmt / siblings:** Denied and probe-tested with positive controls (`D39`, `D65`).
 
 ---
 
@@ -139,13 +116,13 @@ stateDiagram-v2
   analyzing --> planning
   planning --> provisioning
   provisioning --> installing
-  installing --> verifying
+  installing --> verifying: package_sha256 + Discovery -> TestScenarioPlan
   verifying --> repairing: probe fails
   repairing --> verifying: retry ≤ MAX_REPAIR_ATTEMPTS
-  verifying --> scanning: ready evidence
-  scanning --> finalizing
-  finalizing --> completed
-  verifying --> failed: repairs exhausted
+  verifying --> scanning: readiness + Phase 2a detonation
+  scanning --> finalizing: Phase 2b offline + SCA + DetonationVerdict
+  finalizing --> completed: receipt persisted + L3 flush + confirmed destroy
+  verifying --> failed: repairs exhausted / L3 pre-ready fail
   pending --> cancelled
   analyzing --> cancelled
   installing --> cancelled
@@ -154,44 +131,15 @@ stateDiagram-v2
   cancelled --> [*]
 ```
 
-Readiness is **evidence**, not a destroy trigger. The sandbox dies on `completed` / fail / cancel / absolute TTL — even if the control plane restarts.
+Readiness is **evidence**, not a destroy trigger (`D37`). The sandbox dies only on `completed` / `failed` / `cancelled` / Layer 3 watchdog / absolute TTL — even if the control plane restarts (`D41`, `D72`).
 
 ---
 
-## Security story (in one picture)
+## Baseline golden fixtures & 6 Demo Malicious MCP Scenarios (`D53`, `D73`)
 
-```mermaid
-flowchart TB
-  subgraph yes ["In scope"]
-    SCA["SCA / advisories with citations"]
-    MCP["Optional MCP Inspector/SDK when planned"]
-    CONT["Containment + network + canary probes"]
-  end
-  subgraph no ["Out of scope"]
-    EXP["Weaponize CVEs"]
-    PEN["Generic app/web exploit suites"]
-    PATCH["Auto-patch / remediate"]
-  end
-```
+Pinned SHAs and fixture specs live in [plan/10b-pin-fixtures.md](plan/10b-pin-fixtures.md).
 
-Untrusted code never runs as a privileged control-plane process. OpenCode only sees harness tools. Plane 2 network policy is probe-tested.
-
----
-
-## Vultr-native stack
-
-| Layer | Where |
-|-------|-------|
-| Control plane demo | Vultr Cloud Compute (app on localhost behind reverse proxy) |
-| Agent reasoning | Vultr Serverless Inference (`api.vultrinference.com`) |
-| Untrusted execution | Microsandbox on Vultr VX1 — one microVM per job |
-| Local dev | `docker-compose` for Plane 1; sandboxes still provisioned on VX1 |
-
----
-
-## Golden fixtures (v1)
-
-Pinned commits live in fixture config ([DECISIONS.md](DECISIONS.md) D53).
+### Baseline v1 golden fixtures
 
 | Outcome | Repo |
 |---------|------|
@@ -199,72 +147,61 @@ Pinned commits live in fixture config ([DECISIONS.md](DECISIONS.md) D53).
 | `git_mcp` filesystem (stdio) | [modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers) |
 | Controlled `setup_failed` + SCA | Deliberately broken fixture (not NodeGoat) |
 
----
+### 6 Demo Malicious MCP Scenarios (DVMCP + targeted fixtures)
 
-## Who it’s for
-
-Operators, security-minded engineers, and internal teams who need to quickly and safely bring up — or invent a minimal demo of — public GitHub repos (MCP servers, webapps, oddball content) with a clear environment profile and audit trail.
-
----
-
-## Quick start
-
-Docs-first while the stack is scaffolded:
-
-1. Read [PRODUCT.md](PRODUCT.md) — *what* and *why*
-2. Read [ARCHITECTURE.md](ARCHITECTURE.md) — planes, trust zones, lifecycle
-3. Follow [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) — build order by plane
+| # | Scenario | Catching Sensors & Tactics |
+|---|----------|----------------------------|
+| **1** | **Indirect prompt injection via GitHub issue** | `mcp_wire_tap`, `mitmdump_http`, `mitmdump_dns`, `canary_monitor` (`AML.TA0004`, `AML.TA0010`; `MCP06:2025`) |
+| **2** | **Delayed tool obfuscation / rug pull** | `t0_tools_sha256` ≠ `final_tools_sha256`, `tool_diffs`, `mcp_wire_tap` (`AML.TA0001`, `AML.TA0008`; `MCP03:2025`) |
+| **3** | **Post-install modified package backdoor** | `package_sha256_before` ≠ `after`, OverlayFS `upperdir`, `strace`, `mitmdump_http` (`AML.TA0003`, `AML.TA0006`; `MCP04:2025`, `MCP09:2025`) |
+| **4** | **Host microVM credential exfiltration via OpenCode tools & `opencode.db`** | `strace` (`openat`), `opencode_db_audit`, `canary_monitor`, `mitmdump` real-time block, Host LLM Proxy key-isolation check (`AML.TA0009`, `AML.TA0010`, `AML.TA0013`; `MCP01:2025`, `MCP05:2025`) |
+| **5** | **External manipulation of a clean MCP server via tool drift / shadowing** | `tool_diffs`, `mcp_wire_tap`, `mitmdump_http`/`dns`, `strace` (`AML.TA0008`, `AML.TA0014`, `AML.TA0015`; `MCP03:2025`, `MCP06:2025`) |
+| **6** | **Resource exhaustion via infinite agent loop** | **3-Layer Kill Switch:** L1 LLM Proxy (`12` turns / `60k` tokens / oscillation→`429`), L2 cgroup v2 (`512M` / `0` swap / `64` pids), L3 watchdog flush (`AML.TA0011`; `MCP08:2025`, `MCP10:2025`) |
 
 ---
 
-## Docs & roadmap
+## Docs, Schemas & Roadmap
 
-| Doc | Purpose |
-|-----|---------|
-| [PRODUCT.md](PRODUCT.md) | Product intent |
-| [AGENTS.md](AGENTS.md) | Rules for AI agents working in this repo |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Two planes, trust zones, data flow |
-| [DECISIONS.md](DECISIONS.md) | Locked technical choices |
-| [DATABASE.md](DATABASE.md) | Job / receipt model |
-| [API.md](API.md) | Jobs API + SSE contracts |
-| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Milestone index |
-| [IMPLEMENTATION_NEXTJS.md](IMPLEMENTATION_NEXTJS.md) | Plane 1 UI + Jobs API |
-| [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md) | Plane 1 agent / harness |
-| [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md) | Plane 2 Microsandbox |
-
-```mermaid
-flowchart LR
-  M0["M0 Plane 1 boots"] --> M1["M1 Jobs + SSE"]
-  M1 --> M2["M2 Harness lifecycle"]
-  M2 --> M3["M3 Profile"]
-  M3 --> M4["M4 Readiness"]
-  M4 --> M5["M5 Screenshots"]
-  M5 --> M6["M6 Vuln report"]
-  M6 --> M6b["M6b Containment"]
-  M6b --> M7["M7 Fixtures + isolation"]
-```
+| Doc / Dir | Purpose |
+|-----------|---------|
+| [PRODUCT.md](PRODUCT.md) | Product intent & non-goals |
+| [AGENTS.md](AGENTS.md) | Binding agent rules (incl. R2 inline code docs & module frontmatter) |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Two planes, trust zones, IPC, key isolation, 3-layer kill switch |
+| [DECISIONS.md](DECISIONS.md) | Locked technical choices (`D1`–`D74`) |
+| [DATABASE.md](DATABASE.md) | SQLite v1/v2 ledger, ATLAS/OWASP mapping tables, `DetonationVerdict` |
+| [API.md](API.md) | Jobs API, SSE, `/novnc`, `/verdict`, `/telemetry`, `/pcap`, Host LLM Proxy |
+| [ALIGNMENT_PLAN.md](ALIGNMENT_PLAN.md) | Reconciliation matrix, model-selection plan (`D74`), mitigations, teammate handoffs |
+| `schemas/*.json` | Draft 2020-12 contracts (`environment_profile`, `dynamic_install_spec`, `test_scenario_plan`, `detonation_verdict`) |
+| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Milestone index & plane map |
+| [IMPLEMENTATION_NEXTJS.md](IMPLEMENTATION_NEXTJS.md) | Plane 1 UI, `noVNC` proxy, Verdict/Report UI |
+| [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md) | Plane 1 agents, Host LLM Proxy, TAP/`mitmdump`, `AF_VSOCK` telemetry, harness |
+| [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md) | Plane 2 Ubuntu 24.04 microVM spec, mounts/seeds, sensors, 6 demo scenarios |
 
 ### API surface
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/jobs` | Create `{ github_url }` → `{ job_id }` |
-| `GET` | `/api/jobs/{id}` | Snapshot |
-| `GET` | `/api/jobs/{id}/events` | SSE stream |
-| `GET` | `/api/jobs/{id}/screenshots` | Timeline (may be empty) |
-| `DELETE` | `/api/jobs/{id}` | Cancel + destroy |
-| `GET` | `/health` | Liveness |
+| `POST` | `/api/jobs` | Create job (`github_url` or MCP registry/fixture ref) → `{ job_id }` |
+| `GET` | `/api/jobs/{id}` | Snapshot (incl. `detonation_verdict`, `novnc`) |
+| `GET` | `/api/jobs/{id}/events` | SSE stream (replays contiguous window + live tail) |
+| `GET / WS` | `/api/jobs/{id}/novnc` | Authenticated **view-only `noVNC`** stream (`D71`) |
+| `GET` | `/api/jobs/{id}/verdict` | Full **`DetonationVerdict`** JSON (`schemas/detonation_verdict.v1.json`) |
+| `GET` | `/api/jobs/{id}/telemetry` | Bounded sensor counters & redacted NDJSON slice |
+| `GET` | `/api/jobs/{id}/pcap` | Captured TAP bridge PCAP (`application/vnd.tcpdump.pcap`) |
+| `GET` | `/api/jobs/{id}/screenshots` | Optional Playwright still timeline |
+| `DELETE` | `/api/jobs/{id}` | Cancel + flush + destroy |
+| `GET` | `/health` | Control-plane liveness |
 
-Full contracts: [API.md](API.md). Config and admission caps: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
+Full contracts: [API.md](API.md). Configuration and admission caps: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
 
 ---
 
 ## Out of scope (v1)
 
-Private repos / OAuth · multi-user billing · long-lived customer sandboxes · GPU · auto-patch CVEs · weaponizing exploits · non-Vultr clouds · alternate agent LLM providers · session video · separate Explore vs Test VM · install allowlists that block runnable commands
+Private repos / OAuth · multi-user billing · long-lived customer sandboxes · GPU · auto-patch CVEs · weaponizing CVEs / generic web exploit suites · non-Vultr clouds · alternate agent LLM providers · persistent full-session video recordings (live view-only `noVNC` and optional Playwright stills are in scope) · separate Explore vs Test VM · install allowlists that block runnable commands
 
 ---
 
-## Definition of done
+## Definition of done (v1)
 
-A user pastes a public GitHub URL and, without refreshing, sees live status, a validated profile, verifiable readiness with an honest label, and a cited intake receipt — while one Microsandbox absorbs the work and is destroyed on completion, with Killhub secrets never entering the guest.
+A user submits a public GitHub URL or MCP registry target and, without refreshing, sees live status, view-only `noVNC` detonation, live `mitmdump`/`strace`/wire-tap/kill-switch telemetry, validated specs (`environment_profile.json`, `DynamicInstallSpec`, `TestScenarioPlan`), verifiable readiness with an honest label, and a durable `JobReceipt` + `DetonationVerdict` mapped across all 16 MITRE ATLAS tactics and OWASP MCP Top 10 — while one Ubuntu 24.04 Microsandbox absorbs the work and is destroyed cleanly without `VULTR_*` keys ever entering Plane 2.
