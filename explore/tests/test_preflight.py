@@ -257,3 +257,42 @@ def test_apply_hard_fail_marks_terminal(client, auth_header, monkeypatch) -> Non
     assert snap is not None
     assert snap["receipt"] is not None
     get_settings.cache_clear()
+
+
+@pytest.mark.parametrize(
+    "status,remaining,expected_calls,reason",
+    [
+        (403, "0", 1, "rate_limited"),
+        (403, "9", 2, "access_denied"),
+        (429, "9", 1, "rate_limited"),
+    ],
+)
+def test_metadata_diagnostics_and_cooldown(monkeypatch, status, remaining, expected_calls, reason):
+    from preflight import _github_repo_meta
+
+    monkeypatch.setattr("preflight._github_cooldown", None)
+    clock = [1000.0]
+    monkeypatch.setattr("preflight.time.time", lambda: clock[0])
+    calls = []
+
+    def limited(req, timeout):
+        calls.append(req.full_url)
+        headers = {"X-RateLimit-Remaining": remaining, "X-RateLimit-Reset": "1100"}
+        if status == 429:
+            headers["Retry-After"] = "100"
+        raise HTTPError(req.full_url, status, "", headers, None)
+
+    monkeypatch.setattr("preflight.urllib.request.urlopen", limited)
+    for repo in ["one", "two"]:
+        _, finding = _github_repo_meta("owner", repo, api_base="https://api.github.com", timeout=1)
+        assert not finding.hard
+        payload = finding.to_event_payload()
+        assert (
+            payload["reason"],
+            payload["rate_limit_remaining"],
+            payload["rate_limit_reset"],
+        ) == (reason, int(remaining), 1100)
+    assert len(calls) == expected_calls
+    clock[0] = 1101
+    _github_repo_meta("owner", "three", api_base="https://api.github.com", timeout=1)
+    assert len(calls) == expected_calls + 1

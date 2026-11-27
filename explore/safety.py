@@ -98,6 +98,14 @@ def summary_safety(
 
     containment = receipt.get("containment") if isinstance(receipt, dict) else None
     claim = containment.get("claim") if isinstance(containment, dict) else None
+    dims = (containment or {}).get("dimensions") if isinstance(containment, dict) else None
+    host = dims.get("host_access_denied") if isinstance(dims, dict) else None
+    probes = host.get("probes") if isinstance(host, dict) else None
+    if isinstance(probes, list) and any(
+        isinstance(probe, dict) and probe.get("classification") == "inconclusive"
+        for probe in probes
+    ):
+        gaps = True
     if claim != "proven":
         gaps = True
 

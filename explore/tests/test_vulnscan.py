@@ -446,3 +446,26 @@ def test_enrichment_timeout_keeps_unknown_and_marks_partial(
     assert findings[0]["severity"] == "unknown"
     assert findings[0]["detail"]["osv_id"] == "GHSA-timeout"
     assert status == "partial"
+
+
+def test_control_fixture_review_prioritizes_scan_over_metadata_warning(monkeypatch, tmp_path):
+    job = create_job("https://github.com/example/fixture")
+    ledger = get_ledger()
+    ledger.update_job_fields(job.job_id, sandbox_id="fixture")
+    ledger.append_event(
+        job.job_id,
+        typ="finding",
+        message="GitHub metadata unavailable",
+        payload={"source": "preflight", "code": "github_api_limited", "severity": "low"},
+    )
+    lock = tmp_path / "requirements.txt"
+    lock.write_text("pkg==1.0\n")
+    monkeypatch.setattr("vulnscan.copy_lockfiles_to_artifacts", lambda *a, **kw: ([lock], False))
+    monkeypatch.setattr("vulnscan.query_osv_batch", lambda *a, **kw: [])
+    run_vuln_scan(job.job_id)
+    report = ledger.get_vuln_report(job.job_id)
+    assert report["summary"].startswith(
+        "Checked 1 of 1 listed dependency versions. No known advisories"
+    )
+    assert "GitHub" not in report["summary"]
+    assert any(f["id"] == "github_api_limited" for f in report["findings"])

@@ -262,13 +262,20 @@ export const VERDICT_TONE: Record<
   missing: { bg: "var(--paper-deep)", fg: "var(--muted)", label: "missing" },
 };
 
-export function claimTone(claim: string | null): {
+export function claimTone(
+  claim: string | null,
+  unverifiedTargets: number,
+): {
   bg: string;
   fg: string;
   label: string;
 } {
   if (claim === "proven") {
-    return { bg: "var(--ok-soft)", fg: "var(--ok)", label: "proven" };
+    return {
+      bg: "var(--ok-soft)",
+      fg: "var(--ok)",
+      label: unverifiedTargets ? "proven for tested targets" : "proven",
+    };
   }
   if (claim === "incomplete") {
     return {

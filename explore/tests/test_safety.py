@@ -144,3 +144,16 @@ def test_uses_receipt_verification_when_job_verification_missing() -> None:
         )
         == "safe"
     )
+
+
+def test_proven_scored_axes_do_not_clear_unverified_targets():
+    receipt = _receipt()
+    receipt["containment"]["dimensions"] = {
+        "host_access_denied": {"probes": [{"classification": "inconclusive"}]}
+    }
+    assert (
+        summary_safety(
+            status="completed", verification=None, vuln_report=_ok_report(), receipt=receipt
+        )
+        == "unknown"
+    )

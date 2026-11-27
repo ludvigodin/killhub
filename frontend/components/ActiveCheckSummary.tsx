@@ -9,11 +9,11 @@ export function ActiveCheckSummary({
   const trace = {
     full: "All install steps traced",
     partial: "Some install steps traced",
-    none: null,
-  }[checks.install_trace ?? "none"];
+    none: "No install commands were traced",
+  };
   const tools = checks.mcp_tools_reviewed;
   const meta = [
-    trace,
+    checks.install_trace ? trace[checks.install_trace] : null,
     tools == null ? null : `${tools} MCP tool descriptions reviewed`,
     checks.finding_count > 0
       ? `${checks.finding_count} active-check ${checks.finding_count === 1 ? "finding" : "findings"}`

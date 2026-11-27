@@ -14,12 +14,12 @@ const PIPELINE = [
   {
     label: "Prove",
     short: "Evidence",
-    detail: "Readiness · isolation · cited advisories · optional stills",
+    detail: "Readiness · install trace · isolation · cited advisories",
   },
   {
     label: "Destroy",
     short: "Receipt",
-    detail: "Confirmed removal - dossier outlives the VM",
+    detail: "Confirmed removal – dossier outlives the VM",
     terminal: true,
   },
 ] as const;
@@ -80,7 +80,7 @@ function ProblemFork() {
         <li>
           <Outcome
             title="Your laptop"
-            detail="Chat that describes work - or unsafe local runs"
+            detail="Chat that describes work – or unsafe local runs"
             tone="bad"
           />
         </li>
@@ -240,7 +240,7 @@ function TwoPlanes() {
             </li>
             <li>
               <span className="two-planes-dot" aria-hidden />
-              <span>Secrets stay here - never injected into the sandbox</span>
+              <span>Secrets stay here – never injected into the sandbox</span>
             </li>
           </ul>
         </article>
@@ -277,7 +277,7 @@ function TwoPlanes() {
                 className="two-planes-dot two-planes-dot-accent"
                 aria-hidden
               />
-              <span>Real clone · install · launch - not described</span>
+              <span>Real clone · install · launch – not described</span>
             </li>
             <li>
               <span
@@ -300,7 +300,7 @@ function TwoPlanes() {
       <figcaption className="two-planes-boundary">
         <span className="two-planes-boundary-line" aria-hidden />
         <span className="type-eyebrow text-(--muted)">
-          Trust boundary - untrusted code never runs as a privileged host
+          Trust boundary – untrusted code never runs as a privileged host
           process
         </span>
         <span className="two-planes-boundary-line" aria-hidden />
@@ -313,27 +313,53 @@ const EVIDENCE_CLASSES = [
   {
     label: "Readiness",
     detail:
-      "HTTP or MCP handshake proves the target answers - labeled original_application, generated_demo, or setup_failed.",
+      "Starts the real app or MCP server and proves it answers – an HTTP probe or a live MCP handshake. Every result is labelled original, demo, or setup failed.",
   },
   {
-    label: "Network / containment",
+    label: "Install activity",
     detail:
-      "Guest cannot call Plane 1 or sibling sandboxes; hostile loops time out; planted canaries are watched.",
+      "Every install step runs under a tracer: processes, outbound connections and DNS lookups are recorded. Sending a planted test secret out of the sandbox fails the job; writes to cron, SSH keys or shell profiles are flagged.",
   },
   {
-    label: "Dependency SCA",
+    label: "Containment",
     detail:
-      "Known advisories from lockfiles, cite-checked on Plane 1 - separate from intentional-app findings.",
+      "The guest cannot reach the control plane, the host or other sandboxes, and loses all network access after install. A hostile busy-loop is killed while the guest stays alive.",
   },
   {
-    label: "Optional MCP assessment",
+    label: "Dependency advisories",
     detail:
-      "Bounded surface check only when the profile plans it - not a generic exploit suite.",
+      "npm and Python lockfiles (package-lock, requirements, Pipfile, poetry.lock, uv.lock) are checked against OSV. The written summary may only cite findings that exist.",
   },
   {
-    label: "Optional stills",
+    label: "MCP tool review",
     detail:
-      "Screenshot trail when HTTP verify captures; stills never gate job completion.",
+      "For Node and Python MCP servers, every tool name and description is checked for hidden instructions, invisible characters and credential-hunting prompts.",
+  },
+  {
+    label: "Screenshots",
+    detail:
+      "Stills of web apps when a page renders. Useful evidence, never required to finish a job.",
+  },
+] as const;
+
+const RECOVERY = [
+  {
+    label: "Lost sandbox",
+    detail:
+      "Recreated once and the run continues – never retried against a dead VM.",
+  },
+  {
+    label: "Restart mid-job",
+    detail:
+      "Interrupted runs are closed with a receipt, and leftover VMs are removed.",
+  },
+  {
+    label: "Cancel anytime",
+    detail: "The VM is removed and the receipt is still written.",
+  },
+  {
+    label: "Hard deadline",
+    detail: "Anything past its expiry is reaped – no VM outlives its job.",
   },
 ] as const;
 
@@ -345,6 +371,10 @@ const DONE_EVIDENCE = [
   {
     label: "Stills",
     detail: "Screenshot trail when HTTP verify captures",
+  },
+  {
+    label: "Install trace",
+    detail: "Processes, connections and leak checks",
   },
   {
     label: "Containment",
@@ -366,6 +396,10 @@ const DONE_EXCLUSIONS = [
     detail: "No Killhub secrets in the guest",
   },
   {
+    label: "Silent exfiltration",
+    detail: "A leaked test secret fails the job",
+  },
+  {
     label: "Leftover VM",
     detail: "No sandbox after the receipt",
   },
@@ -383,7 +417,9 @@ function EvidenceClasses() {
             <p className="type-eyebrow text-(--accent)">Job evidence</p>
             <p className="mt-1 type-section-title">What Killhub tests</p>
           </div>
-          <p className="evidence-ledger-stamp">Five classes</p>
+          <p className="evidence-ledger-stamp">
+            {EVIDENCE_CLASSES.length} checks
+          </p>
         </header>
 
         <ol className="evidence-ledger-list m-0 list-none p-0">
@@ -408,11 +444,34 @@ function EvidenceClasses() {
           <p className="type-eyebrow text-(--danger)">Not a pentest suite</p>
           <p className="mt-1 text-sm leading-snug text-(--muted)">
             Killhub does not weaponize CVEs or run generic app/web exploit
-            packs. Containment proves isolation - it is not CVE hunting.
+            packs. Containment proves isolation – it is not CVE hunting.
           </p>
         </footer>
       </div>
     </figure>
+  );
+}
+
+function Recovery() {
+  return (
+    <ul
+      className="m-0 grid list-none gap-3 p-0 sm:grid-cols-2 lg:grid-cols-4"
+      aria-label="How Killhub recovers from failures"
+    >
+      {RECOVERY.map((item) => (
+        <li
+          key={item.label}
+          className="flex flex-col gap-1.5 rounded-lg border border-(--line) bg-(--paper-deep)/60 p-4"
+        >
+          <span className="text-sm font-semibold tracking-tight text-(--ink)">
+            {item.label}
+          </span>
+          <span className="text-sm leading-snug text-(--muted)">
+            {item.detail}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -492,7 +551,7 @@ export function MarketingDiagrams() {
     <div className="flex flex-col gap-4 pb-8 pt-6">
       <Section
         title="Why sandbox"
-        support="An agent that only chats is a demo. An agent that executes safely - then destroys the environment - is a product."
+        support="An agent that only chats is a demo. An agent that executes safely – then destroys the environment – is a product."
         delay={40}
       >
         <ProblemFork />
@@ -506,22 +565,29 @@ export function MarketingDiagrams() {
       </Section>
       <Section
         title="Two planes"
-        support="Control plane plans and verifies. Plane 2 executes. Hard boundary - untrusted code never runs as a privileged host process."
+        support="Control plane plans and verifies. Plane 2 executes. Hard boundary – untrusted code never runs as a privileged host process."
         delay={120}
       >
         <TwoPlanes />
       </Section>
       <Section
-        title="Evidence Killhub collects"
-        support="Five probe classes on every job path that reaches prove - plus an explicit line on what Killhub does not run."
+        title="What Killhub checks"
+        support="Every job that gets as far as running the repo collects this evidence – plus an explicit line on what Killhub does not do."
         delay={160}
       >
         <EvidenceClasses />
       </Section>
       <Section
+        title="Built to recover"
+        support="Sandboxes die, hosts restart, people cancel. Each case ends with an honest result and no VM left behind."
+        delay={180}
+      >
+        <Recovery />
+      </Section>
+      <Section
         title="What “done” looks like"
-        support="Judges and operators see executed results: readiness, stills, containment absorption, cited advisories, and a durable receipt after destroy."
-        delay={200}
+        support="Executed results, not descriptions: readiness, an install trace, containment, cited advisories – and a receipt that stays after the VM is gone."
+        delay={220}
       >
         <SecurityScope />
       </Section>

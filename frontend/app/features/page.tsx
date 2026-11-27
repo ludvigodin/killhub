@@ -18,10 +18,11 @@ export default function FeaturesPage() {
         <SiteNav />
         <header className="pb-2 pt-4 sm:pt-6">
           <p className="type-eyebrow mb-2 text-(--accent)">Features</p>
-          <h1 className="type-page-title mb-2">Pattern A on Vultr</h1>
-          <p className="max-w-xl text-base leading-relaxed text-(--muted)">
-            How Killhub plans, sandboxes, proves, and destroys - readiness,
-            isolation probes, and cited risk behind a hard plane boundary.
+          <h1 className="type-page-title mb-2">How Killhub runs a repo</h1>
+          <p className="max-w-2xl text-base leading-relaxed text-(--muted)">
+            Paste a public repo. Killhub plans how to run it, runs it in a
+            disposable microVM on Vultr, records what it actually did, and
+            destroys the VM – leaving a receipt you can check.
           </p>
         </header>
         <MarketingDiagrams />
