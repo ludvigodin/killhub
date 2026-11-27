@@ -42,6 +42,19 @@ export type JobListResponse = {
   offset: number;
 };
 
+export type RepoSummary = {
+  github_url: string;
+  run_count: number;
+  latest: JobSummary;
+};
+
+export type RepoListResponse = {
+  repos: RepoSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 type ReadinessInfo = {
   passed?: boolean;
   probe?: string;
@@ -162,11 +175,15 @@ export async function createJob(githubUrl: string): Promise<CreateJobResponse> {
 export async function listJobs(
   limit = 9,
   offset = 0,
+  githubUrl?: string,
 ): Promise<JobListResponse> {
   const params = new URLSearchParams({
     limit: String(limit),
     offset: String(Math.max(0, offset)),
   });
+  if (githubUrl) {
+    params.set("github_url", githubUrl);
+  }
   const res = await fetch(`/api/jobs?${params.toString()}`, {
     headers: { Accept: "application/json" },
     cache: "no-store",
@@ -180,6 +197,33 @@ export async function listJobs(
   }
   return {
     jobs: Array.isArray(body.jobs) ? body.jobs : [],
+    total: typeof body.total === "number" ? body.total : 0,
+    limit: typeof body.limit === "number" ? body.limit : limit,
+    offset: typeof body.offset === "number" ? body.offset : offset,
+  };
+}
+
+export async function listRepos(
+  limit = 9,
+  offset = 0,
+): Promise<RepoListResponse> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(Math.max(0, offset)),
+  });
+  const res = await fetch(`/api/repos?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  const body = await parseJson<RepoListResponse & ApiError>(res);
+  if (!res.ok) {
+    throw Object.assign(new Error(body.error || "list failed"), {
+      code: body.code || "error",
+      status: res.status,
+    });
+  }
+  return {
+    repos: Array.isArray(body.repos) ? body.repos : [],
     total: typeof body.total === "number" ? body.total : 0,
     limit: typeof body.limit === "number" ? body.limit : limit,
     offset: typeof body.offset === "number" ? body.offset : offset,

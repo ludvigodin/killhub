@@ -119,6 +119,21 @@ export function ownerRepoFromGithubUrl(raw: string): string | null {
   return parsed.pathSegments.join("/");
 }
 
+/** App path for the repo history page, e.g. `/repos/github.com/org/repo`. */
+export function repoPathFromGithubUrl(raw: string): string | null {
+  const parsed = parsePublicGitUrl(raw);
+  if (!parsed) return null;
+  return `/repos/${parsed.host}/${parsed.pathSegments.join("/")}`;
+}
+
+/** Reconstruct canonical git URL from `/repos/[...slug]` segments. */
+export function githubUrlFromRepoSlug(slug: string[]): string | null {
+  if (slug.length < 3) return null;
+  const joined = slug.map((s) => s.trim()).filter(Boolean);
+  if (joined.length < 3) return null;
+  return parsePublicGitUrl(`https://${joined.join("/")}`)?.url ?? null;
+}
+
 /** Split textarea / paste input into candidate URL lines (trim, drop blanks). */
 export function parseGithubUrlLines(raw: string): string[] {
   const seen = new Set<string>();

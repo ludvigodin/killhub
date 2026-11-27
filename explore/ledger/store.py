@@ -232,18 +232,84 @@ class Ledger:
         """Newest-first job rows for the public feed (D69 / D77)."""
         capped = max(1, min(int(limit), 200))
         skip = max(0, int(offset))
-        # created_at is second-precision; tie-break with insertion order (rowid)
-        # so same-second creates stay newest-first. Postgres uses ctid.
-        order = (
-            "ORDER BY created_at DESC, ctid DESC"
-            if getattr(self._conn, "engine", "sqlite") == "postgres"
-            else "ORDER BY created_at DESC, rowid DESC"
-        )
+        order = self._jobs_newest_order()
         rows = self._conn.execute(
             f"SELECT * FROM jobs {order} LIMIT ? OFFSET ?",
             (capped, skip),
         ).fetchall()
         return [self._row_to_job(r) for r in rows]
+
+    def count_repos(self) -> int:
+        """Distinct canonical github_url values in the ledger (D79)."""
+        row = self._conn.execute("SELECT COUNT(DISTINCT github_url) AS n FROM jobs").fetchone()
+        if row is None:
+            return 0
+        return int(row["n"])
+
+    def list_recent_repos(self, *, limit: int = 48, offset: int = 0) -> list[tuple[Job, int]]:
+        """One latest job per github_url, newest activity first (D79).
+
+        Returns ``(latest_job, run_count)`` tuples.
+        """
+        capped = max(1, min(int(limit), 200))
+        skip = max(0, int(offset))
+        tie = self._jobs_tie_break_col()
+        # Window over partition: rn=1 is the newest run; run_count is all runs.
+        # Explicitly project the tie-break col — SELECT * omits SQLite rowid /
+        # Postgres ctid, so the outer ORDER BY would fail without it.
+        sql = f"""
+            WITH ranked AS (
+                SELECT jobs.*,
+                    jobs.{tie} AS _tie,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY github_url
+                        ORDER BY created_at DESC, {tie} DESC
+                    ) AS rn,
+                    COUNT(*) OVER (PARTITION BY github_url) AS run_count
+                FROM jobs
+            )
+            SELECT * FROM ranked
+            WHERE rn = 1
+            ORDER BY created_at DESC, _tie DESC
+            LIMIT ? OFFSET ?
+        """
+        rows = self._conn.execute(sql, (capped, skip)).fetchall()
+        out: list[tuple[Job, int]] = []
+        for row in rows:
+            out.append((self._row_to_job(row), int(row["run_count"])))
+        return out
+
+    def count_jobs_for_url(self, github_url: str) -> int:
+        """Jobs for one canonical github_url (D79)."""
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM jobs WHERE github_url = ?",
+            (github_url,),
+        ).fetchone()
+        if row is None:
+            return 0
+        return int(row["n"])
+
+    def list_jobs_for_url(self, github_url: str, *, limit: int = 48, offset: int = 0) -> list[Job]:
+        """Newest-first jobs for one canonical github_url (D79)."""
+        capped = max(1, min(int(limit), 200))
+        skip = max(0, int(offset))
+        order = self._jobs_newest_order()
+        rows = self._conn.execute(
+            f"SELECT * FROM jobs WHERE github_url = ? {order} LIMIT ? OFFSET ?",
+            (github_url, capped, skip),
+        ).fetchall()
+        return [self._row_to_job(r) for r in rows]
+
+    def _jobs_tie_break_col(self) -> str:
+        # created_at is second-precision; tie-break with insertion order (rowid)
+        # so same-second creates stay newest-first. Postgres uses ctid.
+        if getattr(self._conn, "engine", "sqlite") == "postgres":
+            return "ctid"
+        return "rowid"
+
+    def _jobs_newest_order(self) -> str:
+        tie = self._jobs_tie_break_col()
+        return f"ORDER BY created_at DESC, {tie} DESC"
 
     def get_snapshot(self, job_id: str) -> dict[str, Any] | None:
         """Public Jobs API snapshot shape (API.md)."""

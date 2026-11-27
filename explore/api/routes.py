@@ -21,6 +21,7 @@ from service import (
     create_job,
     get_public_snapshot,
     list_jobs_page,
+    list_repos_page,
 )
 
 router = APIRouter(
@@ -71,9 +72,25 @@ def post_job(
 def list_jobs(
     limit: int = Query(default=48, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    github_url: Optional[str] = Query(default=None),
 ) -> Dict[str, Any]:
-    """Recent jobs newest-first for the public feed (D69 / D77)."""
-    return list_jobs_page(limit=limit, offset=offset)
+    """Recent jobs newest-first (D69 / D77). Optional github_url filter (D79)."""
+    filtered: Optional[str] = None
+    if github_url is not None and github_url.strip():
+        try:
+            filtered = validate_github_url(github_url)
+        except ValueError as exc:
+            raise _error(400, str(exc), "invalid_url") from exc
+    return list_jobs_page(limit=limit, offset=offset, github_url=filtered)
+
+
+@router.get("/repos")
+def list_repos(
+    limit: int = Query(default=48, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> Dict[str, Any]:
+    """Distinct github_url groups for the home feed (D79)."""
+    return list_repos_page(limit=limit, offset=offset)
 
 
 @router.get("/jobs/{job_id}")

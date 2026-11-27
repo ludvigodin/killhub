@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { type JobSummary, listJobs } from "@/lib/api";
+import { listRepos, type RepoSummary } from "@/lib/api";
+import { repoPathFromGithubUrl } from "@/lib/github";
 import { type BatchResult, BatchUrlForm } from "./BatchUrlForm";
 import { JobEntryCard } from "./JobEntryCard";
 
@@ -9,19 +10,19 @@ const POLL_MS = 4000;
 const PAGE_SIZE = 9;
 
 export function JobFeed() {
-  const [jobs, setJobs] = useState<JobSummary[]>([]);
+  const [repos, setRepos] = useState<RepoSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
-  const jobsRef = useRef(jobs);
-  jobsRef.current = jobs;
+  const reposRef = useRef(repos);
+  reposRef.current = repos;
 
   const offset = page * PAGE_SIZE;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const from = total === 0 ? 0 : offset + 1;
-  const to = Math.min(offset + jobs.length, total);
+  const to = Math.min(offset + repos.length, total);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reloadToken refreshes after batch create
   useEffect(() => {
@@ -29,9 +30,9 @@ export function JobFeed() {
 
     async function load() {
       try {
-        const next = await listJobs(PAGE_SIZE, offset);
+        const next = await listRepos(PAGE_SIZE, offset);
         if (cancelled) return;
-        setJobs(next.jobs);
+        setRepos(next.repos);
         setTotal(next.total);
         setError(null);
         // If the current page is past the end (jobs deleted / pruned), snap back.
@@ -43,7 +44,7 @@ export function JobFeed() {
         if (cancelled) return;
         const e = err as Error;
         // Keep the last good feed; only surface the error when empty.
-        if (jobsRef.current.length === 0) {
+        if (reposRef.current.length === 0) {
           setError(e.message || "Could not load jobs");
         }
       } finally {
@@ -108,7 +109,7 @@ export function JobFeed() {
 
         {error ? <p className="text-sm text-[#9b2c2c]">{error}</p> : null}
 
-        {!loading && jobs.length === 0 ? (
+        {!loading && repos.length === 0 ? (
           <div className="rounded-lg border border-dashed border-(--line) bg-white/40 px-6 py-16 text-center">
             <p
               className="mb-2 text-2xl font-semibold tracking-tight"
@@ -126,9 +127,20 @@ export function JobFeed() {
         ) : (
           <>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {jobs.map((job, i) => (
-                <JobEntryCard key={job.job_id} job={job} index={i} />
-              ))}
+              {repos.map((repo, i) => {
+                const href =
+                  repoPathFromGithubUrl(repo.github_url) ??
+                  `/jobs/${encodeURIComponent(repo.latest.job_id)}`;
+                return (
+                  <JobEntryCard
+                    key={repo.github_url}
+                    job={repo.latest}
+                    index={i}
+                    href={href}
+                    runCount={repo.run_count}
+                  />
+                );
+              })}
             </div>
             {total > PAGE_SIZE ? (
               <nav

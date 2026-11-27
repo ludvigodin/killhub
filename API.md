@@ -34,7 +34,8 @@ Frozen **before** implementing N1/E1. Not public. Base URL e.g. `http://127.0.0.
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/internal/jobs` | Create job `{ github_url }` → `{ job_id }` (admission applied here or in Next before proxy) |
-| `GET` | `/internal/jobs` | Recent job **summaries** newest-first (`?limit=` default 48 max 200, `?offset=` default 0) with `total` for the public feed (D69, D77) |
+| `GET` | `/internal/jobs` | Recent job **summaries** newest-first (`?limit=` default 48 max 200, `?offset=` default 0, optional `?github_url=` exact filter) with `total` (D69, D77, D79) |
+| `GET` | `/internal/repos` | Distinct **`github_url` groups** newest activity first (`?limit=` / `?offset=`) with `total` for the home feed (D79) |
 | `GET` | `/internal/jobs/{id}` | Full snapshot (same shape as public GET) |
 | `GET` | `/internal/jobs/{id}/events` | SSE (same event model as public) |
 | `DELETE` | `/internal/jobs/{id}` | Cancel (idempotent finalizer path — D61) |
@@ -42,7 +43,7 @@ Frozen **before** implementing N1/E1. Not public. Base URL e.g. `http://127.0.0.
 | `GET` | `/internal/jobs/{id}/screenshots/{shot_id}` | Bytes |
 | `GET` | `/internal/health` | Sidecar + ledger liveness |
 
-Next.js public `/api/jobs*` and `/health` **proxy** to these routes (mapping `/health` → sidecar + self). Next.js must not maintain a parallel job store.
+Next.js public `/api/jobs*`, `/api/repos`, and `/health` **proxy** to these routes (mapping `/health` → sidecar + self). Next.js must not maintain a parallel job store.
 
 ---
 
@@ -50,7 +51,7 @@ Next.js public `/api/jobs*` and `/health` **proxy** to these routes (mapping `/h
 
 ### `GET /api/jobs`
 
-Recent job summaries for the home feed (D69 / D77). Newest first. Server-side pagination via `limit` + `offset`.
+Recent job summaries (D69 / D77). Newest first. Server-side pagination via `limit` + `offset`. Optional `github_url` filters to runs for one canonical repo (D79 — used by `/repos/…` history).
 
 **Query**
 
@@ -58,6 +59,7 @@ Recent job summaries for the home feed (D69 / D77). Newest first. Server-side pa
 |-------|---------|-----|---------|
 | `limit` | `48` | `200` | Page size |
 | `offset` | `0` | — | Rows to skip (newest-first) |
+| `github_url` | — | — | Exact match on canonical allowlisted git URL (D78); `400` / `invalid_url` if invalid |
 
 **Response `200`**
 
@@ -84,7 +86,51 @@ Recent job summaries for the home feed (D69 / D77). Newest first. Server-side pa
 }
 ```
 
-`total` is the full job count in the ledger (not just the page). `screenshot_id` is the latest still when present; otherwise `null`. `screenshot_url` is an absolute Vultr CDN URL when Object Storage + `OBJECT_STORAGE_CDN_BASE_URL` are configured (D76); otherwise the relative `/api/jobs/{id}/screenshots/{screenshot_id}` path when a still exists; otherwise `null`. Full dossier stays on `GET /api/jobs/{id}`.
+`total` is the matching job count in the ledger (all jobs, or filtered to `github_url`). `screenshot_id` is the latest still when present; otherwise `null`. `screenshot_url` is an absolute Vultr CDN URL when Object Storage + `OBJECT_STORAGE_CDN_BASE_URL` are configured (D76); otherwise the relative `/api/jobs/{id}/screenshots/{screenshot_id}` path when a still exists; otherwise `null`. Full dossier stays on `GET /api/jobs/{id}`.
+
+---
+
+### `GET /api/repos`
+
+Repo-grouped feed for the home Entries grid (D79). One row per distinct canonical `github_url`, ordered by most recent run. Server-side pagination via `limit` + `offset`.
+
+**Query**
+
+| Param | Default | Max | Purpose |
+|-------|---------|-----|---------|
+| `limit` | `48` | `200` | Page size |
+| `offset` | `0` | — | Groups to skip (newest activity first) |
+
+**Response `200`**
+
+```json
+{
+  "repos": [
+    {
+      "github_url": "https://github.com/org/repo",
+      "run_count": 3,
+      "latest": {
+        "job_id": "…",
+        "github_url": "https://github.com/org/repo",
+        "status": "completed",
+        "progress": 100,
+        "current_step": "…",
+        "created_at": "…",
+        "updated_at": "…",
+        "screenshot_id": "…",
+        "screenshot_url": "/api/jobs/…/screenshots/…",
+        "error": null,
+        "verification": null
+      }
+    }
+  ],
+  "total": 42,
+  "limit": 9,
+  "offset": 0
+}
+```
+
+`total` is `COUNT(DISTINCT github_url)`. `latest` uses the same summary shape as `GET /api/jobs`. UI links each card to `/repos/{host}/{…path}` (e.g. `/repos/github.com/org/repo`), which lists runs via `GET /api/jobs?github_url=…`.
 
 ---
 

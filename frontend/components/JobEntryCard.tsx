@@ -38,9 +38,18 @@ function GithubIcon({ className }: { className?: string }) {
 type JobEntryCardProps = {
   job: JobSummary;
   index?: number;
+  /** Override card link (repo history vs single job). */
+  href?: string;
+  /** When > 1, show how many runs exist for this repo. */
+  runCount?: number;
 };
 
-export function JobEntryCard({ job, index = 0 }: JobEntryCardProps) {
+export function JobEntryCard({
+  job,
+  index = 0,
+  href,
+  runCount,
+}: JobEntryCardProps) {
   const title = ownerRepoFromGithubUrl(job.github_url) ?? job.github_url;
   const initial =
     (title.split("/")[1] ?? title).slice(0, 1).toUpperCase() || "K";
@@ -52,6 +61,13 @@ export function JobEntryCard({ job, index = 0 }: JobEntryCardProps) {
         : null;
   const delay = Math.min(index, 12) * 40;
   const githubHref = job.github_url;
+  const cardHref = href ?? `/jobs/${encodeURIComponent(job.job_id)}`;
+  const runsLabel =
+    runCount != null && runCount > 1
+      ? `${runCount} runs`
+      : runCount === 1
+        ? "1 run"
+        : null;
 
   return (
     <article
@@ -59,9 +75,11 @@ export function JobEntryCard({ job, index = 0 }: JobEntryCardProps) {
       style={{ animationDelay: `${delay}ms` }}
     >
       <Link
-        href={`/jobs/${encodeURIComponent(job.job_id)}`}
+        href={cardHref}
         className="flex flex-1 flex-col no-underline outline-offset-[-2px]"
-        aria-label={`Open job ${title}`}
+        aria-label={
+          runsLabel ? `Open history for ${title}` : `Open job ${title}`
+        }
       >
         <div className="relative aspect-16/10 overflow-hidden bg-(--paper-deep)">
           {shot ? (
@@ -113,6 +131,7 @@ export function JobEntryCard({ job, index = 0 }: JobEntryCardProps) {
             {job.current_step || "Waiting…"}
           </p>
           <p className="mt-auto pr-8 text-xs tracking-wide text-(--muted)">
+            {runsLabel ? `${runsLabel} · ` : null}
             {relativeTime(job.created_at)}
           </p>
         </div>

@@ -17,11 +17,15 @@ export async function GET(request: Request) {
   const params = new URLSearchParams();
   const limit = url.searchParams.get("limit");
   const offset = url.searchParams.get("offset");
+  const githubUrl = url.searchParams.get("github_url");
   if (limit != null && limit.length > 0) {
     params.set("limit", limit);
   }
   if (offset != null && offset.length > 0) {
     params.set("offset", offset);
+  }
+  if (githubUrl != null && githubUrl.length > 0) {
+    params.set("github_url", githubUrl);
   }
   const qs = params.toString();
   const path = qs.length > 0 ? `/internal/jobs?${qs}` : "/internal/jobs";
