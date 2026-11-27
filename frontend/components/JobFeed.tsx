@@ -81,11 +81,11 @@ export function JobFeed() {
           <KillhubLogo size={64} />
         </div>
         <h1 className="type-display mx-auto mb-3 max-w-2xl text-2xl font-semibold tracking-tight text-(--ink) sm:text-3xl">
-          Plan → sandboxed execution → verifiable output → destroy
+          Pull. Penetrate. Destroy.
         </h1>
         <p className="mx-auto mb-8 max-w-xl text-base leading-relaxed text-(--muted)">
-          Paste a public git URL. The agent plans, runs real work in a
-          Microsandbox, returns evidence - then destroys the VM.
+          Hot repos in your area are looking for a one-run stand. Drop a public
+          Git URL. We bring the sandbox and clean up afterward.
         </p>
         <BatchUrlForm onCreated={onCreated} />
       </header>
