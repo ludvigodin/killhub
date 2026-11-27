@@ -307,11 +307,16 @@ async function parseJson<T>(res: Response): Promise<T> {
   }
 }
 
-export async function createJob(githubUrl: string): Promise<CreateJobResponse> {
+export async function createJob(
+  target: string | { fixture_id: string },
+): Promise<CreateJobResponse> {
   const res = await fetch("/api/jobs", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ github_url: githubUrl }),
+    // Existing GitHub callers keep the same wire payload.
+    body: JSON.stringify(
+      typeof target === "string" ? { github_url: target } : target,
+    ),
   });
   const body = await parseJson<CreateJobResponse & ApiError>(res);
   if (!res.ok) {

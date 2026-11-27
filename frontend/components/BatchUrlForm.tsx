@@ -85,7 +85,13 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
         }
         try {
           const cleaned = validateGithubUrl(raw);
-          const { job_id } = await createJob(cleaned);
+          // Catalog URLs submit their registered ID so the worker owns pin selection.
+          const fixture = catalog?.fixtures.find(
+            (item) => item.github_url === cleaned,
+          );
+          const { job_id } = await createJob(
+            fixture ? { fixture_id: fixture.id } : cleaned,
+          );
           out.push({ url: cleaned, ok: true, job_id });
         } catch (err) {
           const e = err as Error & { code?: string; status?: number };
