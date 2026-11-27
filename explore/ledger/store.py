@@ -542,6 +542,23 @@ class Ledger:
             ).fetchall()
         return [self._row_to_event(r) for r in rows]
 
+    def list_events_recent(self, job_id: str, *, limit: int = 50) -> list[JobEvent]:
+        """Last N durable events for a job, returned in ascending event_id order."""
+        capped = max(1, min(int(limit), 200))
+        rows = self._conn.execute(
+            """
+            SELECT * FROM (
+                SELECT * FROM job_events
+                WHERE job_id = ?
+                ORDER BY CAST(event_id AS INTEGER) DESC
+                LIMIT ?
+            ) recent
+            ORDER BY CAST(event_id AS INTEGER) ASC
+            """,
+            (job_id, capped),
+        ).fetchall()
+        return [self._row_to_event(r) for r in rows]
+
     def retained_event_bytes(self, job_id: str) -> int:
         row = self._conn.execute(
             "SELECT COALESCE(SUM(byte_size), 0) AS total FROM job_events WHERE job_id = ?",

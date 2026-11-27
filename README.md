@@ -223,7 +223,7 @@ Operators, security-minded engineers, and internal teams who need to quickly and
 
 **Use the product:** [https://killhub.pro](https://killhub.pro)
 
-**Use it from an MCP client (Cursor / Claude):** point stdio at `explore/operator_mcp.py` (D81). Tools: `create_job`, `get_job`, `list_jobs`, `list_repos`, `cancel_job`, `wait_job` — same public Jobs API as the UI. See [API.md](API.md)#operator-mcp-d81.
+**Use it from an MCP client (Cursor / Claude):** stdio `explore/operator_mcp.py` or HTTP `https://killhub.pro/mcp` (D81). Prefer `create_and_wait` / `get_receipt` / `run_fixture`; same public Jobs API as the UI. See [API.md](API.md)#operator-mcp-d81.
 
 ```bash
 cd explore
@@ -262,8 +262,10 @@ cd explore
 | `POST` | `/api/jobs` | Create `{ github_url }` → `{ job_id }` |
 | `GET` | `/api/jobs/{id}` | Snapshot |
 | `GET` | `/api/jobs/{id}/events` | SSE stream |
+| `GET` | `/api/jobs/{id}/events/recent` | Last N durable events (MCP `tail_events`) |
 | `GET` | `/api/jobs/{id}/screenshots` | Timeline (may be empty) |
 | `DELETE` | `/api/jobs/{id}` | Cancel + destroy |
+| `POST`/`GET` | `/mcp` | Operator MCP JSON-RPC (D81) |
 | `GET` | `/health` | Liveness |
 
 Full contracts: [API.md](API.md). Config and admission caps: [ARCHITECTURE.md](ARCHITECTURE.md) · [`.env.example`](.env.example).

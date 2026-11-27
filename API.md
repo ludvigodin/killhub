@@ -19,7 +19,7 @@ flowchart LR
 | Path | Protocol | Auth (v1) |
 |------|----------|-----------|
 | Browser → Next.js | HTTPS ([killhub.pro](https://killhub.pro)) | None (public demo) + admission (D40); edge bind `127.0.0.1` behind proxy on demo (D46) |
-| **Operator MCP → Next.js** | stdio MCP client → HTTP public `/api/*` ([D81](DECISIONS.md)) | Same as browser (anonymous + admission); optional `KILLHUB_API_TOKEN` Bearer |
+| **Operator MCP → Next.js** | stdio MCP and/or public `POST /mcp` → tools call `/api/*` ([D81](DECISIONS.md)) | Same as browser (anonymous + admission); optional `KILLHUB_API_TOKEN` Bearer |
 | Next.js → `explore/` | HTTP localhost Internal Worker API | Loopback + `INTERNAL_API_TOKEN` (D52) |
 | Control plane → Vultr API | HTTPS | `VULTR_API_KEY` on Plane 1 server only |
 | Control plane → Plane 2 | Microsandbox `msb` / SDK on VX1 | Host access for harness; network policy (D39) |
@@ -40,12 +40,14 @@ Frozen **before** implementing N1/E1. Not public. Base URL e.g. `http://127.0.0.
 | `GET` | `/internal/repos` | Distinct **`github_url` groups** newest activity first (`?limit=` / `?offset=`) with `total` for the home feed (D79) |
 | `GET` | `/internal/jobs/{id}` | Full snapshot (same shape as public GET) |
 | `GET` | `/internal/jobs/{id}/events` | SSE (same event model as public) |
+| `GET` | `/internal/jobs/{id}/events/recent` | Last N durable events JSON (`?limit=` default 50 max 200) — D81 |
 | `DELETE` | `/internal/jobs/{id}` | Cancel (idempotent finalizer path — D61) |
 | `GET` | `/internal/jobs/{id}/screenshots` | Timeline |
 | `GET` | `/internal/jobs/{id}/screenshots/{shot_id}` | Bytes |
+| `GET`/`POST` | `/internal/mcp` | Operator MCP JSON-RPC (D81); tools still target public Jobs API via `KILLHUB_BASE_URL` |
 | `GET` | `/internal/health` | Sidecar + ledger liveness |
 
-Next.js public `/api/jobs*`, `/api/repos`, and `/health` **proxy** to these routes (mapping `/health` → sidecar + self). Next.js must not maintain a parallel job store.
+Next.js public `/api/jobs*`, `/api/repos`, `/mcp`, and `/health` **proxy** to these routes (mapping `/health` → sidecar + self). Next.js must not maintain a parallel job store.
 
 ---
 
@@ -368,25 +370,43 @@ Vultr Serverless Inference only (D25). Trusted OpenCode config (D38). Prompts un
 
 ---
 
+### `GET /api/jobs/{id}/events/recent`
+
+Last N durable events for a job (ascending `event_id`). Used by operator MCP `tail_events` (D81). Does not replace SSE.
+
+**Query:** `limit` default `50`, max `200`.
+
+**Response `200`:** `{ job_id, limit, events: [{ event_id, type, message, payload, timestamp }] }`.
+
+---
+
 ## Operator MCP (D81)
 
-Stdio MCP server: [`explore/operator_mcp.py`](explore/operator_mcp.py). Wraps the **public** Jobs API — not `killhub-harness`.
+Shared tools: [`explore/operator_mcp_tools.py`](explore/operator_mcp_tools.py). Stdio: [`explore/operator_mcp.py`](explore/operator_mcp.py). HTTP: public **`POST /mcp`** → explore `/internal/mcp`. Wraps the **public** Jobs API — not `killhub-harness`. Prefer slim tools (`get_job_status`, `get_receipt`, `create_and_wait`) over verbose `get_job`.
 
 | Env | Default | Purpose |
 |-----|---------|---------|
 | `KILLHUB_BASE_URL` | `https://killhub.pro` | Plane 1 edge origin (local: `http://127.0.0.1:3000`) |
 | `KILLHUB_API_TOKEN` | empty | Optional `Authorization: Bearer` (unused on anonymous demo) |
 
-| Tool | Maps to |
-|------|---------|
+| Tool | Maps to / behavior |
+|------|-------------------|
 | `create_job` | `POST /api/jobs` |
-| `get_job` | `GET /api/jobs/{id}` |
-| `list_jobs` | `GET /api/jobs` |
-| `list_repos` | `GET /api/repos` |
+| `create_jobs` | Up to 5 creates; per-URL `job_id` or error |
+| `create_and_wait` | Create + poll (default 900s) → slim receipt or soft-timeout status |
+| `get_job` | Full snapshot (verbose) |
+| `get_job_status` | Slim status + `done` + `ui_url` |
+| `get_receipt` | Slim verification / readiness / findings |
+| `list_jobs` / `list_repos` | Feed list endpoints |
+| `list_fixtures` / `run_fixture` | Public M7 fixtures from `explore/fixtures/m7.json` |
 | `cancel_job` | `DELETE /api/jobs/{id}` |
-| `wait_job` | Poll `get_job` until `completed` \| `failed` \| `cancelled` or timeout |
+| `wait_job` | Soft timeout (default 60s) → slim status/`done` |
+| `tail_events` | `GET /api/jobs/{id}/events/recent` |
+| `list_screenshots` | Screenshot urls + `killhub://…` resource URIs |
 
-Cursor example (stdio):
+Resources: `resources/read` on `killhub://jobs/{job_id}/screenshots/{shot_id}` returns the public screenshot URL as `text/uri-list` (not image bytes).
+
+Cursor (stdio):
 
 ```json
 {
@@ -395,9 +415,19 @@ Cursor example (stdio):
       "command": "/absolute/path/to/killhub/explore/.venv/bin/python",
       "args": ["-m", "operator_mcp"],
       "cwd": "/absolute/path/to/killhub/explore",
-      "env": {
-        "KILLHUB_BASE_URL": "https://killhub.pro"
-      }
+      "env": { "KILLHUB_BASE_URL": "https://killhub.pro" }
+    }
+  }
+}
+```
+
+Cursor (HTTP):
+
+```json
+{
+  "mcpServers": {
+    "killhub": {
+      "url": "https://killhub.pro/mcp"
     }
   }
 }

@@ -151,7 +151,10 @@ cd explore
 KILLHUB_BASE_URL=http://127.0.0.1:3000 .venv/bin/python -m operator_mcp
 ```
 
-Add a stdio MCP server in Cursor (cwd = `explore/`, command = `.venv/bin/python`, args = `["-m", "operator_mcp"]`). Default `KILLHUB_BASE_URL` is `https://killhub.pro`. This is **not** `killhub-harness` (agent → sandbox). Contract: [API.md](API.md)#operator-mcp-d81.
+- **Stdio:** Cursor MCP server cwd = `explore/`, command = `.venv/bin/python`, args = `["-m", "operator_mcp"]`.
+- **HTTP:** `{ "url": "https://killhub.pro/mcp" }` (or local `http://127.0.0.1:3000/mcp`). Explore must set `KILLHUB_BASE_URL` to the public edge origin so tool calls still hit admission-gated `/api/jobs`.
+
+Agent-shaped tools include `create_and_wait`, `get_receipt`, `run_fixture`, `tail_events`. This is **not** `killhub-harness` (agent → sandbox). Contract: [API.md](API.md)#operator-mcp-d81.
 
 ### B. Docker Compose
 

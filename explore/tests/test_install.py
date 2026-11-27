@@ -297,6 +297,8 @@ def test_repair_retries_install_failures(monkeypatch: pytest.MonkeyPatch) -> Non
         "install.probe_offline_egress",
         lambda *a, **k: {"classification": "policy_denied"},
     )
+    # D80: install checks sandbox_alive between repairs; keep VM "alive" for this unit test.
+    monkeypatch.setattr("selfheal.sandbox_alive", lambda *a, **k: True)
 
     result = provision_and_go_offline(job_id, settings=get_settings())
     assert attempts["n"] == 2

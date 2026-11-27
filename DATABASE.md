@@ -156,7 +156,7 @@ erDiagram
 
 ## JobEvent
 
-Append-only timeline (SSE source of truth). **Must be durable** in the ledger (D41). Retained per `EVENT_RETENTION` (D55) with contiguous byte-budget pruning (D67).
+Append-only timeline (SSE source of truth). **Must be durable** in the ledger (D41). Retained per `EVENT_RETENTION` (D55) with contiguous byte-budget pruning (D67). Operator MCP / clients may also peek the **last N** retained events via `GET …/events/recent` (D81) without opening SSE.
 
 | Field | Type | Rules |
 |-------|------|-------|

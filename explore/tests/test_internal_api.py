@@ -86,6 +86,49 @@ def test_ordinary_writers_rejected_after_cancel(
         pass
 
 
+def test_events_recent_last_n(client: TestClient, auth_header: dict[str, str]) -> None:
+    from jobs import get_ledger
+
+    create = client.post(
+        "/internal/jobs",
+        headers=auth_header,
+        json={"github_url": "https://github.com/heroku/node-js-getting-started"},
+    )
+    job_id = create.json()["job_id"]
+    ledger = get_ledger()
+    for i in range(5):
+        ledger.append_event(job_id, typ="log", message=f"m{i}", payload={"i": i})
+
+    res = client.get(
+        f"/internal/jobs/{job_id}/events/recent",
+        headers=auth_header,
+        params={"limit": 3},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["job_id"] == job_id
+    assert len(body["events"]) == 3
+    expected = ledger.list_events(job_id)[-3:]
+    assert [e["message"] for e in body["events"]] == [e.message for e in expected]
+    ids = [int(e["event_id"]) for e in body["events"]]
+    assert ids == sorted(ids)
+
+
+def test_operator_mcp_initialize(client: TestClient, auth_header: dict[str, str]) -> None:
+    res = client.post(
+        "/internal/mcp",
+        headers=auth_header,
+        json={"jsonrpc": "2.0", "id": 1, "method": "initialize"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["result"]["serverInfo"]["name"] == "killhub"
+
+    info = client.get("/internal/mcp", headers=auth_header)
+    assert info.status_code == 200
+    assert info.json()["transport"] == "json-rpc"
+
+
 def test_cursor_expired_returns_410(client: TestClient, auth_header: dict[str, str]) -> None:
     create = client.post(
         "/internal/jobs",
