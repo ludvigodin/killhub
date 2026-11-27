@@ -65,7 +65,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
     setBatchError(null);
     const urls = parseGithubUrlLines(text);
     if (urls.length === 0) {
-      setBatchError("Paste a public git URL.");
+      setBatchError("Paste a public HTTPS GitHub repository URL.");
       return;
     }
 
@@ -77,8 +77,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
           out.push({
             url: raw,
             ok: false,
-            error:
-              "Must be a public HTTPS git URL on github.com, gitlab.com, bitbucket.org, or codeberg.org",
+            error: "URL must be a public HTTPS GitHub repository",
             code: "invalid_url",
             status: 400,
           });
@@ -122,7 +121,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
     <div className="w-full">
       <form className="flex w-full flex-col gap-3" onSubmit={onSubmit}>
         <label className="sr-only" htmlFor="github-urls">
-          Public git repository URL
+          Public HTTPS GitHub repository URL
         </label>
         <div className="mx-auto flex w-full max-w-md flex-wrap items-stretch gap-2 sm:flex-nowrap">
           <input
@@ -181,7 +180,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
       )}
       {invalidPreview.length > 0 ? (
         <p className="mt-2 text-center text-sm text-(--muted)">
-          That URL doesn&apos;t look valid yet.
+          Enter a public HTTPS GitHub repository URL.
         </p>
       ) : null}
       {batchError ? <ErrorBanner message={batchError} /> : null}

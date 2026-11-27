@@ -12,7 +12,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from profile import (
+    CGROUP_LIMITS,
     GUEST_REPO_ROOT,
+    SCHEMA_VERSION,
     ProfileError,
     bootstrap_profile,
     persist_profile_revision,
@@ -351,11 +353,21 @@ def infer_runtime_profile(
             code="setup_failed_fixture",
         )
 
-    source = {
-        "type": "git",
-        "url": github_url,
-        "commit": commit,
-        "ref": (fixture or {}).get("ref") or "HEAD",
+    base = {
+        "schema_version": SCHEMA_VERSION,
+        "source": {
+            "type": "github_repo",
+            "url": github_url,
+            "commit": commit,
+            "ref": (fixture or {}).get("ref") or "HEAD",
+        },
+        "os_image": "linux",
+        "oci_image": oci_image,
+        "workdir": GUEST_REPO_ROOT,
+        "services": [],
+        # These fields declare the policy requested for the workload.
+        "network_mode": "install",
+        "cgroup_limits": dict(CGROUP_LIMITS),
     }
 
     if intent == "git_mcp":
@@ -369,35 +381,33 @@ def infer_runtime_profile(
         guest_workdir = f"{GUEST_REPO_ROOT}/{workdir_rel}"
         launch_bin = str(mcp_meta.get("launch_bin") or "dist/index.js")
         return {
-            "schema_version": "1",
+            **base,
             "intent": "git_mcp",
-            "source": source,
             "runtime": "node",
-            "os_image": "linux",
-            "oci_image": oci_image,
             "workdir": guest_workdir,
-            "services": [],
             # Fixture requires Node >= 24 for @modelcontextprotocol/server-filesystem.
             "packages": ["ca-certificates", "curl", "python3"],
-            "install_commands": [
-                {
-                    "shell": (
-                        "curl -fsSL https://deb.nodesource.com/setup_24.x | bash - "
-                        "&& apt-get install -y -qq nodejs"
+            "commands": {
+                "install": [
+                    {
+                        "shell": (
+                            "curl -fsSL https://deb.nodesource.com/setup_24.x | bash - "
+                            "&& apt-get install -y -qq nodejs"
+                        ),
+                        "cwd": guest_workdir,
+                        "timeout_seconds": 600,
+                    },
+                    _cmd(["npm", "install"], timeout=600, cwd=guest_workdir),
+                    _cmd(["npm", "run", "build"], timeout=600, cwd=guest_workdir),
+                ],
+                "run": [
+                    _cmd(
+                        ["node", launch_bin, GUEST_REPO_ROOT],
+                        timeout=60,
+                        cwd=guest_workdir,
                     ),
-                    "cwd": guest_workdir,
-                    "timeout_seconds": 600,
-                },
-                _cmd(["npm", "install"], timeout=600, cwd=guest_workdir),
-                _cmd(["npm", "run", "build"], timeout=600, cwd=guest_workdir),
-            ],
-            "run_commands": [
-                _cmd(
-                    ["node", launch_bin, GUEST_REPO_ROOT],
-                    timeout=60,
-                    cwd=guest_workdir,
-                )
-            ],
+                ],
+            },
             "processes": [
                 {
                     "name": "mcp-filesystem",
@@ -411,6 +421,7 @@ def infer_runtime_profile(
                 }
             ],
             "ports": [],
+            "probes": [{"name": "mcp-handshake", "type": "mcp_handshake", "timeout_seconds": 30}],
             "summary": "MCP filesystem server from pinned checkout (stdio)",
             "verification_target": "original_application",
             "mcp": {
@@ -432,21 +443,14 @@ def infer_runtime_profile(
 
     if intent == "webapp":
         return {
-            "schema_version": "1",
+            **base,
             "intent": "webapp",
-            "source": source,
             "runtime": "node",
-            "os_image": "linux",
-            "oci_image": oci_image,
-            "workdir": GUEST_REPO_ROOT,
-            "services": [],
             "packages": ["nodejs", "npm"],
-            "install_commands": [
-                _cmd(["npm", "install"], timeout=600, cwd=GUEST_REPO_ROOT),
-            ],
-            "run_commands": [
-                _cmd(["npm", "start"], timeout=60, cwd=GUEST_REPO_ROOT),
-            ],
+            "commands": {
+                "install": [_cmd(["npm", "install"], timeout=600, cwd=GUEST_REPO_ROOT)],
+                "run": [_cmd(["npm", "start"], timeout=60, cwd=GUEST_REPO_ROOT)],
+            },
             "processes": [
                 {
                     "name": "web",
@@ -464,64 +468,40 @@ def infer_runtime_profile(
                     "name": "http-root",
                     "type": "http",
                     "url": "http://127.0.0.1:5000/",
-                    "accept": [200, 301, 302],
+                    "expected_statuses": [200, 301, 302],
                     "timeout_seconds": 10,
                 }
             ],
         }
 
     # demo
+    demo_argv = ["python3", "-m", "http.server", "8000", "--bind", "127.0.0.1"]
     return {
-        "schema_version": "1",
+        **base,
         "intent": "demo",
-        "source": source,
         "runtime": "python",
-        "os_image": "linux",
-        "oci_image": oci_image,
-        "workdir": GUEST_REPO_ROOT,
-        "services": [],
         "packages": ["python3"],
-        "install_commands": [],
-        "run_commands": [
-            _cmd(
-                [
-                    "python3",
-                    "-m",
-                    "http.server",
-                    "8000",
-                    "--bind",
-                    "127.0.0.1",
-                ],
-                timeout=60,
-                cwd=GUEST_REPO_ROOT,
-            )
-        ],
+        "commands": {
+            "install": [],
+            "run": [_cmd(demo_argv, timeout=60, cwd=GUEST_REPO_ROOT)],
+        },
         "processes": [
             {
                 "name": "demo-http",
-                "command": _cmd(
-                    ["python3", "-m", "http.server", "8000", "--bind", "127.0.0.1"],
-                    timeout=3600,
-                    cwd=GUEST_REPO_ROOT,
-                ),
+                "command": _cmd(demo_argv, timeout=3600, cwd=GUEST_REPO_ROOT),
                 "supervise": "restart",
                 "ready_after_seconds": 1,
             }
         ],
         "ports": [8000],
-        "summary": "Minimal generated HTTP demo over the checkout tree",
+        "summary": "No webapp or MCP fit was found. Generated a minimal HTTP demo.",
         "verification_target": "generated_demo",
-        # Visible on receipt when demo is used instead of original app (D54).
-        "original_failure": {
-            "step": "discover",
-            "summary": "no git_mcp/webapp fit; generated minimal HTTP demo",
-        },
         "probes": [
             {
                 "name": "http-root",
                 "type": "http",
                 "url": "http://127.0.0.1:8000/",
-                "accept": [200],
+                "expected_statuses": [200],
                 "timeout_seconds": 10,
             }
         ],

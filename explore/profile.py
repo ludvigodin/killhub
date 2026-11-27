@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import json
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from jsonschema import Draft202012Validator, FormatChecker
+
 from config import Settings, get_settings
 from errors import HarnessError
+from git_url import parse_public_git_url
 from jobs import get_ledger
 from models import ProfilePhase
 
@@ -18,6 +22,14 @@ _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 RUNTIME_INTENTS = frozenset({"git_mcp", "webapp", "demo"})
 GUEST_REPO_ROOT = "/tmp/killhub/repo"
+
+# Requested workload limits (D72), separate from evidence of guest enforcement.
+CGROUP_LIMITS = {
+    "memory_max": "512M",
+    "memory_swap_max": "0",
+    "pids_max": 64,
+    "cpu_max": "100000 100000",
+}
 
 
 class ProfileError(Exception):
@@ -29,6 +41,11 @@ class ProfileError(Exception):
 
 def load_schema() -> dict[str, Any]:
     return json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+
+
+@lru_cache(maxsize=1)
+def _runtime_validator() -> Draft202012Validator:
+    return Draft202012Validator(load_schema(), format_checker=FormatChecker())
 
 
 def profiles_root(settings: Settings | None = None) -> Path:
@@ -75,18 +92,6 @@ def _require(obj: dict[str, Any], key: str, *, ctx: str) -> Any:
     return obj[key]
 
 
-def _require_command_specs(value: Any, *, field: str) -> None:
-    if not isinstance(value, list):
-        raise ProfileError(f"{field} must be an array")
-    for i, item in enumerate(value):
-        if not isinstance(item, dict):
-            raise ProfileError(f"{field}[{i}] must be an object")
-        if "argv" not in item and "shell" not in item:
-            raise ProfileError(f"{field}[{i}] requires argv or shell")
-        if "timeout_seconds" not in item:
-            raise ProfileError(f"{field}[{i}] requires timeout_seconds")
-
-
 def validate_profile(
     profile: dict[str, Any],
     *,
@@ -106,6 +111,8 @@ def validate_profile(
             raise ProfileError("bootstrap phase requires intent=bootstrap")
         _require(profile, "oci_image", ctx="bootstrap")
         _require(profile, "workdir", ctx="bootstrap")
+        if "commands" in profile:
+            raise ProfileError("runtime commands are invalid on clone-only bootstrap profiles")
         if profile.get("install_commands") not in ([], None):
             # Allow missing; if present must be empty for bootstrap.
             if profile.get("install_commands"):
@@ -115,83 +122,83 @@ def validate_profile(
                 raise ProfileError("bootstrap profile must not run the app")
         return profile
 
-    if intent not in RUNTIME_INTENTS:
+    if not isinstance(intent, str) or intent not in RUNTIME_INTENTS:
         raise ProfileError(
             "runtime intent must be git_mcp|webapp|demo",
             code="intent",
         )
-    for key in (
-        "source",
-        "runtime",
-        "os_image",
-        "workdir",
-        "services",
-        "packages",
-        "install_commands",
-        "run_commands",
-        "processes",
-        "ports",
-        "summary",
-        "verification_target",
-    ):
-        _require(profile, key, ctx="runtime")
-
-    source = profile["source"]
-    if not isinstance(source, dict):
-        raise ProfileError("source must be an object")
-    if source.get("type") != "git":
-        raise ProfileError("source.type must be git")
-    if not source.get("url"):
-        raise ProfileError("source.url is required")
-    commit = source.get("commit")
-    if not isinstance(commit, str) or not _SHA_RE.match(commit):
+    source = profile.get("source")
+    commit = source.get("commit") if isinstance(source, dict) else None
+    if not isinstance(commit, str) or not _SHA_RE.fullmatch(commit):
         raise ProfileError(
             "source.commit must be a full 40-char SHA (D62)",
             code="missing_commit",
         )
 
-    vt = profile.get("verification_target")
-    if vt not in {"original_application", "generated_demo"}:
-        raise ProfileError("verification_target invalid")
+    error = next(_runtime_validator().iter_errors(profile), None)
+    if error is not None:
+        # Validation errors can include profile content. Return the rule and path only.
+        raise ProfileError(f"runtime profile failed {error.validator} at {error.json_path}")
 
-    _require_command_specs(profile["install_commands"], field="install_commands")
-    _require_command_specs(profile["run_commands"], field="run_commands")
-
-    if not isinstance(profile["services"], list):
-        raise ProfileError("services must be an array")
-    if not isinstance(profile["packages"], list):
-        raise ProfileError("packages must be an array")
-    if not isinstance(profile["processes"], list):
-        raise ProfileError("processes must be an array")
-    if not isinstance(profile["ports"], list):
-        raise ProfileError("ports must be an array")
+    if source["type"] == "github_repo":
+        try:
+            parsed = parse_public_git_url(source.get("url", ""))
+        except ValueError as exc:
+            raise ProfileError("GitHub runtime profiles require a public HTTPS repository") from exc
+        if parsed.host != "github.com":
+            raise ProfileError("GitHub runtime profiles require a github.com repository")
 
     if intent == "git_mcp":
-        mcp = _require(profile, "mcp", ctx="git_mcp")
-        if not isinstance(mcp, dict):
-            raise ProfileError("mcp must be an object")
-        transport = mcp.get("transport")
-        if transport not in {"stdio", "streamable_http"}:
-            raise ProfileError("mcp.transport must be stdio|streamable_http")
-        launch = mcp.get("launch_command")
-        if not isinstance(launch, dict):
-            raise ProfileError("mcp.launch_command is required")
-        if "argv" not in launch and "shell" not in launch:
-            raise ProfileError("mcp.launch_command requires argv or shell")
-        if "timeout_seconds" not in launch:
-            raise ProfileError("mcp.launch_command requires timeout_seconds")
-        readiness = mcp.get("readiness")
-        if not isinstance(readiness, dict) or readiness.get("type") != "mcp_handshake":
-            raise ProfileError("mcp.readiness.type must be mcp_handshake")
-        if transport == "streamable_http" and not mcp.get("url"):
-            raise ProfileError("mcp.url required for streamable_http")
-
-    if intent in {"webapp", "demo"}:
-        probes = profile.get("probes") or profile.get("healthcheck")
-        if not probes:
-            raise ProfileError(f"{intent} profile requires probes or healthcheck")
+        mcp = profile["mcp"]
+        if mcp["readiness"]["transport"] != mcp["transport"]:
+            raise ProfileError("MCP readiness must use the declared transport")
+    elif not profile["probes"]:
+        raise ProfileError(f"{intent} profile requires a readiness probe")
 
     return profile
+
+
+def _adapt_stored_profile(profile: dict[str, Any]) -> dict[str, Any]:
+    """Translate the former Git runtime layout before applying canonical validation."""
+    source = profile.get("source")
+    if "commands" in profile or not isinstance(source, dict) or source.get("type") != "git":
+        return profile
+
+    adapted = dict(profile)
+    adapted["source"] = {**source, "type": "github_repo"}
+    adapted["commands"] = {
+        "install": adapted.pop("install_commands", None),
+        "run": adapted.pop("run_commands", None),
+    }
+    # The historical runtime launched each declared process once if unspecified.
+    processes = adapted.get("processes")
+    if isinstance(processes, list):
+        adapted["processes"] = [
+            {"supervise": "oneshot", **process} if isinstance(process, dict) else process
+            for process in processes
+        ]
+
+    healthcheck = adapted.pop("healthcheck", None)
+    probes = adapted.get("probes") or healthcheck or []
+    if isinstance(probes, dict):
+        probes = [probes]
+    if isinstance(probes, list):
+        normalized = []
+        for probe in probes:
+            if isinstance(probe, dict):
+                probe = dict(probe)
+                if probe.get("url"):
+                    probe.setdefault("type", "http")
+                if "accept" in probe:
+                    probe.setdefault("expected_statuses", probe.pop("accept"))
+            normalized.append(probe)
+        probes = normalized
+    adapted["probes"] = probes
+    adapted.setdefault("network_mode", "install")
+    adapted.setdefault("cgroup_limits", dict(CGROUP_LIMITS))
+    # Keep historical failure context on the receipt side of the boundary.
+    adapted.pop("original_failure", None)
+    return adapted
 
 
 def persist_profile_revision(
@@ -228,10 +235,15 @@ def persist_profile_revision(
     )
 
 
-def assert_runtime_ready_for_provision(profile: dict[str, Any]) -> None:
-    """Invalid runtime profiles must not start provision/install (D36)."""
+def assert_runtime_ready_for_provision(
+    profile: dict[str, Any], *, stored: bool = False
+) -> dict[str, Any]:
+    """Validate the executable view, adapting old revisions only after ledger reads."""
     try:
-        validate_profile(profile, phase="runtime")
+        executable = (
+            _adapt_stored_profile(profile) if stored and isinstance(profile, dict) else profile
+        )
+        return validate_profile(executable, phase="runtime")
     except ProfileError as exc:
         raise HarnessError(
             f"runtime profile blocks provision: {exc.message}",

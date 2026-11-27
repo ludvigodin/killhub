@@ -66,9 +66,7 @@ def _current_runtime_profile(job_id: str, settings: Settings) -> dict[str, Any]:
     runtime = [r for r in revs if r.phase == "runtime"]
     if not runtime:
         raise InstallError("no runtime profile revision", code="no_runtime_profile")
-    profile = runtime[-1].profile
-    assert_runtime_ready_for_provision(profile)
-    return profile
+    return assert_runtime_ready_for_provision(runtime[-1].profile, stored=True)
 
 
 def _log(
@@ -448,7 +446,11 @@ def run_install_commands(
             settings=settings,
         )
     )
-    for i, spec in enumerate(profile.get("install_commands") or []):
+    # Provisioning passes a validated canonical profile. Direct callers can
+    # still supply the former command list.
+    commands = profile.get("commands")
+    install_specs = commands["install"] if commands is not None else profile.get("install_commands")
+    for i, spec in enumerate(install_specs or []):
         if not isinstance(spec, dict):
             steps.append(
                 StepResult(name=f"install_commands[{i}]", ok=False, detail="not an object")

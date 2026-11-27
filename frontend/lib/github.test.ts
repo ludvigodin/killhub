@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   githubUrlFromOwnerRepo,
+  githubUrlFromRepoSlug,
   hostFromGithubUrl,
   hostLabelFromGithubUrl,
+  isPublicGithubUrl,
   isReservedAppSegment,
   validateGithubUrl,
 } from "./github.ts";
@@ -64,10 +66,27 @@ describe("githubUrlFromOwnerRepo", () => {
     assert.equal(githubUrlFromOwnerRepo("owner", ""), null);
   });
 
-  it("produces URLs that pass D78 validateGithubUrl", () => {
+  it("produces valid GitHub intake URLs", () => {
     const url = githubUrlFromOwnerRepo("heroku", "node-js-getting-started");
     assert.ok(url);
     assert.equal(validateGithubUrl(url), url);
+  });
+});
+
+describe("GitHub intake", () => {
+  it("canonicalizes a public HTTPS GitHub repository", () => {
+    const url = "https://GitHub.com/team/repo.git/";
+    assert.equal(isPublicGithubUrl(url), true);
+    assert.equal(validateGithubUrl(url), "https://github.com/team/repo");
+  });
+
+  it("rejects other hosts for new jobs and preserves their history links", () => {
+    for (const host of ["gitlab.com", "bitbucket.org", "codeberg.org"]) {
+      const url = `https://${host}/team/repo`;
+      assert.equal(isPublicGithubUrl(url), false);
+      assert.throws(() => validateGithubUrl(url), /public HTTPS GitHub/);
+      assert.equal(githubUrlFromRepoSlug([host, "team", "repo"]), url);
+    }
   });
 });
 

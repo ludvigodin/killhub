@@ -207,21 +207,27 @@ def test_invalid_github_url(client: TestClient, auth_header: dict[str, str]) -> 
     assert res.json()["detail"]["code"] == "invalid_url"
 
 
-def test_accept_gitlab_url(client: TestClient, auth_header: dict[str, str], monkeypatch) -> None:
-    monkeypatch.setenv("PREFLIGHT_ENABLED", "false")
-    from config import get_settings
-
-    get_settings.cache_clear()
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://gitlab.com/org/repo.git",
+        "https://bitbucket.org/org/repo",
+        "https://codeberg.org/org/repo",
+    ],
+)
+def test_reject_legacy_git_hosts_at_intake(
+    client: TestClient, auth_header: dict[str, str], url: str
+) -> None:
     res = client.post(
         "/internal/jobs",
         headers=auth_header,
-        json={"github_url": "https://gitlab.com/org/repo.git"},
+        json={"github_url": url},
     )
-    assert res.status_code == 201
-    job_id = res.json()["job_id"]
-    snap = client.get(f"/internal/jobs/{job_id}", headers=auth_header).json()
-    assert snap["github_url"] == "https://gitlab.com/org/repo"
-    get_settings.cache_clear()
+    assert res.status_code == 400
+    assert res.json()["detail"]["code"] == "invalid_url"
+    jobs = client.get("/internal/jobs", headers=auth_header)
+    assert jobs.status_code == 200
+    assert jobs.json()["total"] == 0
 
 
 def test_health_unauthenticated(client: TestClient) -> None:

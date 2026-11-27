@@ -89,8 +89,13 @@ def _current_runtime_profile(job_id: str, settings: Settings) -> dict[str, Any]:
     runtime = [r for r in revs if r.phase == "runtime"]
     if not runtime:
         raise VerifyError("no runtime profile revision", code="no_runtime_profile")
-    profile = runtime[-1].profile
-    assert_runtime_ready_for_provision(profile)
+    stored = runtime[-1].profile
+    profile = assert_runtime_ready_for_provision(stored, stored=True)
+    if profile.get("verification_target") == "generated_demo" and isinstance(
+        stored.get("original_failure"), dict
+    ):
+        # Historical failure context is read for reporting only.
+        return {**profile, "original_failure": stored["original_failure"]}
     return profile
 
 
@@ -123,9 +128,12 @@ def assert_built_checkout_launch(
             code="commit_mismatch",
         )
 
+    commands = profile.get("commands")
+    if commands is None:
+        commands = {"run": profile.get("run_commands"), "install": profile.get("install_commands")}
     specs: list[dict[str, Any]] = []
-    for key in ("run_commands", "install_commands"):
-        for item in profile.get(key) or []:
+    for key in ("run", "install"):
+        for item in commands.get(key) or []:
             if isinstance(item, dict):
                 specs.append(item)
     for proc in profile.get("processes") or []:
@@ -238,7 +246,7 @@ def probe_http(
     if not url:
         raise VerifyError("http probe missing url", code="invalid_probe")
     timeout = float(probe.get("timeout_seconds") or 10)
-    accept = probe.get("accept") or [200]
+    accept = probe.get("expected_statuses", probe.get("accept")) or [200]
     accept_set = {int(x) for x in accept}
     # Prefer curl -w for a reliable status; wget as fallback.
     script = (
@@ -492,7 +500,8 @@ def _verification_for_outcome(
         else:
             original_failure = {
                 "step": "discover",
-                "summary": "generated demo; original application path not claimed",
+                "summary": profile.get("summary")
+                or "generated demo; original application unverified",
             }
         return {"kind": "generated_demo", "original_failure": original_failure}
     return {"kind": "original_application"}
