@@ -202,7 +202,13 @@ def test_run_containment_matrix_incomplete_without_live_msb(
     # Sibling local positive control via exec_command already returns 0 for wget/curl.
 
     result = run_containment_probes(job_id, settings=get_settings(), cli=cli)
-    assert result.claim == "proven"
+    assert result.claim == "incomplete"
+    probes = result.dimensions["host_access_denied"]["probes"]
+    guest_only = [p for p in probes if p["name"] in {"host_internal", "host_gateway_ip"}]
+    assert len(guest_only) == 2
+    assert all(
+        p["classification"] == "inconclusive" and p["checked_peer"] is None for p in guest_only
+    )
     assert set(result.dimensions) == {
         "timeout_enforcement",
         "host_access_denied",

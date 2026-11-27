@@ -315,7 +315,12 @@ def probe_host_access_denied(
 
     for target in targets:
         url = target["url"]
-        peer, host_detail = _tcp_positive_control(url)
+        if target["name"] in {"host_internal", "host_gateway_ip"}:
+            # These addresses belong to the guest virtual network. Dialling
+            # them from Plane 1 can reach an unrelated host on its default route.
+            peer, host_detail = None, "guest_network_positive_control_unavailable"
+        else:
+            peer, host_detail = _tcp_positive_control(url)
         host_ok = peer is not None
         guest_class, guest_code, guest_detail = _guest_fetch(
             environment_id,
