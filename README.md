@@ -1,10 +1,10 @@
 # Killhub
 
-**Paste a public GitHub URL or MCP registry target. Watch live in-VM detonation over view-only `noVNC` — and get a verified environment, a cross-framework `DetonationVerdict`, and a receipt that outlives the sandbox.**
+**Submit a public GitHub repository or a pinned fixture. Follow its sandbox job and review the resulting evidence and receipt.**
 
-Killhub stands up and detonates untrusted repositories and MCP servers the way a security-minded operator should: understand first, isolate inside an Ubuntu 24.04 microVM, intercept every HTTP/S, DNS, syscall, and MCP JSON-RPC boundary, prove readiness and containment, and destroy the machine while leaving a durable forensic dossier.
+Killhub uses a disposable Vultr Microsandbox VM for repository execution. The control plane runs on Vultr Cloud Compute and uses Vultr Serverless Inference. Start with the [setup and deployment guide](SETUP.md).
 
-Built on **Vultr** end-to-end — Cloud Compute control plane, [Serverless Inference](https://docs.vultr.com/products/serverless/inference/provisioning) (with Plane 1 Host LLM Proxy key isolation), and [Microsandbox](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute) microVMs on VX1 for untrusted execution.
+The architecture below describes the alignment target. Registry intake, live noVNC viewing, and the complete telemetry and containment pipeline await integration and VX1 acceptance. See the [alignment execution plan](ALIGNMENT_EXECUTION_PLAN.md) for the release gates.
 
 ---
 

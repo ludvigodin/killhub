@@ -61,9 +61,100 @@ Next.js public `/api/jobs*` and `/health` **proxy** to these routes (mapping `/h
 
 ## Jobs API (public — Plane 1 Next.js)
 
+### `GET /api/jobs`
+
+Recent job summaries (D69 / D77). Newest first. Server-side pagination via `limit` + `offset`. Optional `github_url` filters to runs for one canonical repo (D79 — used by `/repos/…` history).
+
+**Query**
+
+| Param | Default | Max | Purpose |
+|-------|---------|-----|---------|
+| `limit` | `48` | `200` | Page size |
+| `offset` | `0` | — | Rows to skip (newest-first) |
+| `github_url` | — | — | Exact match on canonical allowlisted git URL (D78); `400` / `invalid_url` if invalid |
+
+**Response `200`**
+
+```json
+{
+  "jobs": [
+    {
+      "job_id": "…",
+      "github_url": "https://github.com/org/repo",
+      "status": "installing",
+      "progress": 55,
+      "current_step": "…",
+      "created_at": "…",
+      "updated_at": "…",
+      "screenshot_id": "…",
+      "screenshot_url": "/api/jobs/…/screenshots/…",
+      "error": null,
+      "verification": null,
+      "safety": null,
+      "queue_position": null,
+      "expected_wait_seconds": null
+    }
+  ],
+  "total": 128,
+  "limit": 12,
+  "offset": 0
+}
+```
+
+Job and repo feed cards expose the receipt’s `active_checks` with install trace coverage, the number of MCP tool descriptions reviewed, the active finding count, and the highest-priority active finding. For historical receipts the API reconstructs these fields from retained check events when available. Missing coverage means no recorded result. MCP receipt tools return the same object, the dependency scan status and review, a total finding count, and up to ten findings in severity order.
+
+`total` is the matching job count in the ledger (all jobs, or filtered to `github_url`). `screenshot_id` is the latest still when present; otherwise `null`. `screenshot_url` is an absolute Vultr CDN URL when Object Storage + `OBJECT_STORAGE_CDN_BASE_URL` are configured (D76); otherwise the relative `/api/jobs/{id}/screenshots/{screenshot_id}` path when a still exists; otherwise `null`. `safety` is a slim security-outcome stamp for the feed UI: `safe` | `high_risk` | `review` | `unknown`, or `null` while the job is non-terminal or has no receipt yet (full dossier / `vuln_report` stay on `GET /api/jobs/{id}`). When `status` is `pending` or `queued`, `queue_position` is the 1-based FIFO place (1 = next to claim) and `expected_wait_seconds` is a soft ETA derived from recent terminal job durations (fallback `ESTIMATED_JOB_SECONDS`); both are `null` once the job leaves the queue.
+
+---
+
+### `GET /api/repos`
+
+Repo-grouped feed for the home Entries grid (D79). One row per distinct canonical `github_url`, ordered by most recent run. Server-side pagination via `limit` + `offset`.
+
+**Query**
+
+| Param | Default | Max | Purpose |
+|-------|---------|-----|---------|
+| `limit` | `48` | `200` | Page size |
+| `offset` | `0` | — | Groups to skip (newest activity first) |
+
+**Response `200`**
+
+```json
+{
+  "repos": [
+    {
+      "github_url": "https://github.com/org/repo",
+      "run_count": 3,
+      "latest": {
+        "job_id": "…",
+        "github_url": "https://github.com/org/repo",
+        "status": "completed",
+        "progress": 100,
+        "current_step": "…",
+        "created_at": "…",
+        "updated_at": "…",
+        "screenshot_id": "…",
+        "screenshot_url": "/api/jobs/…/screenshots/…",
+        "error": null,
+        "verification": null,
+        "safety": "safe"
+      }
+    }
+  ],
+  "total": 42,
+  "limit": 9,
+  "offset": 0
+}
+```
+
+`total` is `COUNT(DISTINCT github_url)`. `latest` uses the same summary shape as `GET /api/jobs`. UI links each card to `/repos/{host}/{…path}` (e.g. `/repos/github.com/org/repo`), which lists runs via `GET /api/jobs?github_url=…`. GitHub-only short path `/{owner}/{repo}` (D82) is a client-side create shortcut — not a new Jobs API — and redirects to `/jobs/{id}` after `POST /api/jobs`.
+
+---
+
 ### `POST /api/jobs`
 
-Create a job (admission — D40; pre-flight — D45; target intake — D15).
+Create a job (admission — D40; pre-flight — D45; target intake — D15). The worker can claim it after preflight passes. A hard failure returns a job ID with a terminal receipt and no sandbox generation.
 
 **Request (v1 baseline — preserved)**
 

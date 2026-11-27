@@ -6,13 +6,14 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from active_report import summarize_active_checks
 from config import Settings, get_settings
 from harness import DestroyResult, destroy_job_environment
 from jobs import get_ledger
 from ledger.store import Ledger, utc_now
 from models import CleanupState, Job
 from verdict import policy_bypass_reason, recorded_policy_bypass
-from vulnscan import VulnScanError, run_vuln_scan
+from vulnscan import VulnScanError, collect_stream_findings, run_vuln_scan
 
 logger = logging.getLogger("killhub.finalize")
 
@@ -170,7 +171,7 @@ def finalize_job(
             ledger.upsert_vuln_report(
                 job_id,
                 summary=f"Scan aborted: {exc.message}",
-                findings=[],
+                findings=collect_stream_findings(job_id, cfg),
                 status="failed",
                 finalizer=True,
             )
@@ -188,7 +189,7 @@ def finalize_job(
             ledger.upsert_vuln_report(
                 job_id,
                 summary=f"Scanner crash ({exc.__class__.__name__}); report partial.",
-                findings=[],
+                findings=collect_stream_findings(job_id, cfg),
                 status="failed",
                 finalizer=True,
             )
@@ -306,6 +307,9 @@ def finalize_job(
     dossier = {
         **(prior_receipt.get("dossier") or {}),
         "outcome": terminal,
+        "active_checks": summarize_active_checks(
+            ledger.list_events(job_id), (vuln_report or {}).get("findings") or []
+        ),
         "gates": gates,
         "vuln_report_status": vuln_status or (vuln_report or {}).get("status"),
         "scan_error": scan_error,

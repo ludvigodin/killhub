@@ -17,6 +17,8 @@ type VulnReportProps = {
 };
 
 const SOURCE_ORDER = [
+  "activity",
+  "mcp_tool_review",
   "sca",
   "mcp_assessment",
   "canary",
@@ -29,6 +31,8 @@ const SOURCE_ORDER = [
 ] as const;
 
 const SOURCE_LABEL: Record<string, string> = {
+  activity: "Observed install activity",
+  mcp_tool_review: "Suspicious MCP tool descriptions",
   sca: "SCA / advisories",
   mcp_assessment: "MCP assessment (planned)",
   canary: "Canary hits",

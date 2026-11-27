@@ -7,6 +7,7 @@ import json
 from typing import Any
 from urllib.error import HTTPError
 
+import fakeredis
 import pytest
 from fastapi.testclient import TestClient
 
@@ -148,10 +149,22 @@ def test_preflight_finishes_before_job_publication(
 
     get_settings.cache_clear()
 
+    from admission import reset_admission_store_for_tests
+    from admission.valkey import ValkeyAdmissionStore
+
+    # Exercise the reservation with a real Valkey admission store over fakeredis.
+    fake = fakeredis.FakeRedis(decode_responses=True)
+    store = ValkeyAdmissionStore(fake)
+    reset_admission_store_for_tests()
+    monkeypatch.setenv("ADMISSION_STORE", "valkey")
+    monkeypatch.setenv("VALKEY_URL", "redis://localhost:6379")
+    monkeypatch.setattr("admission.factory._connect_valkey", lambda _url: fake)
+
     def fake_urlopen(req: object, timeout: float = 0) -> _FakeResp:
         _ = timeout
         # Simulate a second ledger reader while the metadata request is in flight.
         assert get_ledger().list_jobs() == []
+        assert store.gauges() == {"running": 0, "queued": 1}
         return _FakeResp(
             {
                 "private": private,
@@ -169,6 +182,7 @@ def test_preflight_finishes_before_job_publication(
     events = ledger.list_events(job.job_id)
     if private:
         assert job.status == "failed"
+        assert store.gauges() == {"running": 0, "queued": 0}
         assert job.sandbox_id is None
         assert ledger.try_claim_pending_job(job.job_id) is None
         assert ledger.list_sandbox_generations(job.job_id) == []
@@ -178,6 +192,7 @@ def test_preflight_finishes_before_job_publication(
         assert any(e.payload.get("code") == "repo_private" for e in events)
     else:
         assert job.status == "pending"
+        assert store.gauges() == {"running": 0, "queued": 1}
         assert any(e.payload.get("code") == "repo_archived" for e in events)
         claimed = ledger.try_claim_pending_job(job.job_id)
         assert claimed is not None and claimed.status == "analyzing"

@@ -35,7 +35,15 @@ type VerificationInfo = {
 
 export type SafetyOutcome = "safe" | "high_risk" | "review" | "unknown";
 
+export type ActiveChecks = {
+  install_trace: "full" | "partial" | "none" | null;
+  mcp_tools_reviewed: number | null;
+  finding_count: number;
+  leading_finding: VulnFinding | null;
+};
+
 export type JobSummary = {
+  active_checks?: ActiveChecks | null;
   job_id: string;
   github_url: string;
   status: string;
@@ -138,36 +146,40 @@ type JobReceipt = {
     cancel?: boolean;
   } | null;
   // Early failure/cancel receipts can omit the normal finalizer's gate evidence.
-  dossier: {
-    outcome?: TerminalStatus | "setup_failed";
-    gates?: {
-      terminal: TerminalStatus;
-      reasons: string[];
-      hard_fail: boolean;
-      readiness_passed: boolean;
-    };
-    readiness?: ReadinessInfo | null;
-    verification?: VerificationInfo | null;
-    profile_revisions?: {
-      revision: number;
-      phase: "bootstrap" | "runtime";
-      schema_version: string;
-    }[];
-    sandbox_generations?: (EnvironmentGen & {
-      image: string;
-      destroyed_at: string | null;
-    })[];
-    finding_ids?: (string | null)[];
-    vuln_report_status?: VulnReportStatus | null;
-    vuln_review?: string | null;
-    scan_error?: string | null;
-    code?: string;
-    phase?: string;
-    cancel_requested_at?: string;
-    containment_at?: string;
-    at?: string;
-    detonation_verdict?: DetonationVerdict | null;
+  dossier: ReceiptDossier;
+  detonation_verdict?: DetonationVerdict | null;
+};
+
+/** Durable receipt metadata shared by the report and feed. */
+type ReceiptDossier = {
+  active_checks?: ActiveChecks | null;
+  outcome?: TerminalStatus | "setup_failed";
+  gates?: {
+    terminal: TerminalStatus;
+    reasons: string[];
+    hard_fail: boolean;
+    readiness_passed: boolean;
   };
+  readiness?: ReadinessInfo | null;
+  verification?: VerificationInfo | null;
+  profile_revisions?: {
+    revision: number;
+    phase: "bootstrap" | "runtime";
+    schema_version: string;
+  }[];
+  sandbox_generations?: (EnvironmentGen & {
+    image: string;
+    destroyed_at: string | null;
+  })[];
+  finding_ids?: (string | null)[];
+  vuln_report_status?: VulnReportStatus | null;
+  vuln_review?: string | null;
+  scan_error?: string | null;
+  code?: string;
+  phase?: string;
+  cancel_requested_at?: string;
+  containment_at?: string;
+  at?: string;
   detonation_verdict?: DetonationVerdict | null;
 };
 

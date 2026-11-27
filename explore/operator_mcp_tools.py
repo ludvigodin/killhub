@@ -15,6 +15,8 @@ from urllib.parse import urljoin
 
 import httpx
 
+from safety import review_priority
+
 TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 DEFAULT_BASE_URL = "https://killhub.pro"
 DEFAULT_WAIT_TIMEOUT = 60.0
@@ -91,16 +93,18 @@ def summarize_receipt(snap: dict[str, Any], *, base_url: str) -> dict[str, Any]:
     if isinstance(vuln, dict):
         raw = vuln.get("findings") or vuln.get("items") or []
         if isinstance(raw, list):
-            for item in raw[:FINDINGS_CAP]:
-                if isinstance(item, dict):
-                    findings.append(
-                        {
-                            "id": item.get("id") or item.get("finding_id"),
-                            "source": item.get("source"),
-                            "severity": item.get("severity"),
-                            "title": item.get("title") or item.get("summary"),
-                        }
-                    )
+            ranked = sorted((f for f in raw if isinstance(f, dict)), key=review_priority)
+            for item in ranked[:FINDINGS_CAP]:
+                findings.append(
+                    {
+                        "id": item.get("id") or item.get("finding_id"),
+                        "source": item.get("source"),
+                        "package": item.get("package"),
+                        "advisory_url": item.get("advisory_url"),
+                        "severity": item.get("severity"),
+                        "title": item.get("title") or item.get("summary"),
+                    }
+                )
 
     containment = None
     receipt = snap.get("receipt")
@@ -129,7 +133,19 @@ def summarize_receipt(snap: dict[str, Any], *, base_url: str) -> dict[str, Any]:
         }
         if ready
         else None,
+        "active_checks": ((receipt or {}).get("dossier") or {}).get("active_checks"),
+        "scan_status": vuln.get("status") if isinstance(vuln, dict) else None,
+        "vuln_review": (
+            "Historical report with unknown dependency scan coverage."
+            if isinstance(vuln, dict)
+            and vuln.get("summary")
+            == "No scan findings. Clean bill for this job's scanned surfaces."
+            else vuln.get("summary")
+            if isinstance(vuln, dict)
+            else None
+        ),
         "mcp_assessment": vuln.get("mcp_assessment") if isinstance(vuln, dict) else None,
+        "finding_count": len(ranked) if isinstance(vuln, dict) and isinstance(raw, list) else None,
         "findings": findings,
         "containment": containment,
         "screenshot_ids": shot_ids,
@@ -404,7 +420,8 @@ def tools_list() -> list[dict[str, Any]]:
         {
             "name": "get_receipt",
             "description": (
-                "Slim intake receipt: verification.kind, readiness, top findings, "
+                "Slim intake receipt: scan status and review, active-check coverage, "
+                "highest-severity findings, verification.kind, readiness, "
                 "screenshots, ui_url. Safe mid-job (null fields)."
             ),
             "inputSchema": {

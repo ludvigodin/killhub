@@ -403,7 +403,11 @@ def _python_mcp_profile(*, base: dict[str, Any], signal: dict[str, Any]) -> dict
         "runtime": "python",
         "packages": ["ca-certificates", "curl", "python3"],
         "commands": {
-            "install": [{"shell": install_uv, "cwd": root, "timeout_seconds": 300}, deps],
+            "install": [
+                # This host-defined tooling step must not count as target behavior.
+                {"shell": install_uv, "cwd": root, "timeout_seconds": 300, "killhub_tooling": True},
+                deps,
+            ],
             "run": [launch],
         },
         "processes": [],

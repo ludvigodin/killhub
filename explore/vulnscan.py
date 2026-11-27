@@ -13,13 +13,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from active_report import ACTIVE_SOURCES, active_finding
 from config import Settings, get_settings
 from errors import HarnessError
 from fixtures import match_fixture
 from harness import copy_out, exec_command
 from jobs import get_ledger
-from ledger.store import utc_now
+from ledger.store import FINDING_SOURCES, utc_now
 from models import JobEvent
+from safety import review_priority
 
 logger = logging.getLogger("killhub.vulnscan")
 
@@ -231,7 +233,11 @@ def _parse_toml_lock(text: str) -> list[tuple[str, str]]:
     workspace members, VCS pins) are skipped: OSV can't match them as PyPI
     releases.
     """
-    import tomllib
+    # Keep lockfile scanning available in the supported Python 3.10 environment.
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        import tomli as tomllib
 
     data = tomllib.loads(text)
     pkgs: list[tuple[str, str]] = []
@@ -449,7 +455,7 @@ def sca_findings_from_lockfiles(
             errors += 1
             logger.warning("SCA failed for %s: %s", path, exc)
     if findings and osv_endpoint == OSV_QUERYBATCH:
-        leading = min(findings, key=_review_priority)
+        leading = min(findings, key=review_priority)
         if _advisory_id_only(leading):
             _load_advisory_summary(leading, deadline - time.monotonic())
     if errors and scanned == 0:
@@ -467,15 +473,10 @@ def collect_stream_findings(job_id: str, settings: Settings) -> list[dict[str, A
             continue
         payload = event.payload or {}
         source = payload.get("source")
-        if source not in {
-            "canary",
-            "network",
-            "containment",
-            "preflight",
-            "mcp_assessment",
-            "intentional_app",
-            "sca",
-        }:
+        if source not in FINDING_SOURCES:
+            continue
+        if source in ACTIVE_SOURCES:
+            out.append(active_finding(event))
             continue
         finding = payload.get("finding")
         if isinstance(finding, dict) and finding.get("id"):
@@ -490,7 +491,7 @@ def collect_stream_findings(job_id: str, settings: Settings) -> list[dict[str, A
                 "title": event.message,
                 "advisory_url": payload.get("advisory_url"),
                 "source": source,
-                "detail": {k: v for k, v in payload.items() if k != "finding"},
+                "detail": {k: v for k, v in payload.items() if k not in {"finding", "excerpt"}},
             }
         )
     # Dedupe by id
@@ -706,11 +707,6 @@ def cite_checked_review(findings: list[dict[str, Any]], draft: str | None = None
     """Build a D48 review whose cited claims are limited to persisted findings."""
     summary, _ = _render_review(findings, draft)
     return summary
-
-
-def _review_priority(finding: dict[str, Any]) -> int:
-    rank = {"critical": 0, "high": 1, "medium": 2, "moderate": 2, "low": 3, "info": 5}
-    return rank.get(str(finding.get("severity")).lower(), 4)
 
 
 def run_vuln_scan(

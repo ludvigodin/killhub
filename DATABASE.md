@@ -324,6 +324,8 @@ Cap: `MAX_SCREENSHOTS_PER_JOB` and disk budget (D40). Capture in Plane 2 (D38); 
 |---------------------|---------|
 | `sca` | Lockfile / advisory scanner — primarily Plane 1 against copied lockfiles (D43, D63) |
 | `mcp_assessment` | MCP Inspector/SDK discovery & scenario detonation probes (D35, D73) |
+| `activity` | Install-time observations of canary matches, persistence writes, or network tools |
+| `mcp_tool_review` | Heuristic warnings about individual MCP tool descriptions |
 | `intentional_app` | Intentionally vulnerable application patterns (DVMCP / fixtures) — **not** SCA proof (D53) |
 | `canary` | Unexpected canary credential hit / blocked exfiltration (D44, D70); excludes deliberate probe sessions (D65) |
 | `network` / `containment` | Policy / isolation evidence (`policy_denied` vs `infra_error` — D65) |
