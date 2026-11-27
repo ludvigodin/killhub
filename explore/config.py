@@ -87,6 +87,7 @@ class Settings(BaseSettings):
     )
 
     # Plane-1 pre-flight (D45)
+    public_demo_fixtures_only: bool = Field(default=False, alias="PUBLIC_DEMO_FIXTURES_ONLY")
     preflight_enabled: bool = Field(default=True, alias="PREFLIGHT_ENABLED")
     preflight_deny_repos: str = Field(default="", alias="PREFLIGHT_DENY_REPOS")
     preflight_github_api: str = Field(

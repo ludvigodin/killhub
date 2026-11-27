@@ -267,3 +267,15 @@ def test_persist_profile_revision_writes_storage(tmp_path: Path) -> None:
     rev = persist_profile_revision(job.job_id, boot, phase="bootstrap")
     assert Path(rev.storage_path).is_file()
     assert "bootstrap" in Path(rev.storage_path).read_text(encoding="utf-8")
+
+
+def test_public_demo_only_rejects_unlisted_before_creating_job(monkeypatch):
+    from service import AdmissionError, create_job
+
+    monkeypatch.setenv("PUBLIC_DEMO_FIXTURES_ONLY", "true")
+    get_settings.cache_clear()
+    with pytest.raises(AdmissionError) as exc:
+        create_job("https://github.com/octocat/Hello-World")
+    assert exc.value.status_code == 403
+    assert exc.value.code == "demo_fixture_required"
+    get_settings.cache_clear()
