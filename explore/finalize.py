@@ -348,6 +348,13 @@ def finalize_job(
         },
         finalizer=True,
     )
+    try:
+        from service import release_admission_slot
+
+        # Finalize runs after claim → always releasing a running slot (D71).
+        release_admission_slot(was_running=True)
+    except Exception:  # noqa: BLE001 — admission must not block terminal
+        pass
 
     return FinalizeResult(
         job_id=job_id,

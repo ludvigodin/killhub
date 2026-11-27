@@ -66,10 +66,30 @@ def internal_health() -> dict[str, object]:
         ledger_status = {"ok": False, "error": str(exc)}
         ok = False
 
+    admission_status: dict[str, object]
+    try:
+        from admission import get_admission_store
+
+        store = get_admission_store()
+        store.ping()
+        admission_status = {
+            "ok": True,
+            "backend": store.backend,
+            "gauges": store.gauges(),
+        }
+    except Exception as exc:  # noqa: BLE001 — health must not raise
+        admission_status = {"ok": False, "error": str(exc)}
+        if (settings.admission_store or "memory").strip().lower() in {
+            "valkey",
+            "redis",
+        }:
+            ok = False
+
     return {
         "ok": ok,
         "service": "explore",
         "ledger": ledger_status,
+        "admission": admission_status,
         "port": settings.explore_port,
     }
 

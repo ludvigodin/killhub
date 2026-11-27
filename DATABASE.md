@@ -1,6 +1,8 @@
 # DATABASE.md — Database structure and rules
 
-v1 persistence is a **durable job/event ledger** owned by the **Python `explore/` sidecar** ([DECISIONS.md](DECISIONS.md) D41, D52) plus **filesystem artifacts** for profiles and screenshots (D17). In-memory-only stores are allowed solely for local scaffold before durability lands; **public/demo deploy requires the ledger**.
+v1 persistence is a **durable job/event ledger** owned by the **Python `explore/` sidecar** ([DECISIONS.md](DECISIONS.md) D41, D52, D73) plus **filesystem artifacts** for profiles and screenshots (D17). Prod may mirror screenshots/artifacts (and optional ledger backups) to **Vultr Object Storage** (D72); local staging paths remain for D60 `copy_out`. In-memory-only stores are allowed solely for local scaffold before durability lands; **public/demo deploy requires the ledger**.
+
+**Engine:** `LEDGER_URL` selects SQLite (`sqlite:///…`, default) or PostgreSQL (`postgresql://…` / `postgres://…` — Vultr Managed Databases). Field names below are identical on both engines (rule 6, D73).
 
 Related: [API.md](API.md) · [DECISIONS.md](DECISIONS.md) · [ARCHITECTURE.md](ARCHITECTURE.md)
 
@@ -322,7 +324,7 @@ On image replace (D36): prior generation → `state=replaced` + its `destroyed_a
 | `job_id` | string | FK |
 | `step` | string | Plan-loop / job state label |
 | `caption` | string | No secrets |
-| `storage_path` | string | `storage/screenshots/{job_id}/{id}.png` — only via D60 `copy_out` |
+| `storage_path` | string | Local `storage/screenshots/{job_id}/{id}.png` (D60) or `s3://{bucket}/{prefix}/screenshots/...` after object upload (D72) |
 | `created_at` | datetime | UTC |
 
 Cap: `MAX_SCREENSHOTS_PER_JOB` and disk budget (D40). Capture in Plane 2 (D38); Plane 1 stores copied stills.
@@ -386,11 +388,12 @@ schemas/
 | **Startup** | Load ledger; list live sandboxes; adopt/resume; destroy orphans / past `expires_at`; retry `destroy_failed` |
 | **Host reaper** | VX1-side destroy when `now >= expires_at` even if Plane 1 is down |
 | **Touch** | Keep-alive only while `now < expires_at`; never moves `expires_at` |
-| **Schema version** | `ledger_meta.schema_version` (baseline `1`). On open, `explore/ledger/migrations.py` stamps fresh databases, applies pending numbered migrations one transaction each (after copying the file to `<db>.pre-v<N>.bak`), and refuses a ledger newer than the build. Schema changes = append a `Migration` **and** update `ledger/schema.py` so fresh databases match |
+| **Schema version** | `ledger_meta.schema_version` (baseline `1`). On open, `explore/ledger/migrations.py` stamps fresh databases, applies pending numbered migrations one transaction each (SQLite also copies the file to `<db>.pre-v<N>.bak`), and refuses a ledger newer than the build. Schema changes = append a `Migration` **and** update `ledger/schema.py` (SQLite + Postgres DDL) so fresh databases match |
 | **Terminal writes** | The ledger refuses `status=completed\|failed\|cancelled` until a `job_receipts` row exists (D61). Use `Ledger.finalize_job()` to write receipt + terminal `status` event + job status in one transaction |
 | **Vuln report** | Written via `Ledger.upsert_vuln_report()`; validates `status` and each finding's `id`/`severity`/`title`/`source` against the source table above |
 | **Pruning guard** | Until the receipt exists, byte-budget pruning stops before terminal `status` and `lifecycle` `destroyed`/`destroy_failed` events (D67 rule 3) |
-| **Backups** | `python -m ledger.backup --dest DIR --keep N` takes an online, integrity-checked copy. On VX1 a nightly systemd timer writes to `/var/lib/killhub/backups` and keeps 7 |
+| **Engine** | `LEDGER_URL=sqlite:///…` (default) or `postgresql://user:pass@host:port/db?sslmode=require` (Vultr Managed Postgres — D73). Driver `psycopg` v3. Credentials Plane-1-only |
+| **Backups** | SQLite: `python -m ledger.backup --dest DIR --keep N` (optional `--upload` / `LEDGER_BACKUP_UPLOAD=true` → Vultr Object Storage — D72). Postgres: Vultr Managed Database backups / `pg_dump` — not the SQLite file-copy tool |
 
 ---
 

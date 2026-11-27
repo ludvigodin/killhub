@@ -1,17 +1,20 @@
-"""SQLite ledger helpers: create job, append event, snapshot, revisions, generations."""
+"""Durable ledger helpers: create job, append event, snapshot, revisions, generations.
+
+Supports SQLite (default) and PostgreSQL via ``LEDGER_URL`` (D41, D73).
+"""
 
 from __future__ import annotations
 
 import json
 import re
-import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
 
+from ledger.db import DbConnection, Row, open_ledger_connection
 from ledger.migrations import migrate
+from ledger.url import LedgerTarget, parse_ledger_url, parse_sqlite_path
 from models import (
     CleanupState,
     EnvironmentProfileRevision,
@@ -25,35 +28,12 @@ from models import (
     SandboxState,
 )
 
+# Re-export for callers that imported parse_sqlite_path from store.
+__all__ = ["Ledger", "parse_ledger_url", "parse_sqlite_path"]
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def parse_sqlite_path(ledger_url: str) -> Path:
-    """Resolve SQLAlchemy-style SQLite URLs to a filesystem path.
-
-    - `sqlite:///relative.db` → cwd-relative
-    - `sqlite:////abs/path.db` → absolute `/abs/path.db`
-    """
-    prefix = "sqlite://"
-    if not ledger_url.startswith(prefix):
-        parsed = urlparse(ledger_url)
-        if parsed.scheme and parsed.scheme != "sqlite":
-            raise ValueError(f"Unsupported ledger engine URL: {ledger_url}")
-        raise ValueError(f"Invalid LEDGER_URL: {ledger_url}")
-
-    rest = ledger_url[len(prefix) :]
-    if rest.startswith("//"):
-        # sqlite:////abs/path → rest="//abs/path"
-        return Path(unquote(rest[1:])).resolve()
-    if rest.startswith("/"):
-        # sqlite:///relative → rest="/relative"
-        path = Path(unquote(rest[1:]))
-        if not path.is_absolute():
-            path = Path.cwd() / path
-        return path.resolve()
-    raise ValueError(f"Invalid LEDGER_URL: {ledger_url}")
 
 
 def validate_github_url(url: str) -> str:
@@ -111,26 +91,51 @@ def _event_byte_size(
 
 
 class Ledger:
-    """Durable SQLite job/event store owned by the explore sidecar (D41)."""
+    """Durable job/event store owned by the explore sidecar (D41, D73)."""
 
-    def __init__(self, db_path: Path, *, max_job_log_bytes: int = 2_000_000) -> None:
-        self.db_path = Path(db_path)
+    def __init__(
+        self,
+        db_path: Path | None = None,
+        *,
+        max_job_log_bytes: int = 2_000_000,
+        _conn: DbConnection | None = None,
+        _target: LedgerTarget | None = None,
+    ) -> None:
         self.max_job_log_bytes = max_job_log_bytes
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(
-            self.db_path,
-            isolation_level=None,  # manage transactions explicitly
-            check_same_thread=False,
+        if _conn is not None:
+            self._conn = _conn
+            self._target = _target or LedgerTarget(
+                engine=getattr(_conn, "engine", "sqlite"),
+                path=db_path,
+            )
+            self.db_path = db_path
+        elif db_path is not None:
+            self.db_path = Path(db_path)
+            self._target = LedgerTarget(engine="sqlite", path=self.db_path)
+            self._conn = open_ledger_connection(self._target)
+        else:
+            raise ValueError("Ledger requires db_path or an open connection")
+        path_for_migrate = self.db_path if self._target.engine == "sqlite" else None
+        self.schema_version = migrate(
+            self._conn,
+            path_for_migrate,
+            engine=self._target.engine,
         )
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA foreign_keys = ON")
-        self._conn.execute("PRAGMA journal_mode = WAL")
-        self._conn.execute("PRAGMA busy_timeout = 5000")
-        self.schema_version = migrate(self._conn, self.db_path)
 
     @classmethod
     def from_url(cls, ledger_url: str, *, max_job_log_bytes: int = 2_000_000) -> Ledger:
-        return cls(parse_sqlite_path(ledger_url), max_job_log_bytes=max_job_log_bytes)
+        target = parse_ledger_url(ledger_url)
+        conn = open_ledger_connection(target)
+        return cls(
+            target.path,
+            max_job_log_bytes=max_job_log_bytes,
+            _conn=conn,
+            _target=target,
+        )
+
+    @property
+    def engine(self) -> str:
+        return self._target.engine
 
     def close(self) -> None:
         self._conn.close()
@@ -163,7 +168,7 @@ class Ledger:
         jid = job_id or str(uuid.uuid4())
         cleanup = CleanupState(status="pending", attempts=0, updated_at=now)
 
-        self._conn.execute("BEGIN IMMEDIATE")
+        self._conn.begin()
         try:
             self._conn.execute(
                 """
@@ -198,9 +203,9 @@ class Ledger:
                 payload={"status": status, "github_url": github_url},
                 timestamp=now,
             )
-            self._conn.execute("COMMIT")
+            self._conn.commit()
         except Exception:
-            self._conn.execute("ROLLBACK")
+            self._conn.rollback()
             raise
 
         job = self.get_job(jid)
@@ -221,8 +226,15 @@ class Ledger:
     def list_recent_jobs(self, *, limit: int = 48) -> list[Job]:
         """Newest-first job rows for the public feed (D69)."""
         capped = max(1, min(int(limit), 200))
+        # created_at is second-precision; tie-break with insertion order (rowid)
+        # so same-second creates stay newest-first. Postgres uses ctid.
+        order = (
+            "ORDER BY created_at DESC, ctid DESC"
+            if getattr(self._conn, "engine", "sqlite") == "postgres"
+            else "ORDER BY created_at DESC, rowid DESC"
+        )
         rows = self._conn.execute(
-            "SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            f"SELECT * FROM jobs {order} LIMIT ?",
             (capped,),
         ).fetchall()
         return [self._row_to_job(r) for r in rows]
@@ -376,7 +388,7 @@ class Ledger:
         use ``finalize_job`` to write both atomically.
         """
         self._check_job_fields(fields)
-        self._conn.execute("BEGIN IMMEDIATE")
+        self._conn.begin()
         try:
             job = self.get_job(job_id)
             if job is None:
@@ -386,9 +398,9 @@ class Ledger:
             if "status" in fields:
                 self._assert_receipt_before_terminal(job, fields["status"])
             self._write_job_fields_unlocked(job_id, fields)
-            self._conn.execute("COMMIT")
+            self._conn.commit()
         except Exception:
-            self._conn.execute("ROLLBACK")
+            self._conn.rollback()
             raise
         job = self.get_job(job_id)
         assert job is not None
@@ -405,7 +417,7 @@ class Ledger:
         payload: dict[str, Any] | None = None,
         finalizer: bool = False,
     ) -> JobEvent:
-        self._conn.execute("BEGIN IMMEDIATE")
+        self._conn.begin()
         try:
             job = self.get_job(job_id)
             if job is None:
@@ -418,9 +430,9 @@ class Ledger:
                 message=message,
                 payload=payload or {},
             )
-            self._conn.execute("COMMIT")
+            self._conn.commit()
         except Exception:
-            self._conn.execute("ROLLBACK")
+            self._conn.rollback()
             raise
         return event
 
@@ -586,11 +598,13 @@ class Ledger:
         )
 
         # Prefix-only second pass if still over budget (may prune a prior gap).
+        # Stop when only gap+newest remain — never delete the newest event, so
+        # further passes cannot make progress and would recurse forever.
         remaining = len(rows) - len(to_delete) + 1  # + gap
         if (
             not blocked
+            and remaining > 2
             and self.retained_event_bytes(job_id) > self.max_job_log_bytes
-            and remaining > 1
         ):
             self._prune_events_unlocked(job_id)
 
@@ -606,7 +620,7 @@ class Ledger:
         storage_path: str | None = None,
         finalizer: bool = False,
     ) -> EnvironmentProfileRevision:
-        self._conn.execute("BEGIN IMMEDIATE")
+        self._conn.begin()
         try:
             job = self.get_job(job_id)
             if job is None:
@@ -639,9 +653,9 @@ class Ledger:
                 """,
                 (revision, now, job_id),
             )
-            self._conn.execute("COMMIT")
+            self._conn.commit()
         except Exception:
-            self._conn.execute("ROLLBACK")
+            self._conn.rollback()
             raise
         return EnvironmentProfileRevision(
             job_id=job_id,
@@ -689,7 +703,7 @@ class Ledger:
         memory: str | None = None,
         finalizer: bool = False,
     ) -> SandboxGeneration:
-        self._conn.execute("BEGIN IMMEDIATE")
+        self._conn.begin()
         try:
             job = self.get_job(job_id)
             if job is None:
@@ -732,9 +746,9 @@ class Ledger:
                 """,
                 (generation, environment_id, now, job_id),
             )
-            self._conn.execute("COMMIT")
+            self._conn.commit()
         except Exception:
-            self._conn.execute("ROLLBACK")
+            self._conn.rollback()
             raise
         return SandboxGeneration(
             job_id=job_id,
@@ -767,7 +781,7 @@ class Ledger:
         *,
         destroyed_at: str | None = None,
     ) -> SandboxGeneration:
-        self._conn.execute("BEGIN IMMEDIATE")
+        self._conn.begin()
         try:
             self._conn.execute(
                 """
@@ -781,9 +795,9 @@ class Ledger:
                 "UPDATE jobs SET updated_at = ? WHERE job_id = ?",
                 (utc_now(), job_id),
             )
-            self._conn.execute("COMMIT")
+            self._conn.commit()
         except Exception:
-            self._conn.execute("ROLLBACK")
+            self._conn.rollback()
             raise
         gens = {g.generation: g for g in self.list_sandbox_generations(job_id)}
         if generation not in gens:
@@ -869,7 +883,7 @@ class Ledger:
             "lifecycle": lifecycle,
             "dossier": dossier or {},
         }
-        self._conn.execute("BEGIN IMMEDIATE")
+        self._conn.begin()
         try:
             if self.get_job(job_id) is None:
                 raise KeyError(f"unknown job_id: {job_id}")
@@ -891,9 +905,9 @@ class Ledger:
                     _dumps(payload["dossier"]),
                 ),
             )
-            self._conn.execute("COMMIT")
+            self._conn.commit()
         except Exception:
-            self._conn.execute("ROLLBACK")
+            self._conn.rollback()
             raise
         receipt = self.get_receipt(job_id)
         assert receipt is not None
@@ -922,7 +936,7 @@ class Ledger:
             raise ValueError(f"unsupported receipt keys: {sorted(unknown)}")
         self._check_job_fields(fields)
 
-        self._conn.execute("BEGIN IMMEDIATE")
+        self._conn.begin()
         try:
             job = self.get_job(job_id)
             if job is None:
@@ -957,9 +971,9 @@ class Ledger:
                 payload={"status": status, **(event_payload or {})},
             )
             self._write_job_fields_unlocked(job_id, {**fields, "status": status})
-            self._conn.execute("COMMIT")
+            self._conn.commit()
         except Exception:
-            self._conn.execute("ROLLBACK")
+            self._conn.rollback()
             raise
         job = self.get_job(job_id)
         assert job is not None
@@ -993,7 +1007,7 @@ class Ledger:
                 }
             )
         findings = normalized
-        self._conn.execute("BEGIN IMMEDIATE")
+        self._conn.begin()
         try:
             job = self.get_job(job_id)
             if job is None:
@@ -1018,9 +1032,9 @@ class Ledger:
                     status,
                 ),
             )
-            self._conn.execute("COMMIT")
+            self._conn.commit()
         except Exception:
-            self._conn.execute("ROLLBACK")
+            self._conn.rollback()
             raise
         report = self.get_vuln_report(job_id)
         assert report is not None
@@ -1097,7 +1111,7 @@ class Ledger:
 
     # --- row mappers -----------------------------------------------------------
 
-    def _row_to_job(self, row: sqlite3.Row) -> Job:
+    def _row_to_job(self, row: Row) -> Job:
         return Job(
             job_id=row["job_id"],
             github_url=row["github_url"],
@@ -1124,7 +1138,7 @@ class Ledger:
             updated_at=row["updated_at"],
         )
 
-    def _row_to_event(self, row: sqlite3.Row) -> JobEvent:
+    def _row_to_event(self, row: Row) -> JobEvent:
         return JobEvent(
             event_id=row["event_id"],
             job_id=row["job_id"],
@@ -1134,7 +1148,7 @@ class Ledger:
             timestamp=row["timestamp"],
         )
 
-    def _row_to_generation(self, row: sqlite3.Row) -> SandboxGeneration:
+    def _row_to_generation(self, row: Row) -> SandboxGeneration:
         return SandboxGeneration(
             job_id=row["job_id"],
             generation=int(row["generation"]),

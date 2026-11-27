@@ -2,3 +2,6 @@ fastapi==0.121.2
 uvicorn[standard]==0.38.0
 pydantic-settings==2.11.0
 httpx==0.28.1
+redis==7.0.1
+psycopg[binary]==3.2.9
+boto3==1.40.74

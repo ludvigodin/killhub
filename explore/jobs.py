@@ -1,4 +1,4 @@
-"""Job helpers over the durable SQLite ledger (D41, D52)."""
+"""Job helpers over the durable ledger (D41, D52, D73)."""
 
 from __future__ import annotations
 

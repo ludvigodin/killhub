@@ -69,13 +69,24 @@ All secrets stay on **Plane 1**. Sandboxes get canaries only (D44). Full catalog
 | `VULTR_INFERENCE_API_KEY` | Plane 1 env only | Fail-closed without it (D25) |
 | `VULTR_INFERENCE_MODEL` | Plane 1 env | Id from `GET {VULTR_INFERENCE_BASE_URL}/models` |
 | `VULTR_INFERENCE_BASE_URL` | Plane 1 env | Default `https://api.vultrinference.com/v1` |
+| `VULTR_INFERENCE_EMBEDDING_MODEL` | Optional Plane 1 | Embeddings model id (D75); empty disables |
+| `VULTR_INFERENCE_VISION_MODEL` | Optional Plane 1 | Vision model for screenshots (D75); empty → chat model |
+| `VULTR_RAG_COLLECTION` | Optional Plane 1 | Vector store collection id for RAG `vuln_review` (D75) |
+| `VULTR_RAG_SEED_FINDINGS` | Optional Plane 1 | `true` upserts finding snippets into the collection |
+| `ENABLE_VULN_REVIEW_LLM` | Optional Plane 1 | Default `true`; fail closed to deterministic cite-check |
+| `ENABLE_SCREENSHOT_VISION` | Optional Plane 1 | Default `false`; never gates completion (D31) |
 | `MSB_HOST` | Plane 1 env | Empty = `msb` on local PATH. Else `user@vx1-host` |
 | `MSB_BIN` | Plane 1 env | Absolute path on remote when non-login SSH PATH lacks `msb` |
 | `MSB_SSH_KEY` | Plane 1 env | Private key path for `MSB_HOST` SSH |
 | `VULTR_API_KEY` | Operator laptop / ops env | For `vultr-cli` / API — **not** required by explore runtime today |
 | `GITHUB_TOKEN` | Optional Plane 1 | Raises pre-flight GitHub metadata rate limits (D45) |
+| `ADMISSION_STORE` | Plane 1 (+ frontend when Valkey) | `memory` (default) or `valkey` for shared D40 admission (D71) |
+| `VALKEY_URL` / `REDIS_URL` | Plane 1 (+ frontend) when `ADMISSION_STORE=valkey` | Vultr Managed Valkey DSN — **never** into sandboxes |
+| `STORAGE_BACKEND` | Plane 1 env | `filesystem` (default) or `s3`/`object` for Vultr Object Storage (D72) |
+| `OBJECT_STORAGE_*` | Plane 1 env when backend is s3/object | Endpoint, bucket, access/secret keys — **never** into sandboxes |
+| `VULTR_CR_ENDPOINT` / `VULTR_CR_ROBOT_*` | Plane 1 / VX1 host only | Private bootstrap image pull (D74) — **never** into sandboxes |
 
-Never put `VULTR_*`, `INTERNAL_API_TOKEN`, or SSH keys into sandbox create env.
+Never put `VULTR_*`, `VULTR_CR_ROBOT_*`, `OBJECT_STORAGE_*`, `INTERNAL_API_TOKEN`, or SSH keys into sandbox create env.
 
 ---
 
@@ -189,12 +200,58 @@ From Plane 1 env:
 
 Also set:
 
-- `MSB_DEFAULT_IMAGE` (default `debian`)
+- `MSB_DEFAULT_IMAGE` (default `debian` for local dx; prod: Vultr CR digest pin — below)
 - `CONTROL_PLANE_DENY_HOSTS` — include your CP hostname so install-phase denial is meaningful (D39)
 - `CONTROL_PLANE_PROBE_URL` — known-live CP URL for containment probes (D65)
 - `INSTALL_EGRESS_PROBE_URL` — positive control (default `https://github.com`)
 
-Harness details: [ARCHITECTURE.md](ARCHITECTURE.md) · [DECISIONS.md](DECISIONS.md) D36 / D39 / D59.
+Harness details: [ARCHITECTURE.md](ARCHITECTURE.md) · [DECISIONS.md](DECISIONS.md) D36 / D39 / D59 / D74.
+
+### Vultr Container Registry (D74)
+
+Private Killhub-owned bootstrap / runtime base images live in **Vultr Container Registry** (`*.vultrcr.com`). The **host** (where `msb` runs) pulls the image; the **guest** never receives registry robot secrets.
+
+**Image ref form**
+
+```text
+<region>.vultrcr.com/<registry-name>/<repository>@sha256:<64-hex>
+# example:
+ewr.vultrcr.com/killhub/bootstrap@sha256:0123…abcd
+```
+
+Set that string as `MSB_DEFAULT_IMAGE` (and optionally as runtime `oci_image` after replace). Tags are fine for local experiments; **prod pins by digest**.
+
+**Operator steps** (no live registry is created by Killhub code; account may start with zero registries)
+
+1. Create a registry (console or `vultr-cli container-registry create …`) in a region near VX1 (e.g. `ewr`, `ams`, `fra`). Start-up plan is free-tier sized.
+2. Create a **pull** robot (or mint docker credentials via `vultr-cli container-registry credentials docker <id>`). Prefer pull-only for the VX1 host; use a separate push robot / `--read-write` for CI image builds.
+3. On the **msb host**, put robot creds in Plane 1 env only (`/etc/killhub/killhub.env` or `.env`):
+
+```bash
+VULTR_CR_ENDPOINT=ewr.vultrcr.com/killhub
+VULTR_CR_ROBOT_USERNAME='robot$…'
+VULTR_CR_ROBOT_PASSWORD='…'
+VULTR_CR_REQUIRE_CREDS=true
+```
+
+4. Login once so the host credential store can serve `msb` pulls:
+
+```bash
+./explore/scripts/vultr_cr_login.sh
+```
+
+5. Build and push a trusted bootstrap image (bake Playwright / assess tooling when useful — D43 / D63), then pin:
+
+```bash
+docker build -t "${VULTR_CR_ENDPOINT}/bootstrap:build" -f path/to/Dockerfile .
+DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${VULTR_CR_ENDPOINT}/bootstrap:build" | awk -F@ '{print $2}')
+# or: docker push … then copy digest from vultr-cli / console
+export MSB_DEFAULT_IMAGE="${VULTR_CR_ENDPOINT}/bootstrap@${DIGEST}"
+```
+
+6. Restart explore so settings reload. Harness **fail-closes** create/replace when the image is `*.vultrcr.com` and robot username/password are missing (`VULTR_CR_REQUIRE_CREDS=true`). Set `VULTR_CR_REQUIRE_CREDS=false` only for a deliberately public registry.
+
+**Guest vs host:** `VULTR_CR_ROBOT_*` are Plane-1 / VX1 secrets. They are listed in the guest forbidden-env set and must never appear in `msb create --env`. Sandboxes still get canaries only (D44).
 
 ---
 
@@ -232,7 +289,71 @@ location /api/jobs/ {
 }
 ```
 
-Firewall: allow `443` (and `22` for ops). Do **not** publish `3000` / `8100` publicly.
+Do **not** publish `3000` / `8100` publicly. Host-edge filtering is a **Vultr Firewall group** (D70) — see below.
+
+### Vultr Firewall (host edge, D70)
+
+Complements D46: Caddy still terminates TLS on the public NIC; the Firewall group drops everything except SSH (operator CIDRs) and HTTP/HTTPS (world). This is **not** Plane 2 Microsandbox net policy (D39/D43).
+
+**Policy (IPv4 inbound)**
+
+| Port | Proto | Source | Why |
+|------|-------|--------|-----|
+| 80 | TCP | `0.0.0.0/0` | Caddy HTTP + Let’s Encrypt ACME |
+| 443 | TCP | `0.0.0.0/0` | Public demo HTTPS |
+| 22 | TCP | Operator CIDRs only | SSH / `MSB_HOST` ops |
+| other | — | deny (default once ≥1 rule exists) | Close scanners / stray listeners |
+
+Outbound at the Vultr Firewall layer: leave unrestricted. Optional later: tighten SSH further; add IPv6 mirrors if the instance has public v6.
+
+**Inventory status (this workspace, Nov 2026)**
+
+- Vultr MCP `firewall_groups_list`: **0 groups** (account readable).
+- Vultr MCP / `vultr-cli` **instance list**: often **401** until Account → API → Access Control allows the operator IP (#20). Do **not** invent instance IDs.
+- Public host label: `killhub-vx1` · IP ~`140.82.59.188` · DNS on Hostinger.
+
+**Dry-run helper (preferred)**
+
+```bash
+export VULTR_API_KEY=…   # operator machine only — never sandboxes (D44)
+export SSH_ALLOW_CIDRS='YOUR.OP.IP.0/32,OTHER.OP.NET.0/24'
+./ops/vx1-firewall.sh            # dry-run: print planned vultr-cli calls
+./ops/vx1-firewall.sh --apply    # create/update rules + attach to label killhub-vx1
+```
+
+`--apply` refuses missing `SSH_ALLOW_CIDRS` and refuses SSH from `0.0.0.0/0` unless `ALLOW_WORLD_SSH=1` (console recovery path required).
+
+**Manual `vultr-cli` (copy-paste when inventory works)**
+
+```bash
+# 1) Resolve instance id by label — never guess
+vultr-cli instance list -o json | jq -r '.instances[] | select(.label=="killhub-vx1") | .id'
+# If this 401s: fix API Access Control, or copy the ID from the Vultr console for killhub-vx1.
+
+INSTANCE_ID=…   # from above or console
+vultr-cli firewall group create -d killhub-vx1-edge
+GROUP_ID=…      # from create / firewall group list
+
+# 2) Allow HTTP/HTTPS (ACME + demo)
+vultr-cli firewall rule create --id="$GROUP_ID" --ip-type=v4 --protocol=tcp \
+  --subnet=0.0.0.0 --size=0 --port=80 --notes='killhub HTTP / ACME'
+vultr-cli firewall rule create --id="$GROUP_ID" --ip-type=v4 --protocol=tcp \
+  --subnet=0.0.0.0 --size=0 --port=443 --notes='killhub HTTPS'
+
+# 3) Allow SSH from each operator CIDR (example: single /32)
+vultr-cli firewall rule create --id="$GROUP_ID" --ip-type=v4 --protocol=tcp \
+  --subnet=YOUR.OP.IP.0 --size=32 --port=22 --notes='killhub SSH operator'
+
+# 4) Attach — only after SSH rules exist for every operator who needs in
+vultr-cli instance update-firewall-group \
+  --instance-id="$INSTANCE_ID" --firewall-group-id="$GROUP_ID"
+
+# 5) Verify from an allowlisted network
+ssh root@140.82.59.188 'echo ok'
+curl -sS -o /dev/null -w '%{http_code}\n' https://killhub.pro/health
+```
+
+**Lockout risk:** attaching with no (or wrong) SSH allowlist blocks ops until Vultr web console / rescue. Keep console access; coordinate teammate SSH keys (#22) before narrowing CIDRs. Unset firewall: `--firewall-group-id=0`.
 
 ### systemd examples
 
@@ -287,9 +408,16 @@ Build frontend once before `pnpm start`:
 cd /opt/killhub/frontend && pnpm install && pnpm build
 ```
 
-### Durability (D41)
+### Durability (D41, D73)
 
-- Ledger: `LEDGER_URL=sqlite:///./storage/ledger/killhub.db` (or an absolute path under `/var/lib/killhub/...`).
+- Ledger default (local / single-host demo): `LEDGER_URL=sqlite:///./storage/ledger/killhub.db` (or an absolute path under `/var/lib/killhub/...`).
+- **Optional hosted Postgres** (Vultr Managed Databases for PostgreSQL — D73): set Plane-1-only
+
+  ```bash
+  LEDGER_URL=postgresql://vultradmin:PASSWORD@HOST:PORT/defaultdb?sslmode=require
+  ```
+
+  Create the cluster in the Vultr dashboard (or `vultr-cli database create`), allow the VX1 IP in DB trusted sources, copy the connection URI (TLS — `sslmode=require`), put it in `/etc/killhub/killhub.env`, restart `killhub-explore`. Schema bootstrap runs on open. Do **not** inject DB credentials into sandboxes. This repo does not provision a cluster for you.
 - In-process reaper runs with explore when `REAPER_ENABLED=true`.
 - **Host reaper** (VX1, works even if Plane 1 is down):
 
@@ -305,9 +433,49 @@ Cron or timer example: every 5 minutes.
 ```bash
 cd /opt/killhub/explore
 .venv/bin/python -m ledger.backup --dest /var/lib/killhub/backups --keep 7
+# Optional off-host copy (D72) when Object Storage is configured:
+# .venv/bin/python -m ledger.backup --dest /var/lib/killhub/backups --keep 7 --upload
+# or LEDGER_BACKUP_UPLOAD=true in killhub.env
 ```
 
-Nightly timer recommended for a public demo.
+Nightly timer recommended for a public demo (SQLite). For Postgres, use Vultr Managed Database backups or `pg_dump` instead of `ledger.backup`.
+
+### Vultr Managed Valkey (optional, D71)
+
+Local/dev keeps `ADMISSION_STORE=memory` (in-process rate limits + ledger concurrency). For multi-instance Plane 1 or a split frontend/explore host layout, use **Vultr Managed Valkey** (Redis-compatible) as the shared admission store:
+
+1. Create a Managed Database with engine **Valkey** in the [Vultr dashboard](https://my.vultr.com/) (or `vultr-cli database create …`). Pick a region near VX1.
+2. Under **Trusted Sources**, allow the control-plane host (VX1 public IP / VPC). Do not expose Valkey to the public internet.
+3. Copy the connection URI (TLS preferred). Set on Plane 1 **and** the Next.js env (edge rate limits share the same keys):
+
+```bash
+ADMISSION_STORE=valkey
+VALKEY_URL='rediss://default:PASSWORD@HOST:16724/0'
+# REDIS_URL=…   # accepted alias
+```
+
+4. Restart explore + frontend. Misconfiguration or unreachable Valkey **fails closed** (`503` / `admission_unavailable`) — never silently unlimited admission. Credentials stay Plane-1-only (never into sandboxes). Account may start with **zero** Valkey clusters; code does not provision one.
+
+### Vultr Object Storage (optional, D72)
+
+Local/dev keeps `STORAGE_BACKEND=filesystem`. For prod screenshots/artifacts (and optional ledger backup upload):
+
+1. Create an Object Storage subscription in the [Vultr dashboard](https://my.vultr.com/) (or `vultr-cli object-storage create`) in a cluster near the control plane (e.g. `ewr1.vultrobjects.com`).
+2. Create a bucket; copy the subscription **hostname**, **access key**, and **secret key**.
+3. Set on Plane 1 only (`/etc/killhub/killhub.env`):
+
+```bash
+STORAGE_BACKEND=s3
+OBJECT_STORAGE_ENDPOINT=https://ewr1.vultrobjects.com
+OBJECT_STORAGE_REGION=us-east-1
+OBJECT_STORAGE_BUCKET=your-bucket
+OBJECT_STORAGE_ACCESS_KEY=...
+OBJECT_STORAGE_SECRET_KEY=...
+OBJECT_STORAGE_PREFIX=killhub
+LEDGER_BACKUP_UPLOAD=true   # optional
+```
+
+4. Restart explore. Misconfiguration **fails closed** (clear error) when backend is `s3`/`object` without credentials. Account currently needs an operator-created subscription/bucket — code does not provision one.
 
 ---
 
@@ -327,10 +495,12 @@ cd ../explore && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .v
 
 ## 9. Security checklist
 
-- [ ] No `VULTR_*` / `INTERNAL_API_TOKEN` / SSH private keys in sandbox env (D44)
+- [ ] No `VULTR_*` / `VULTR_CR_ROBOT_*` / `INTERNAL_API_TOKEN` / SSH private keys in sandbox env (D44, D74)
 - [ ] `CONTROL_PLANE_DENY_HOSTS` includes your public hostname
 - [ ] Admission caps set before anonymous public `POST` (`MAX_CONCURRENT_JOBS`, `MAX_QUEUED_JOBS`, `RATE_LIMIT_*` — D40)
+- [ ] Multi-instance / split Plane 1: `ADMISSION_STORE=valkey` + `VALKEY_URL` (Trusted Sources include VX1) — D71
 - [ ] App bound to loopback; only proxy faces the internet (D46)
+- [ ] Vultr Firewall group on VX1: 80/443 world, 22 operator CIDRs only (D70)
 - [ ] Host reaper + ledger backups for absolute expiry / crash recovery (D41)
 - [ ] Destroy on `completed` / `failed` / `cancelled` / `expires_at` — not on readiness alone (D37)
 
@@ -348,6 +518,8 @@ cd ../explore && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .v
 | explore ignores your secrets | Process CWD has no `.env` — symlink or use absolute `EnvironmentFile` (§3) |
 | Compose “works” but no inference/msb | `env_file: .env.example` — switch to filled `.env` / exports (§4B) |
 | Containment / deny probes odd | `CONTROL_PLANE_PROBE_URL` / `CONTROL_PLANE_DENY_HOSTS` still point at someone else’s demo host |
+| `vultr-cli instance list` / MCP instance 401 | Account API Access Control IP allowlist (#20); fix key AC before inventing IDs |
+| SSH drops after Firewall attach | SSH source not in group rules — use Vultr console, widen CIDR, or `--firewall-group-id=0` |
 
 ---
 
@@ -357,7 +529,8 @@ cd ../explore && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .v
 |-----|---------|
 | [README.md](README.md) | Product |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Planes, trust zones, deploy topology |
-| [DECISIONS.md](DECISIONS.md) | D24, D25, D41, D46, D59, … |
+| [DECISIONS.md](DECISIONS.md) | D24, D25, D41, D46, D59, D70, D72, D73, … |
+| [`ops/vx1-firewall.sh`](ops/vx1-firewall.sh) | Dry-run / apply Vultr Firewall for VX1 (D70) |
 | [AGENTS.md](AGENTS.md) | Agent rules, quality gate, Vultr tooling |
 | [DATABASE.md](DATABASE.md) | Ledger, reaper, backups |
 | [API.md](API.md) | Jobs API + SSE |

@@ -1,5 +1,5 @@
 import { connection } from "next/server";
-import { checkPostJobsRateLimit } from "@/lib/admission";
+import { checkPostJobsRateLimitAsync } from "@/lib/admission";
 import { exploreFetch, mapExploreError } from "@/lib/explore";
 import { validateGithubUrl } from "@/lib/github";
 
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   await connection();
 
-  const limited = checkPostJobsRateLimit(clientIp(request));
+  const limited = await checkPostJobsRateLimitAsync(clientIp(request));
   if (limited) {
     return Response.json(limited.body, { status: limited.status });
   }
@@ -62,6 +62,9 @@ export async function POST(request: Request) {
   const upstream = await exploreFetch("/internal/jobs", {
     method: "POST",
     body: JSON.stringify({ github_url: githubUrl }),
+    headers: {
+      "X-Client-IP": clientIp(request),
+    },
   });
 
   if (!upstream.ok) {

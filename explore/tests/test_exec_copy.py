@@ -71,6 +71,10 @@ def test_forbidden_env_detection() -> None:
     text = "PATH=/bin\nVULTR_API_KEY=secret\nHOME=/root\n"
     assert "VULTR_API_KEY" in guest_env_has_forbidden_keys(text)
     assert guest_env_has_forbidden_keys("PATH=/bin\nHOME=/root\n") == []
+    obj = "OBJECT_STORAGE_SECRET_KEY=sekrit\nOBJECT_STORAGE_ACCESS_KEY=ak\n"
+    found = guest_env_has_forbidden_keys(obj)
+    assert "OBJECT_STORAGE_SECRET_KEY" in found
+    assert "OBJECT_STORAGE_ACCESS_KEY" in found
 
 
 def test_exec_logs_nonzero_exit(client, auth_header, monkeypatch) -> None:

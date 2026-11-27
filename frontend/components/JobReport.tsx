@@ -80,9 +80,7 @@ export function JobReport({ snapshot }: JobReportProps) {
             {prettyJson(lifecycle)}
           </pre>
         ) : (
-          <p className="text-sm text-(--muted)">
-            No lifecycle receipt yet.
-          </p>
+          <p className="text-sm text-(--muted)">No lifecycle receipt yet.</p>
         )}
       </section>
 

@@ -161,3 +161,9 @@ def _run_claimed_job(job_id: str, settings: Settings) -> None:
                 error=message,
                 progress=100,
             )
+            try:
+                from service import release_admission_slot
+
+                release_admission_slot(was_running=True, settings=settings)
+            except Exception:  # noqa: BLE001
+                logger.exception("admission release failed for %s", job_id)

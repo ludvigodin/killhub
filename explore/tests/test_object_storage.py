@@ -1,0 +1,232 @@
+"""Object storage backend selection + backup upload (D72) — no live Vultr bucket."""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
+
+from object_storage import (
+    ObjectStorageError,
+    filesystem_root_for_screenshots,
+    is_s3_ref,
+    make_s3_ref,
+    maybe_upload_local_file,
+    normalize_storage_backend,
+    object_key,
+    parse_s3_ref,
+    prune_prefix,
+    require_object_storage_config,
+    reset_object_store_cache,
+    resolve_storage_backend,
+    upload_file,
+)
+
+
+class FakeObjectStore:
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+
+    def put_file(
+        self,
+        key: str,
+        path: Path,
+        *,
+        content_type: str | None = None,
+    ) -> None:
+        _ = content_type
+        self.objects[key] = path.read_bytes()
+
+    def get_bytes(self, key: str) -> bytes:
+        if key not in self.objects:
+            raise FileNotFoundError(key)
+        return self.objects[key]
+
+    def delete(self, key: str) -> None:
+        self.objects.pop(key, None)
+
+    def list_keys(self, prefix: str) -> list[str]:
+        return sorted(k for k in self.objects if k.startswith(prefix))
+
+    def head_size(self, key: str) -> int | None:
+        data = self.objects.get(key)
+        return None if data is None else len(data)
+
+
+@pytest.fixture(autouse=True)
+def _clear_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    reset_object_store_cache()
+    monkeypatch.delenv("STORAGE_BACKEND", raising=False)
+    monkeypatch.delenv("SCREENSHOT_STORAGE", raising=False)
+    monkeypatch.delenv("OBJECT_STORAGE_ENDPOINT", raising=False)
+    monkeypatch.delenv("OBJECT_STORAGE_BUCKET", raising=False)
+    monkeypatch.delenv("OBJECT_STORAGE_ACCESS_KEY", raising=False)
+    monkeypatch.delenv("OBJECT_STORAGE_SECRET_KEY", raising=False)
+    monkeypatch.delenv("OBJECT_STORAGE_PREFIX", raising=False)
+    monkeypatch.delenv("LEDGER_BACKUP_UPLOAD", raising=False)
+    from config import get_settings
+
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+    reset_object_store_cache()
+
+
+def test_normalize_and_resolve_backend(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    assert normalize_storage_backend("filesystem") == "filesystem"
+    assert normalize_storage_backend("s3") == "s3"
+    assert normalize_storage_backend("object") == "s3"
+    with pytest.raises(ObjectStorageError):
+        normalize_storage_backend("gcs")
+
+    from config import get_settings
+
+    assert resolve_storage_backend() == "filesystem"
+
+    monkeypatch.setenv("STORAGE_BACKEND", "s3")
+    get_settings.cache_clear()
+    assert resolve_storage_backend() == "s3"
+
+    monkeypatch.delenv("STORAGE_BACKEND")
+    monkeypatch.setenv("SCREENSHOT_STORAGE", "object")
+    get_settings.cache_clear()
+    assert resolve_storage_backend() == "s3"
+    assert filesystem_root_for_screenshots().name == "screenshots"
+
+    monkeypatch.setenv("SCREENSHOT_STORAGE", str(tmp_path / "shots"))
+    get_settings.cache_clear()
+    assert resolve_storage_backend() == "filesystem"
+    assert filesystem_root_for_screenshots() == (tmp_path / "shots").resolve()
+
+
+def test_require_config_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("STORAGE_BACKEND", "s3")
+    from config import get_settings
+
+    get_settings.cache_clear()
+    with pytest.raises(ObjectStorageError) as exc:
+        require_object_storage_config()
+    assert "OBJECT_STORAGE_ENDPOINT" in str(exc.value)
+    assert "OBJECT_STORAGE_BUCKET" in str(exc.value)
+
+
+def test_s3_ref_helpers() -> None:
+    ref = make_s3_ref("killhub", "killhub/screenshots/j1/a.png")
+    assert is_s3_ref(ref)
+    assert parse_s3_ref(ref) == ("killhub", "killhub/screenshots/j1/a.png")
+    assert object_key(kind="screenshot", job_id="j1", filename="a.png") == (
+        "killhub/screenshots/j1/a.png"
+    )
+    assert object_key(kind="backup", filename="killhub-ledger-x.db") == (
+        "killhub/backups/ledger/killhub-ledger-x.db"
+    )
+
+
+def _enable_object_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("STORAGE_BACKEND", "s3")
+    monkeypatch.setenv("OBJECT_STORAGE_ENDPOINT", "https://ewr1.vultrobjects.com")
+    monkeypatch.setenv("OBJECT_STORAGE_BUCKET", "killhub-test")
+    monkeypatch.setenv("OBJECT_STORAGE_ACCESS_KEY", "AKIA_TEST")
+    monkeypatch.setenv("OBJECT_STORAGE_SECRET_KEY", "secret")
+    monkeypatch.setenv("OBJECT_STORAGE_PREFIX", "killhub")
+    from config import get_settings
+
+    get_settings.cache_clear()
+
+
+def test_maybe_upload_filesystem_keeps_local(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    local = tmp_path / "shot.png"
+    local.write_bytes(b"png")
+    fake = FakeObjectStore()
+    assert maybe_upload_local_file(
+        local,
+        kind="screenshot",
+        job_id="job-1",
+        client=fake,
+    ) == str(local)
+    assert fake.objects == {}
+
+
+def test_maybe_upload_s3_returns_ref(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _enable_object_env(monkeypatch)
+    local = tmp_path / "shot.png"
+    local.write_bytes(b"png-bytes")
+    fake = FakeObjectStore()
+    ref = maybe_upload_local_file(
+        local,
+        kind="screenshot",
+        job_id="job-1",
+        client=fake,
+    )
+    assert ref == "s3://killhub-test/killhub/screenshots/job-1/shot.png"
+    assert fake.objects[parse_s3_ref(ref)[1]] == b"png-bytes"
+    assert local.is_file()
+
+
+def test_backup_upload_and_retention(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from ledger.backup import backup_ledger
+    from ledger.store import Ledger
+
+    _enable_object_env(monkeypatch)
+    db = tmp_path / "ledger.db"
+    with Ledger(db) as ledger:
+        ledger.create_job(
+            "https://github.com/heroku/nodejs-getting-started",
+            env_ttl_seconds=60,
+        )
+    dest = tmp_path / "backups"
+    fake = FakeObjectStore()
+    start = datetime(2026, 11, 20, tzinfo=timezone.utc)
+    from datetime import timedelta
+
+    for day in range(4):
+        backup_ledger(
+            db,
+            dest,
+            keep=2,
+            now=start + timedelta(days=day),
+            upload=True,
+            object_client=fake,
+        )
+    local = sorted(p.name for p in dest.glob("killhub-ledger-*.db"))
+    assert len(local) == 2
+    remote = sorted(fake.objects)
+    assert len(remote) == 2
+    assert all(k.startswith("killhub/backups/ledger/") for k in remote)
+    assert remote[-1].endswith(local[-1])
+
+
+def test_prune_prefix_keeps_newest() -> None:
+    fake = FakeObjectStore()
+    for name in ("a.db", "b.db", "c.db"):
+        fake.objects[f"killhub/backups/ledger/{name}"] = b"x"
+    deleted = prune_prefix("killhub/backups/ledger/", keep=2, client=fake)
+    assert deleted == ["killhub/backups/ledger/a.db"]
+    assert sorted(fake.objects) == [
+        "killhub/backups/ledger/b.db",
+        "killhub/backups/ledger/c.db",
+    ]
+
+
+def test_upload_fail_closed_without_creds(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("STORAGE_BACKEND", "s3")
+    from config import get_settings
+
+    get_settings.cache_clear()
+    local = tmp_path / "x.png"
+    local.write_bytes(b"x")
+    with pytest.raises(ObjectStorageError):
+        upload_file(local, kind="screenshot", job_id="j", client=FakeObjectStore())

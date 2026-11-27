@@ -16,6 +16,7 @@ from config import Settings, get_settings
 from harness import copy_out, exec_command
 from jobs import get_ledger
 from ledger.store import utc_now
+from object_storage import is_s3_ref, maybe_upload_local_file
 
 logger = logging.getLogger("killhub.screenshots")
 
@@ -140,7 +141,11 @@ def should_capture_screenshots(
         return False, "screenshot_cap"
     total = 0
     for shot in existing:
-        path = Path(shot.get("storage_path") or "")
+        ref = str(shot.get("storage_path") or "")
+        # Disk budget is host-local (D40); s3-only refs do not consume local disk.
+        if is_s3_ref(ref):
+            continue
+        path = Path(ref)
         if path.is_file():
             total += path.stat().st_size
     budget = max(int(cfg.max_screenshots_per_job), 1) * max(int(cfg.max_copy_bytes), 1)
@@ -342,12 +347,58 @@ def capture_http_screenshot(
         return ScreenshotResult(job_id=job_id, status="failed", reason="copy_out_failed")
 
     safe_caption = redact_caption(caption or f"HTTP verify still ({target})")
+    # Optional vision caption on Plane-1 still only (D75). Never gates completion (D31).
+    if getattr(cfg, "enable_screenshot_vision", False):
+        try:
+            from inference_extras import caption_screenshot
+
+            vision_caption = caption_screenshot(host_path, job_id=job_id, settings=cfg)
+            if vision_caption:
+                safe_caption = redact_caption(vision_caption)
+                _log(
+                    job_id,
+                    "screenshot vision caption applied",
+                    settings=cfg,
+                    kind="screenshot_vision",
+                    status="ok",
+                    screenshot_id=shot_id,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.info("screenshot vision skipped: %s", exc.__class__.__name__)
+            _log(
+                job_id,
+                "screenshot vision skipped (non-fatal)",
+                settings=cfg,
+                kind="screenshot_vision",
+                status="skipped",
+                error=exc.__class__.__name__,
+            )
+    try:
+        storage_ref = maybe_upload_local_file(
+            host_path,
+            kind="screenshot",
+            job_id=job_id,
+            filename=f"{shot_id}.png",
+            content_type="image/png",
+            settings=cfg,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("screenshot object upload failed for %s", job_id)
+        _log(
+            job_id,
+            "screenshot object upload failed (non-fatal; keeping local)",
+            settings=cfg,
+            kind="screenshot",
+            status="upload_failed",
+            error=exc.__class__.__name__,
+        )
+        storage_ref = str(host_path)
     meta = ledger.insert_screenshot(
         job_id,
         screenshot_id=shot_id,
         step=step,
         caption=safe_caption,
-        storage_path=str(host_path),
+        storage_path=storage_ref,
     )
     public = {
         "screenshot_id": shot_id,

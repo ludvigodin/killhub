@@ -9,9 +9,7 @@ export function ProgressBar({ progress, label }: ProgressBarProps) {
     <div className="w-full">
       <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
         <span className="text-(--muted)">{label || "Progress"}</span>
-        <span className="font-mono tabular-nums text-(--ink)">
-          {clamped}%
-        </span>
+        <span className="font-mono tabular-nums text-(--ink)">{clamped}%</span>
       </div>
       <div
         className="h-2 overflow-hidden rounded-full bg-(--paper-deep)"

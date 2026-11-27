@@ -107,7 +107,9 @@ Create a job (admission — D40; pre-flight — D45).
 | `429` | Rate limit exceeded or inference budget exhausted |
 | `503` | Global concurrency full and queue full |
 
-Error body: `{ "error": "…", "code": "rate_limited" \| "inference_budget" \| "queue_full" \| "invalid_url" \| "preflight_blocked" }`.
+Error body: `{ "error": "…", "code": "rate_limited" \| "inference_budget" \| "queue_full" \| "admission_unavailable" \| "invalid_url" \| "preflight_blocked" }`.
+
+`429` = `rate_limited` or `inference_budget`. `503` = `queue_full` or `admission_unavailable` (Valkey required but unreachable — D71). Never silent drop (D40).
 
 ---
 
@@ -205,7 +207,7 @@ Ordered timeline (may be `[]`).
 
 ### `GET /api/jobs/{id}/screenshots/{shot_id}`
 
-Image bytes (`image/png`) or redirect to object storage.
+Image bytes (`image/png`). Serves a local hot cache when present; otherwise streams from Vultr Object Storage when `storage_path` is `s3://…` or `STORAGE_BACKEND=s3` (D72).
 
 ---
 

@@ -138,6 +138,7 @@ cd explore
 | Inventory / inspect | **Vultr MCP** (`https://mcp.vultr.com/mcp`) | `vultr-cli` read | Guess instance IDs |
 | Mutate Cloud Compute | **`vultr-cli`** | Vultr API + `VULTR_API_KEY` | Non-Vultr providers; Docker-as-Plane-2 |
 | Plane 2 lifecycle | **`msb` CLI/SDK** on VX1 | `microsandbox-mcp` debug only if D38 allows | Mock `msb` success |
+| Bootstrap / base OCI images | **Vultr Container Registry** + host robot pull (D74) | Public short names for local dx | Inject `VULTR_CR_ROBOT_*` into guest |
 | Inference | Vultr Serverless Inference (`https://api.vultrinference.com/v1`) | — | Alternate LLM providers (D25) |
 
 If MCP/`vultr-cli`/`msb` is unavailable: **stop and report**. Secrets stay on Plane 1 / operator env — never injected into sandboxes (D19). Public demo hostname: **[killhub.pro](https://killhub.pro)** (D24).

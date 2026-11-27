@@ -107,7 +107,7 @@ flowchart LR
 
 | From → to | Allowed? | Enforced by |
 |-----------|----------|-------------|
-| Internet → control plane | Only via edge proxy; app binds `127.0.0.1` on demo (D46) | Deploy reverse proxy + bind address |
+| Internet → control plane | Only via edge proxy; app binds `127.0.0.1` on demo (D46) | Vultr Firewall host-edge allowlist (D73: 80/443 world, 22 operator CIDRs) + reverse proxy + bind address |
 | Browser → secrets | Never | No secrets in client bundles; D19 |
 | Control plane → sandbox | Harness `msb` create/exec/copy/destroy only | D23, D38 |
 | Sandbox → control plane / management | Never | D39 network policy + `network_probe` |
@@ -504,19 +504,23 @@ Install phase keeps package/git egress; verify/containment switch to **deny-all 
 | `VULTR_INFERENCE_API_KEY` | Serverless Inference key |
 | `VULTR_INFERENCE_MODEL` | Model id |
 | `OPENCODE_*` | Agent client → Vultr Inference (D25); trusted config path (D38) |
-| `MSB_HOST` / `MSB_DEFAULT_IMAGE` / CPU·memory | Bootstrap image + harness defaults (D36) |
+| `MSB_HOST` / `MSB_DEFAULT_IMAGE` / CPU·memory | Bootstrap image + harness defaults (D36); prod pin via Vultr CR digest (D74) |
+| `VULTR_CR_ENDPOINT` / `VULTR_CR_ROBOT_*` | Host-only registry pull auth for `*.vultrcr.com` images (D74); never guest |
 | `MSB_NET_POLICY` / control-plane deny list | Plane 2 egress policy + install/offline phases (D39, D43) |
 | Reverse proxy / bind `127.0.0.1` | Demo edge (D46) |
 | `JOB_TIMEOUT_SECONDS` | Hard wall clock |
 | `ENV_TTL_SECONDS` / `expires_at` | Absolute sandbox expiry (D41; not extended by touch) |
 | `MAX_REPAIR_ATTEMPTS` | Repair loop cap |
 | `MAX_CONCURRENT_JOBS` / `MAX_QUEUED_JOBS` / rate limits | Admission (D40) |
+| `ADMISSION_STORE` / `VALKEY_URL` / `REDIS_URL` | Shared admission backend — memory default, Valkey optional (D71) |
 | `INFERENCE_BUDGET_*` | Per-job / rolling inference caps (D40) |
 | `MAX_JOB_LOG_BYTES` / disk caps | Event and artifact budgets (D40) |
 | `LEDGER_URL` / ledger path | Durable job/event store (D41) |
 | `VULN_SCAN_*` | Scanner settings |
 | `MAX_SCREENSHOTS_PER_JOB` | Screenshot cap |
-| `SCREENSHOT_STORAGE` | Artifact store |
+| `STORAGE_BACKEND` / `SCREENSHOT_STORAGE` | `filesystem` (default) or `s3`/`object`; local staging paths (D17, D72) |
+| `OBJECT_STORAGE_*` | Vultr Object Storage endpoint/bucket/keys (Plane 1 only — D72) |
+| `LEDGER_BACKUP_UPLOAD` | Optional nightly SQLite upload to object storage (D72) |
 
 ---
 

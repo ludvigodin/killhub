@@ -68,7 +68,8 @@ def test_pending_migrations_apply_in_order_with_backup(db_path: Path) -> None:
         conn.close()
 
     assert applied == [2, 3]
-    assert row == ("github_repo",)
+    assert row is not None
+    assert row[0] == "github_repo"
     assert _meta(db_path, "schema_version") == "3"
     backup = db_path.with_name(f"{db_path.name}.pre-v2.bak")
     assert backup.exists()

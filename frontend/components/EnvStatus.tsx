@@ -39,9 +39,7 @@ export function EnvStatus({ snapshot }: EnvStatusProps) {
       <dl className="grid gap-2 text-sm sm:grid-cols-2">
         <div>
           <dt className="text-(--muted)">Lifecycle</dt>
-          <dd className="font-medium text-(--ink)">
-            {labelFor(snapshot)}
-          </dd>
+          <dd className="font-medium text-(--ink)">{labelFor(snapshot)}</dd>
         </div>
         <div>
           <dt className="text-(--muted)">Job status</dt>

@@ -594,7 +594,21 @@ def run_vuln_scan(
         if str(f.get("id")) not in known:
             all_findings.append(f)
 
-    summary = cite_checked_review(all_findings)
+    # Optional AI draft (chat or RAG) then cite-filter (D48 / D75). Fail closed.
+    draft: str | None = None
+    review_mode = "deterministic"
+    try:
+        from inference_extras import draft_vuln_review, maybe_seed_embeddings_for_findings
+
+        draft = draft_vuln_review(all_findings, job_id=job_id, settings=cfg)
+        if draft:
+            review_mode = "llm_rag" if (cfg.vultr_rag_collection or "").strip() else "llm"
+        # Optional document embeddings for advisory indexing — never required.
+        maybe_seed_embeddings_for_findings(all_findings, job_id=job_id, settings=cfg)
+    except Exception as exc:  # noqa: BLE001
+        logger.info("vuln_review extras skipped: %s", exc.__class__.__name__)
+
+    summary = cite_checked_review(all_findings, draft=draft)
     status = sca_status
     if not lock_host and job.sandbox_id:
         # Sandbox present but no lockfiles — clean bill is ok.
@@ -618,6 +632,7 @@ def run_vuln_scan(
         finding_count=len(all_findings),
         lockfiles=[p.name for p in lock_host],
         report_id=report.get("job_id"),
+        review_mode=review_mode,
     )
     return VulnScanResult(
         job_id=job_id,
