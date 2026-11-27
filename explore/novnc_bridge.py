@@ -133,6 +133,27 @@ def _active_generation(ledger: Ledger, job_id: str, now: float) -> tuple[int, fl
     return None
 
 
+def console_metadata(settings: Settings, ledger: Ledger, job_id: str) -> dict[str, object] | None:
+    """Report socket availability without publishing grants or filesystem paths."""
+    if not _enabled(settings) or not _valid_job_id(job_id):
+        return None
+    active = _active_generation(ledger, job_id, time())
+    if active is not None:
+        generation, _ = active
+        try:
+            _trusted_socket(Path(settings.novnc_socket_root), job_id, generation)
+        except (OSError, ValueError):
+            pass
+        else:
+            return {
+                "available": True,
+                "view_only": True,
+                "generation": generation,
+                "ws_path": f"/api/jobs/{job_id}/novnc",
+            }
+    return {"available": False, "view_only": True}
+
+
 def _trusted_socket(root: Path, job_id: str, generation: int) -> Path:
     path = root / f"{job_id}.{generation}.sock"
     if not root.is_absolute() or ".." in root.parts or len(os.fsencode(path)) > 107:
