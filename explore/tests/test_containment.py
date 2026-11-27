@@ -11,6 +11,7 @@ from canaries import generate_canaries, persist_canaries, scan_canaries
 from config import get_settings
 from containment import (
     compute_claim,
+    probe_host_access_denied,
     probe_timeout_enforcement,
     run_containment_probes,
 )
@@ -216,3 +217,20 @@ def test_run_containment_matrix_incomplete_without_live_msb(
     assert receipt["containment"]["claim"] == result.claim
     events = get_ledger().list_events(job_id)
     assert any(e.type == "containment" for e in events)
+
+
+def test_missing_exact_host_control_prevents_proof(monkeypatch):
+    job_id = _seed_job()
+    monkeypatch.setattr(
+        "containment._host_fetch_ok", lambda url: (url.startswith("https:"), "control")
+    )
+    monkeypatch.setattr("containment._guest_fetch", lambda *a, **k: ("denied", 0, "unreachable"))
+    result = probe_host_access_denied(
+        "env-contain",
+        job_id=job_id,
+        settings=get_settings(),
+        install_cp={"classification": "policy_denied"},
+    )
+    assert result["classification"] == "inconclusive"
+    assert not result["ok"]
+    assert any(p["classification"] == "policy_denied" for p in result["probes"])
