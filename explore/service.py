@@ -140,7 +140,7 @@ def create_job(
         fixture = match_fixture(github_url)
         if not fixture or not fixture.get("public_demo") or not fixture.get("commit"):
             raise AdmissionError(
-                "Demo intake accepts only the three pinned Killhub SCA fixture repositories.",
+                "Demo intake accepts only pinned repositories listed at /api/fixtures.",
                 "demo_fixture_required",
                 403,
             )

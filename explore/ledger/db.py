@@ -116,16 +116,23 @@ class SqliteConnection:
             self._conn.executescript(script)
 
     def begin(self) -> None:
-        with self._lock:
+        # Keep the shared connection owned until this transaction ends.
+        self._lock.acquire()
+        try:
             self._conn.execute("BEGIN IMMEDIATE")
+        except BaseException:
+            self._lock.release()
+            raise
 
     def commit(self) -> None:
-        with self._lock:
-            self._conn.execute("COMMIT")
+        self._conn.execute("COMMIT")
+        self._lock.release()
 
     def rollback(self) -> None:
-        with self._lock:
+        try:
             self._conn.execute("ROLLBACK")
+        finally:
+            self._lock.release()
 
     def close(self) -> None:
         with self._lock:
@@ -144,10 +151,14 @@ class SqliteConnection:
         return self
 
     def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
-        if exc_type is None:
-            self.commit()
-        else:
+        if exc_type is not None:
             self.rollback()
+            return
+        try:
+            self.commit()
+        except BaseException:
+            self.rollback()
+            raise
 
 
 class _PgCursor:

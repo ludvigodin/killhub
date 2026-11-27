@@ -11,6 +11,7 @@ import socket
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -132,6 +133,23 @@ def _tcp_positive_control(url: str) -> tuple[str | None, str]:
         return None, type(exc).__name__
     host = f"[{address}]" if ":" in address else address
     return f"tcp://{host}:{port}", "connected"
+
+
+def _gateway_control(interface: str) -> tuple[str | None, str]:
+    """Only test the fixed gateway through its operator-designated guest interface."""
+    if not interface:
+        return None, "guest_network_positive_control_unavailable"
+    try:
+        routes = [line.split() for line in Path("/proc/net/route").read_text().splitlines()[1:]]
+        if not routes or any(row[:2] == [interface, "00000000"] for row in routes):
+            return None, "dedicated_guest_interface_required"
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(5)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, interface.encode() + b"\0")
+            sock.connect(("172.16.0.5", 80))
+    except (OSError, AttributeError, ValueError) as exc:
+        return None, type(exc).__name__
+    return "tcp://172.16.0.5:80", "connected_on_guest_interface"
 
 
 def _guest_fetch(
@@ -313,12 +331,31 @@ def probe_host_access_denied(
     probes: list[dict[str, Any]] = []
     any_bypass = False
 
+    gateway_peer, gateway_detail = _gateway_control(cfg.containment_gateway_interface.strip())
     for target in targets:
         url = target["url"]
         if target["name"] in {"host_internal", "host_gateway_ip"}:
             # These addresses belong to the guest virtual network. Dialling
             # them from Plane 1 can reach an unrelated host on its default route.
-            peer, host_detail = None, "guest_network_positive_control_unavailable"
+            peer, host_detail = gateway_peer, gateway_detail
+            if peer and target["name"] == "host_internal":
+                # Require the guest alias to resolve exclusively to the same reference peer.
+                resolved = exec_command(
+                    environment_id,
+                    [
+                        "python3",
+                        "-I",
+                        "-c",
+                        "import socket; print(sorted({r[4][0] for r in socket.getaddrinfo("
+                        "'host.microsandbox.internal', 80, type=socket.SOCK_STREAM)}) "
+                        "== ['172.16.0.5'])",
+                    ],
+                    job_id=job_id,
+                    settings=cfg,
+                    timeout=10,
+                )
+                if resolved.exit_code != 0 or resolved.stdout.strip() != "True":
+                    peer, host_detail = None, "guest_alias_peer_unverified"
         else:
             peer, host_detail = _tcp_positive_control(url)
         host_ok = peer is not None
@@ -452,7 +489,7 @@ def probe_sibling_access_denied(
     try:
         plan = apply_killhub_net_policy(
             EnvironmentPlan(
-                image=(cfg.msb_default_image or "debian").strip() or "debian",
+                image=(cfg.containment_sibling_image or cfg.msb_default_image or "debian").strip(),
                 cpus=1,
                 memory="512M",
             ),
@@ -483,8 +520,8 @@ def probe_sibling_access_denied(
                 "(command -v wget >/dev/null 2>&1 || command -v curl >/dev/null 2>&1); then "
                 "echo tools_ok; exit 0; fi; "
                 "if command -v apt-get >/dev/null 2>&1; then "
-                "apt-get update -qq && "
-                "apt-get install -y -qq python3 wget curl ca-certificates; "
+                "apt-get -o Acquire::Retries=2 update -qq && "
+                "apt-get -o Acquire::Retries=2 install -y -qq python3 wget ca-certificates; "
                 "elif command -v apk >/dev/null 2>&1; then "
                 "apk add --no-cache python3 wget curl ca-certificates; "
                 "else echo tooling_missing; exit 3; fi",
@@ -824,10 +861,8 @@ def run_containment_probes(
         settings=cfg,
         during="after_network_probes",
     )
-    # Keep the stricter of the two liveness checks.
-    if host_live_final.get("ok"):
-        dimensions["host_liveness"] = host_live_final
-    else:
+    # Both observations must pass. Preserve the first failure in the receipt.
+    if host_live.get("ok"):
         dimensions["host_liveness"] = host_live_final
 
     canary = scan_canaries(

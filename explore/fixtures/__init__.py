@@ -56,3 +56,19 @@ def require_fixture(fixture_id: str) -> dict[str, Any]:
     if fixture_id not in fixtures:
         raise KeyError(f"unknown fixture id: {fixture_id}")
     return fixtures[fixture_id]
+
+
+def intake_catalog(*, restricted: bool) -> dict[str, Any]:
+    catalog = []
+    for fixture in sorted(list_fixtures().values(), key=lambda f: f["id"]):
+        if fixture.get("match_by_url") is False or not fixture.get("commit"):
+            continue
+        if restricted and not fixture.get("public_demo"):
+            continue
+        catalog.append(
+            {
+                key: fixture.get(key)
+                for key in ("id", "github_url", "expected_intent", "verification_kind")
+            }
+        )
+    return {"restricted": restricted, "fixtures": catalog}

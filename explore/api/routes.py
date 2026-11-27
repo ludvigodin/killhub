@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from api.auth import require_internal_token
 from config import get_settings
+from fixtures import intake_catalog
 from jobs import get_ledger
 from ledger.store import validate_github_url
 from service import (
@@ -39,6 +40,11 @@ def _error(status_code: int, message: str, code: str) -> HTTPException:
         status_code=status_code,
         detail={"error": message, "code": code},
     )
+
+
+@router.get("/fixtures")
+def get_fixture_catalog() -> dict[str, Any]:
+    return intake_catalog(restricted=get_settings().public_demo_fixtures_only)
 
 
 @router.post("/jobs", status_code=status.HTTP_201_CREATED)

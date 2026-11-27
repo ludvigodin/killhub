@@ -344,3 +344,18 @@ def test_upsert_vuln_report_fills_missing_severity_and_title(db_path: Path) -> N
         assert report["findings"] == [
             {"id": "canary-1", "source": "canary", "severity": "medium", "title": "canary-1"}
         ]
+
+
+def test_shared_sqlite_ledger_serializes_concurrent_writers(db_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    with Ledger(db_path) as ledger:
+        job = ledger.create_job(URL, env_ttl_seconds=60)
+
+        def append(i):
+            ledger.append_event(job.job_id, typ="log", message=str(i), payload={})
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(append, range(40)))
+        events = ledger.list_events(job.job_id)
+        assert [int(e.event_id) for e in events] == list(range(1, 42))

@@ -196,3 +196,32 @@ def test_worker_stub_claims_pending(client: TestClient, auth_header: dict[str, s
 
     snap = client.get(f"/internal/jobs/{job_id}", headers=auth_header).json()
     assert snap["status"] == "analyzing"
+
+
+def test_failed_ledger_health_returns_503(client, monkeypatch):
+    def unavailable(*args):
+        raise RuntimeError("ledger unavailable")
+
+    monkeypatch.setattr("jobs.get_ledger", unavailable)
+    response = client.get("/internal/health")
+    assert response.status_code == 503
+    assert response.json()["ledger"]["ok"] is False
+
+
+def test_fixture_catalog_matches_restricted_admission(client, auth_header, monkeypatch):
+    from config import get_settings
+
+    monkeypatch.setenv("PUBLIC_DEMO_FIXTURES_ONLY", "true")
+    get_settings.cache_clear()
+    try:
+        res = client.get("/internal/fixtures", headers=auth_header)
+        assert res.status_code == 200
+        catalog = res.json()
+        assert catalog["restricted"] is True
+        assert {entry["id"] for entry in catalog["fixtures"]} == {
+            "sca_python_affected",
+            "sca_npm_control",
+            "sca_npm_affected",
+        }
+    finally:
+        get_settings.cache_clear()

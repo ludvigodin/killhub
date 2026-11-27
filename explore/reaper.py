@@ -199,6 +199,38 @@ def reap_expired_from_host(
     return actions
 
 
+def exact_sandbox_names(cli: MsbCli) -> set[str]:
+    inventory = cli.run(["list", "--format", "json"], timeout=60, check=True)
+    rows = json.loads(inventory.stdout)
+    if not isinstance(rows, list) or not all(isinstance(r, dict) and r.get("name") for r in rows):
+        raise ValueError("unexpected sandbox inventory")
+    return {r["name"] for r in rows}
+
+
+def recover_interrupted_jobs(settings: Settings, cli: MsbCli) -> None:
+    """Before accepting traffic on the single-host SQLite deployment, close lost runs."""
+    ledger = get_ledger(settings)
+    if ledger.engine != "sqlite":
+        return
+    candidates = [
+        job
+        for job in ledger.list_jobs()
+        if job.sandbox_id
+        and job.current_sandbox_generation is not None
+        and job.status not in {"pending", "queued", "completed", "failed", "cancelled"}
+    ]
+    if not candidates:
+        return
+    live = exact_sandbox_names(cli)
+    for job in candidates:
+        if job.sandbox_id in live:
+            continue
+        if ledger.finalize_missing_generation(job):
+            from service import release_admission_slot
+
+            release_admission_slot(was_running=True, settings=settings)
+
+
 def reap_terminal_checkpoints(settings: Settings, cli: MsbCli) -> list[dict[str, Any]]:
     """Collect only transient install checkpoints for confirmed, finished jobs."""
     listed = cli.run(["snapshot", "list", "--format", "json"], timeout=60, check=True)
@@ -208,11 +240,7 @@ def reap_terminal_checkpoints(settings: Settings, cli: MsbCli) -> list[dict[str,
     if not groups:
         return []
     # Require an exact JSON inventory before removing a checkpoint.
-    inventory = cli.run(["list", "--format", "json"], timeout=60, check=True)
-    rows = json.loads(inventory.stdout)
-    if not isinstance(rows, list) or not all(isinstance(r, dict) and r.get("name") for r in rows):
-        raise ValueError("unexpected sandbox inventory")
-    live_names = {r["name"] for r in rows}
+    live_names = exact_sandbox_names(cli)
     ledger = get_ledger(settings)
     actions = []
     for group in groups:

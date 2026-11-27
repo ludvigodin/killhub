@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useState, useTransition } from "react";
+import { type FormEvent, useEffect, useState, useTransition } from "react";
 import { createJob } from "@/lib/api";
 import {
   isPublicGithubUrl,
@@ -40,6 +40,20 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
   const [results, setResults] = useState<BatchResult[]>([]);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  const [catalog, setCatalog] = useState<{
+    restricted: boolean;
+    fixtures: { id: string; github_url: string }[];
+  } | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/fixtures", { signal: controller.signal })
+      .then(async (response) => {
+        if (response.ok) setCatalog(await response.json());
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
 
   const lines = parseGithubUrlLines(text);
   const invalidPreview = lines.filter((u) => !isPublicGithubUrl(u));
@@ -115,7 +129,9 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder={
-            "https://github.com/org/repo\nhttps://gitlab.com/group/project"
+            catalog?.restricted
+              ? catalog.fixtures[0]?.github_url
+              : "https://github.com/org/repo"
           }
           disabled={pending}
           className="min-h-28 w-full resize-y rounded-md border border-(--line) bg-white/70 px-4 py-3 font-mono text-sm leading-relaxed text-(--ink) outline-none placeholder:text-(--muted) focus:border-(--accent) disabled:opacity-70"
@@ -133,11 +149,27 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
                 : "Start"}
           </button>
           <p className="text-sm text-(--muted)">
-            One public git URL per line (GitHub, GitLab, Bitbucket, Codeberg).
-            Admission caps still apply.
+            {catalog?.restricted
+              ? "Choose a pinned demo repository below."
+              : "Enter one repository URL per line."}
           </p>
         </div>
       </form>
+      {catalog?.restricted && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {catalog.fixtures.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              disabled={pending}
+              onClick={() => setText(f.github_url)}
+              className="rounded border border-(--line) px-2 py-1 text-sm"
+            >
+              {f.id}
+            </button>
+          ))}
+        </div>
+      )}
       {invalidPreview.length > 0 ? (
         <p className="mt-2 text-sm text-(--muted)">
           {invalidPreview.length} line

@@ -243,3 +243,15 @@ def test_missing_exact_host_control_prevents_proof(monkeypatch):
     assert result["classification"] == "inconclusive"
     assert not result["ok"]
     assert any(p["classification"] == "policy_denied" for p in result["probes"])
+
+
+def test_gateway_control_never_dials_default_interface(monkeypatch):
+    from containment import _gateway_control
+
+    monkeypatch.setattr(
+        "containment.Path.read_text", lambda path: "Iface Destination\neth0 00000000"
+    )
+    with_socket = MagicMock()
+    monkeypatch.setattr("containment.socket.socket", with_socket)
+    assert _gateway_control("eth0") == (None, "dedicated_guest_interface_required")
+    with_socket.assert_not_called()

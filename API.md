@@ -438,3 +438,9 @@ Cursor (HTTP):
 ## Versioning
 
 Public HTTP remains unversioned under `/api/...` in v1. **Profile** schema is versioned via `schema_version` (D51). Breaking API changes require a decision entry.
+
+### Intake policy and health
+
+`GET /api/fixtures` returns `restricted` and a `fixtures` array from the active worker policy. Each entry includes its id and public repository URL. In restricted mode only pinned public-demo fixtures appear. Operator MCP and the submission form read this catalog.
+
+`GET /health` returns HTTP 503 if Explore is unconfigured, unavailable, or reports an unhealthy ledger or admission store. Explore also returns HTTP 503 on a failed dependency check.

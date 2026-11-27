@@ -604,3 +604,5 @@ cd ../explore && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .v
 | [DATABASE.md](DATABASE.md) | Ledger, reaper, backups |
 | [API.md](API.md) | Jobs API + SSE |
 | [`.env.example`](.env.example) | Full env reference |
+
+For the host-denial positive control, set `CONTAINMENT_GATEWAY_INTERFACE` only on a deployment where a dedicated guest-network interface routes to the same Microsandbox gateway at `172.16.0.5:80` as the job guest. The worker binds its control socket to that interface and checks the guest alias separately. Leave this unset on isolated user-mode networks without that reference path, including VX1 unless the operator has verified its topology. The report will identify the missing control. Set `CONTAINMENT_SIBLING_IMAGE` to an operator-maintained image with Python 3 and wget or curl preinstalled to avoid package-mirror availability during sibling checks.

@@ -88,7 +88,10 @@ export function VulnReport({ report }: VulnReportProps) {
   ];
 
   return (
-    <section aria-label="Vulnerability report" className="space-y-4">
+    <section
+      aria-label="Vulnerability report"
+      className="min-w-0 space-y-4 wrap-anywhere"
+    >
       <div>
         <p className="mb-1 text-sm uppercase tracking-wide text-(--muted)">
           Vulnerability report

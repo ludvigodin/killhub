@@ -405,3 +405,5 @@ schemas/
 | Absolute `expires_at` / host reaper | Same confirm-only semantics |
 | Image replace | Prior generation destroyed/replaced; job-level `destroyed_at` unchanged while replacement live (D64) |
 | Orphan reaper | Stop/remove sandboxes with no live job/generation reference |
+
+On SQLite sidecar restart, the first worker after downtime compares recorded active generations with an exact Microsandbox inventory. A missing generation is closed atomically with its lifecycle event, receipt, cleanup timestamp and terminal status. The receipt records `worker_restart` and the interrupted step. A malformed inventory or a surviving sandbox supplies no evidence of removal.

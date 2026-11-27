@@ -1030,36 +1030,7 @@ class Ledger:
             job = self.get_job(job_id)
             if job is None:
                 raise KeyError(f"unknown job_id: {job_id}")
-            existing = self.get_receipt(job_id) or {}
-            merged = {
-                key: receipt[key] if key in receipt else existing.get(key)
-                for key in ("verification", "containment", "lifecycle", "dossier")
-            }
-            self._conn.execute(
-                """
-                INSERT INTO job_receipts (job_id, verification, containment, lifecycle, dossier)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(job_id) DO UPDATE SET
-                    verification = excluded.verification,
-                    containment = excluded.containment,
-                    lifecycle = excluded.lifecycle,
-                    dossier = excluded.dossier
-                """,
-                (
-                    job_id,
-                    _dumps(merged["verification"]),
-                    _dumps(merged["containment"]),
-                    _dumps(merged["lifecycle"]),
-                    _dumps(merged["dossier"] or {}),
-                ),
-            )
-            self._insert_event_unlocked(
-                job_id,
-                typ="status",
-                message=event_message or status,
-                payload={"status": status, **(event_payload or {})},
-            )
-            self._write_job_fields_unlocked(job_id, {**fields, "status": status})
+            self._finalize_unlocked(job_id, status, receipt, event_message, event_payload, fields)
             self._conn.commit()
         except Exception:
             self._conn.rollback()
@@ -1067,6 +1038,103 @@ class Ledger:
         job = self.get_job(job_id)
         assert job is not None
         return job
+
+    def _finalize_unlocked(
+        self,
+        job_id: str,
+        status: JobStatus,
+        receipt: dict[str, Any],
+        event_message: str | None,
+        event_payload: dict[str, Any] | None,
+        fields: dict[str, Any],
+    ) -> None:
+        existing = self.get_receipt(job_id) or {}
+        merged = {
+            key: receipt[key] if key in receipt else existing.get(key)
+            for key in ("verification", "containment", "lifecycle", "dossier")
+        }
+        self._conn.execute(
+            """
+            INSERT INTO job_receipts (job_id, verification, containment, lifecycle, dossier)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(job_id) DO UPDATE SET
+                verification = excluded.verification,
+                containment = excluded.containment,
+                lifecycle = excluded.lifecycle,
+                dossier = excluded.dossier
+            """,
+            (
+                job_id,
+                _dumps(merged["verification"]),
+                _dumps(merged["containment"]),
+                _dumps(merged["lifecycle"]),
+                _dumps(merged["dossier"] or {}),
+            ),
+        )
+        self._insert_event_unlocked(
+            job_id,
+            typ="status",
+            message=event_message or status,
+            payload={"status": status, **(event_payload or {})},
+        )
+        self._write_job_fields_unlocked(job_id, {**fields, "status": status})
+
+    def finalize_missing_generation(self, observed: Job) -> bool:
+        """Atomically close only the same interrupted run observed before inventory."""
+        self._conn.begin()
+        try:
+            job = self.get_job(observed.job_id)
+            if job is None or job != observed or job.status in TERMINAL_STATUSES:
+                self._conn.rollback()
+                return False
+            now = utc_now()
+            status = "cancelled" if job.cancel_requested_at else "failed"
+            reason = "Worker restarted and the recorded sandbox is absent from inventory."
+            lifecycle = {
+                "confirmed": True,
+                "environment_id": job.sandbox_id,
+                "generation": job.current_sandbox_generation,
+                "destroyed_at": now,
+                "reason": "worker_restart",
+                "phase": "destroyed",
+            }
+            self._conn.execute(
+                "UPDATE sandbox_generations SET state='destroyed', destroyed_at=? "
+                "WHERE job_id=? AND generation=? AND environment_id=?",
+                (now, job.job_id, job.current_sandbox_generation, job.sandbox_id),
+            )
+            self._insert_event_unlocked(
+                job.job_id, typ="lifecycle", message=reason, payload=lifecycle
+            )
+            self._finalize_unlocked(
+                job.job_id,
+                status,
+                {
+                    "verification": job.verification,
+                    "lifecycle": lifecycle,
+                    "dossier": {
+                        "outcome": status,
+                        "code": "worker_restart",
+                        "interrupted_step": job.current_step,
+                    },
+                },
+                reason,
+                {"reason": "worker_restart"},
+                {
+                    "current_step": status,
+                    "error": reason,
+                    "progress": 100,
+                    "destroyed_at": now,
+                    "cleanup": CleanupState(
+                        status="destroyed", attempts=job.cleanup.attempts, updated_at=now
+                    ),
+                },
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        return True
 
     def upsert_vuln_report(
         self,

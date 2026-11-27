@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import os
 import time
-from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
 
@@ -24,15 +23,6 @@ MAX_CREATE_JOBS = 5
 FINDINGS_CAP = 10
 MAX_TAIL_EVENTS = 200
 DEFAULT_TAIL_EVENTS = 50
-
-# Public run_fixture targets (D53). Skip require_fixture-only image_replace.
-PUBLIC_FIXTURE_IDS = frozenset(
-    {
-        "webapp_success",
-        "git_mcp_filesystem",
-        "setup_failed",
-    }
-)
 
 TOOL_NAMES = (
     "create_job",
@@ -141,46 +131,15 @@ def summarize_receipt(snap: dict[str, Any], *, base_url: str) -> dict[str, Any]:
     }
 
 
-def _fixtures_path() -> Path:
-    return Path(__file__).resolve().parent / "fixtures" / "m7.json"
+def load_public_fixtures(client: KillhubJobsClient) -> list[dict[str, Any]]:
+    return client.fixture_catalog()["fixtures"]
 
 
-def load_public_fixtures() -> list[dict[str, Any]]:
-    data = json.loads(_fixtures_path().read_text(encoding="utf-8"))
-    fixtures = data.get("fixtures") or {}
-    out: list[dict[str, Any]] = []
-    for fid in sorted(PUBLIC_FIXTURE_IDS):
-        raw = fixtures.get(fid)
-        if not isinstance(raw, dict):
-            continue
-        out.append(
-            {
-                "id": fid,
-                "github_url": raw.get("github_url"),
-                "expected_intent": raw.get("expected_intent"),
-                "verification_kind": raw.get("verification_kind"),
-            }
-        )
-    return out
-
-
-def resolve_public_fixture(name: str) -> dict[str, Any]:
-    fid = name.strip()
-    if fid not in PUBLIC_FIXTURE_IDS:
-        raise KillhubApiError(
-            f"unknown or non-public fixture: {fid} "
-            f"(allowed: {', '.join(sorted(PUBLIC_FIXTURE_IDS))})"
-        )
-    data = json.loads(_fixtures_path().read_text(encoding="utf-8"))
-    raw = (data.get("fixtures") or {}).get(fid)
-    if not isinstance(raw, dict) or not raw.get("github_url"):
-        raise KillhubApiError(f"fixture {fid} missing github_url in m7.json")
-    return {
-        "id": fid,
-        "github_url": str(raw["github_url"]),
-        "expected_intent": raw.get("expected_intent"),
-        "verification_kind": raw.get("verification_kind"),
-    }
+def resolve_public_fixture(name: str, client: KillhubJobsClient) -> dict[str, Any]:
+    for fixture in load_public_fixtures(client):
+        if fixture["id"] == name.strip():
+            return fixture
+    raise KillhubApiError(f"unknown or non-public fixture: {name}")
 
 
 def parse_screenshot_resource_uri(uri: str) -> tuple[str, str] | None:
@@ -254,6 +213,9 @@ class KillhubJobsClient:
                 body=detail,
             )
         return body
+
+    def fixture_catalog(self) -> dict[str, Any]:
+        return self._request("GET", "/api/fixtures")
 
     def create_job(self, github_url: str) -> dict[str, Any]:
         data = self._request("POST", "/api/jobs", json={"github_url": github_url})
@@ -475,16 +437,13 @@ def tools_list() -> list[dict[str, Any]]:
         },
         {
             "name": "run_fixture",
-            "description": (
-                "Create a job for a pinned M7 fixture "
-                "(webapp_success | git_mcp_filesystem | setup_failed)."
-            ),
+            "description": ("Create a job for a pinned fixture offered by this deployment."),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "name": {
                         "type": "string",
-                        "enum": sorted(PUBLIC_FIXTURE_IDS),
+                        "description": "A fixture id from list_fixtures.",
                     },
                 },
                 "required": ["name"],
@@ -659,10 +618,10 @@ def call_tool(client: KillhubJobsClient, name: str, arguments: dict[str, Any]) -
         return client.list_repos(limit=limit, offset=offset)
 
     if name == "list_fixtures":
-        return {"fixtures": load_public_fixtures()}
+        return client.fixture_catalog()
 
     if name == "run_fixture":
-        fixture = resolve_public_fixture(str(arguments.get("name") or ""))
+        fixture = resolve_public_fixture(str(arguments.get("name") or ""), client)
         created = client.create_job(str(fixture["github_url"]))
         return {
             "fixture": fixture["id"],
