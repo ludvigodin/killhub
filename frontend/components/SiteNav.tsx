@@ -193,7 +193,7 @@ function SiteNavFrame({
             : "pointer-events-none absolute inset-0 -z-10 border-b border-transparent bg-(--paper)/70 opacity-0 backdrop-blur-md backdrop-saturate-150 transition-opacity duration-300 ease-out"
         }
       />
-      <div className="relative mx-auto flex w-full max-w-5xl items-center justify-between gap-3 px-4 py-4 sm:px-6 sm:py-5 md:gap-4 md:py-6">
+      <div className="relative mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-4 sm:px-6 sm:py-5 md:gap-4 md:py-6">
         <Link
           href="/"
           className="shrink-0 no-underline"
@@ -308,7 +308,7 @@ function SiteNavFrame({
           id={menuId}
           className="relative border-t border-(--line)/45 md:hidden"
         >
-          <ul className="mx-auto m-0 flex w-full max-w-5xl list-none flex-col gap-1 px-4 py-3 sm:px-6">
+          <ul className="mx-auto m-0 flex w-full max-w-6xl list-none flex-col gap-1 px-4 py-3 sm:px-6">
             {LINKS.map((link) => {
               const active = isActivePath(pathname, link.href);
               const showCount = link.href === "/hubs" && hubsTotal != null;
