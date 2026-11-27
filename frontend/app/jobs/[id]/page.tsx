@@ -20,8 +20,9 @@ export default function JobPage(props: PageProps<"/jobs/[id]">) {
         Job
       </h1>
       <p className="mb-8 text-sm text-(--muted)">
-        Live status while running; receipt, profile, and scan findings when the
-        job finishes. Leave and return — state restores from snapshot + SSE.
+        Live status while running. When the job finishes, the security scan
+        outcome (issues found vs clean), receipt, and profile restore from
+        snapshot + SSE — leave and return anytime.
       </p>
       <Suspense
         fallback={

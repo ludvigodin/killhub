@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 
 from object_storage import (
+    SCREENSHOT_CDN_ACL,
+    SCREENSHOT_CDN_CACHE_CONTROL,
     ObjectStorageError,
+    cdn_url_for_key,
+    cdn_url_for_s3_ref,
     filesystem_root_for_screenshots,
     is_s3_ref,
     make_s3_ref,
@@ -27,6 +31,7 @@ from object_storage import (
 class FakeObjectStore:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
+        self.last_put: dict[str, object] | None = None
 
     def put_file(
         self,
@@ -34,8 +39,15 @@ class FakeObjectStore:
         path: Path,
         *,
         content_type: str | None = None,
+        acl: str | None = None,
+        cache_control: str | None = None,
     ) -> None:
-        _ = content_type
+        self.last_put = {
+            "key": key,
+            "content_type": content_type,
+            "acl": acl,
+            "cache_control": cache_control,
+        }
         self.objects[key] = path.read_bytes()
 
     def get_bytes(self, key: str) -> bytes:
@@ -64,6 +76,7 @@ def _clear_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OBJECT_STORAGE_ACCESS_KEY", raising=False)
     monkeypatch.delenv("OBJECT_STORAGE_SECRET_KEY", raising=False)
     monkeypatch.delenv("OBJECT_STORAGE_PREFIX", raising=False)
+    monkeypatch.delenv("OBJECT_STORAGE_CDN_BASE_URL", raising=False)
     monkeypatch.delenv("LEDGER_BACKUP_UPLOAD", raising=False)
     from config import get_settings
 
@@ -230,3 +243,89 @@ def test_upload_fail_closed_without_creds(
     local.write_bytes(b"x")
     with pytest.raises(ObjectStorageError):
         upload_file(local, kind="screenshot", job_id="j", client=FakeObjectStore())
+
+
+def test_cdn_url_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
+    from config import get_settings
+
+    assert cdn_url_for_key("killhub/screenshots/j/a.png") is None
+    assert cdn_url_for_s3_ref("s3://b/killhub/screenshots/j/a.png") is None
+
+    monkeypatch.setenv(
+        "OBJECT_STORAGE_CDN_BASE_URL",
+        "https://cdn-example.vultrcdn.com/",
+    )
+    get_settings.cache_clear()
+    assert (
+        cdn_url_for_key("killhub/screenshots/j/a.png")
+        == "https://cdn-example.vultrcdn.com/killhub/screenshots/j/a.png"
+    )
+    assert (
+        cdn_url_for_s3_ref("s3://killhub-test/killhub/screenshots/j/a.png")
+        == "https://cdn-example.vultrcdn.com/killhub/screenshots/j/a.png"
+    )
+    assert cdn_url_for_s3_ref("./storage/screenshots/j/a.png") is None
+
+
+def test_screenshot_upload_public_when_cdn_configured(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _enable_object_env(monkeypatch)
+    monkeypatch.setenv(
+        "OBJECT_STORAGE_CDN_BASE_URL",
+        "https://cdn-example.vultrcdn.com",
+    )
+    from config import get_settings
+
+    get_settings.cache_clear()
+    local = tmp_path / "shot.png"
+    local.write_bytes(b"png")
+    fake = FakeObjectStore()
+    ref = upload_file(
+        local,
+        kind="screenshot",
+        job_id="job-1",
+        content_type="image/png",
+        client=fake,
+    )
+    assert ref.startswith("s3://")
+    assert fake.last_put is not None
+    assert fake.last_put["acl"] == SCREENSHOT_CDN_ACL
+    assert fake.last_put["cache_control"] == SCREENSHOT_CDN_CACHE_CONTROL
+    assert fake.last_put["content_type"] == "image/png"
+
+
+def test_screenshot_upload_private_without_cdn(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _enable_object_env(monkeypatch)
+    local = tmp_path / "shot.png"
+    local.write_bytes(b"png")
+    fake = FakeObjectStore()
+    upload_file(local, kind="screenshot", job_id="job-1", client=fake)
+    assert fake.last_put is not None
+    assert fake.last_put["acl"] is None
+    assert fake.last_put["cache_control"] is None
+
+
+def test_artifact_upload_never_public_via_cdn_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _enable_object_env(monkeypatch)
+    monkeypatch.setenv(
+        "OBJECT_STORAGE_CDN_BASE_URL",
+        "https://cdn-example.vultrcdn.com",
+    )
+    from config import get_settings
+
+    get_settings.cache_clear()
+    local = tmp_path / "lock.txt"
+    local.write_text("x")
+    fake = FakeObjectStore()
+    upload_file(local, kind="artifact", job_id="job-1", client=fake)
+    assert fake.last_put is not None
+    assert fake.last_put["acl"] is None
+    assert fake.last_put["cache_control"] is None

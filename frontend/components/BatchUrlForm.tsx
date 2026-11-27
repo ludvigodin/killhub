@@ -49,7 +49,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
     setBatchError(null);
     const urls = parseGithubUrlLines(text);
     if (urls.length === 0) {
-      setBatchError("Paste one or more public GitHub URLs (one per line).");
+      setBatchError("Paste one or more public git URLs (one per line).");
       return;
     }
 
@@ -61,7 +61,8 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
           out.push({
             url: raw,
             ok: false,
-            error: "Must be a public https://github.com/org/repo URL",
+            error:
+              "Must be a public HTTPS git URL on github.com, gitlab.com, bitbucket.org, or codeberg.org",
             code: "invalid_url",
             status: 400,
           });
@@ -105,7 +106,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
     <div className="w-full">
       <form className="flex w-full flex-col gap-3" onSubmit={onSubmit}>
         <label className="sr-only" htmlFor="github-urls">
-          Public GitHub repository URLs (one per line)
+          Public git repository URLs (one per line)
         </label>
         <textarea
           id="github-urls"
@@ -114,7 +115,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder={
-            "https://github.com/org/repo\nhttps://github.com/another/repo"
+            "https://github.com/org/repo\nhttps://gitlab.com/group/project"
           }
           disabled={pending}
           className="min-h-28 w-full resize-y rounded-md border border-(--line) bg-white/70 px-4 py-3 font-mono text-sm leading-relaxed text-(--ink) outline-none placeholder:text-(--muted) focus:border-(--accent) disabled:opacity-70"
@@ -132,7 +133,8 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
                 : "Start"}
           </button>
           <p className="text-sm text-(--muted)">
-            One public github.com URL per line. Admission caps still apply.
+            One public git URL per line (GitHub, GitLab, Bitbucket, Codeberg).
+            Admission caps still apply.
           </p>
         </div>
       </form>

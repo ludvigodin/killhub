@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -16,15 +15,12 @@ from typing import Any
 from urllib.parse import urlparse
 
 from config import Settings, get_settings
+from git_url import ALLOWED_GIT_HOSTS, parse_public_git_url
 from jobs import get_ledger
 from ledger.store import utc_now
 from models import CleanupState
 
 logger = logging.getLogger("killhub.preflight")
-
-_REPO_RE = re.compile(
-    r"^https://github\.com/(?P<owner>[A-Za-z0-9_.-]+)/(?P<repo>[A-Za-z0-9_.-]+)/?$"
-)
 
 
 @dataclass(frozen=True)
@@ -60,11 +56,9 @@ class PreflightResult:
 
 
 def parse_github_owner_repo(github_url: str) -> tuple[str, str]:
-    cleaned = github_url.strip().rstrip("/")
-    match = _REPO_RE.match(cleaned)
-    if not match:
-        raise ValueError("not a public github.com org/repo URL")
-    return match.group("owner"), match.group("repo")
+    """Compatibility wrapper — parses any allowlisted public git URL (D78)."""
+    parsed = parse_public_git_url(github_url)
+    return parsed.owner, parsed.repo
 
 
 def _deny_match(owner: str, repo: str, patterns: str) -> str | None:
@@ -84,6 +78,30 @@ def _deny_match(owner: str, repo: str, patterns: str) -> str | None:
         if r == "*" or r == repo.lower():
             return pat
     return None
+
+
+class _AllowlistedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Follow redirects only while the target host stays on the git allowlist."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        host = (urlparse(newurl).hostname or "").lower()
+        if host not in ALLOWED_GIT_HOSTS:
+            raise urllib.error.HTTPError(
+                newurl,
+                code,
+                f"redirect off allowlisted git host ({host or 'unknown'})",
+                headers,
+                fp,
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def _github_repo_meta(
@@ -145,6 +163,77 @@ def _github_repo_meta(
         )
 
 
+def _host_reachability(
+    page_url: str,
+    *,
+    timeout: float,
+) -> PreflightFinding | None:
+    """Cheap HTTPS reachability for non-GitHub allowlisted hosts (D78)."""
+    headers = {"User-Agent": "killhub-preflight/0.1"}
+    opener = urllib.request.build_opener(_AllowlistedRedirectHandler())
+    for method in ("HEAD", "GET"):
+        req = urllib.request.Request(page_url, headers=headers, method=method)
+        try:
+            with opener.open(req, timeout=timeout) as resp:
+                code = getattr(resp, "status", None) or resp.getcode()
+                if int(code) == 404:
+                    return PreflightFinding(
+                        code="repo_not_found",
+                        message=f"repository page not found at {page_url}",
+                        severity="critical",
+                        hard=True,
+                    )
+                return None
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return PreflightFinding(
+                    code="repo_not_found",
+                    message=f"repository page not found at {page_url}",
+                    severity="critical",
+                    hard=True,
+                )
+            if exc.code in {401, 403}:
+                return PreflightFinding(
+                    code="host_meta_limited",
+                    message=(
+                        f"repository metadata unavailable ({exc.code}); continuing without meta"
+                    ),
+                    severity="low",
+                    hard=False,
+                )
+            if exc.code in {301, 302, 303, 307, 308}:
+                # Redirect handler already blocked off-host; treat as soft.
+                return PreflightFinding(
+                    code="host_redirect_blocked",
+                    message=(
+                        "repository redirected off allowlisted git host; continuing without meta"
+                    ),
+                    severity="low",
+                    hard=False,
+                )
+            if method == "HEAD" and exc.code in {405, 501}:
+                continue
+            return PreflightFinding(
+                code="host_meta_error",
+                message=f"repository reachability HTTP {exc.code}",
+                severity="medium",
+                hard=False,
+            )
+        except (urllib.error.URLError, TimeoutError) as exc:
+            return PreflightFinding(
+                code="host_unreachable",
+                message=f"repository host unreachable: {exc.__class__.__name__}",
+                severity="low",
+                hard=False,
+            )
+    return PreflightFinding(
+        code="host_unreachable",
+        message="repository host unreachable after HEAD/GET",
+        severity="low",
+        hard=False,
+    )
+
+
 def run_preflight(
     github_url: str,
     *,
@@ -159,7 +248,7 @@ def run_preflight(
         return PreflightResult(ok_to_bootstrap=True, findings=[], meta={"skipped": True})
 
     try:
-        owner, repo = parse_github_owner_repo(github_url)
+        parsed = parse_public_git_url(github_url)
     except ValueError as exc:
         findings.append(
             PreflightFinding(
@@ -171,8 +260,11 @@ def run_preflight(
         )
         return PreflightResult(ok_to_bootstrap=False, findings=findings, meta=meta)
 
+    owner, repo = parsed.owner, parsed.repo
     meta["owner"] = owner
     meta["repo"] = repo
+    meta["host"] = parsed.host
+    meta["canonical_url"] = parsed.url
 
     deny = _deny_match(owner, repo, getattr(cfg, "preflight_deny_repos", "") or "")
     if deny:
@@ -191,7 +283,7 @@ def run_preflight(
             meta=meta,
         )
 
-    # Suspicious path tokens (still github.com org/repo shape) — soft unless deny hit.
+    # Suspicious path tokens — soft unless deny hit.
     lowered = f"{owner}/{repo}".lower()
     for token in ("malware", "ransomware", "c2-framework", "botnet"):
         if token in lowered:
@@ -204,84 +296,78 @@ def run_preflight(
                 )
             )
 
-    api_base = getattr(cfg, "preflight_github_api", None) or "https://api.github.com"
     timeout = float(getattr(cfg, "preflight_timeout_seconds", 5) or 5)
-    token = (getattr(cfg, "github_token", None) or "").strip()
-    data, meta_finding = _github_repo_meta(
-        owner, repo, api_base=api_base, timeout=timeout, token=token
-    )
-    if meta_finding is not None:
-        findings.append(meta_finding)
 
-    if data is not None:
-        meta["github"] = {
-            "private": bool(data.get("private")),
-            "archived": bool(data.get("archived")),
-            "disabled": bool(data.get("disabled")),
-            "fork": bool(data.get("fork")),
-            "size": data.get("size"),
-            "default_branch": data.get("default_branch"),
-            "visibility": data.get("visibility"),
-        }
-        if data.get("private") or data.get("visibility") == "private":
-            findings.append(
-                PreflightFinding(
-                    code="repo_private",
-                    message="repository is private; Killhub v1 accepts public repos only",
-                    severity="critical",
-                    hard=True,
-                )
-            )
-        if data.get("disabled"):
-            findings.append(
-                PreflightFinding(
-                    code="repo_disabled",
-                    message="repository is disabled on GitHub",
-                    severity="critical",
-                    hard=True,
-                )
-            )
-        if data.get("archived"):
-            findings.append(
-                PreflightFinding(
-                    code="repo_archived",
-                    message="repository is archived; continuing with caution",
-                    severity="low",
-                    hard=False,
-                )
-            )
-        size_kb = int(data.get("size") or 0)
-        max_soft = int(getattr(cfg, "preflight_soft_max_size_kb", 500_000) or 500_000)
-        if size_kb > max_soft:
-            findings.append(
-                PreflightFinding(
-                    code="repo_large",
-                    message=f"repository size {size_kb}KB exceeds soft threshold {max_soft}KB",
-                    severity="low",
-                    hard=False,
-                )
-            )
-        if not data.get("default_branch"):
-            findings.append(
-                PreflightFinding(
-                    code="repo_empty",
-                    message="repository has no default branch (empty?)",
-                    severity="high",
-                    hard=True,
-                )
-            )
-
-    # Reject weird host trickery even if URL regex passed (defense in depth).
-    parsed = urlparse(github_url)
-    if parsed.hostname and parsed.hostname.lower() != "github.com":
-        findings.append(
-            PreflightFinding(
-                code="invalid_host",
-                message="only github.com HTTPS URLs are allowed",
-                severity="critical",
-                hard=True,
-            )
+    if parsed.host == "github.com":
+        api_base = getattr(cfg, "preflight_github_api", None) or "https://api.github.com"
+        token = (getattr(cfg, "github_token", None) or "").strip()
+        data, meta_finding = _github_repo_meta(
+            owner, repo, api_base=api_base, timeout=timeout, token=token
         )
+        if meta_finding is not None:
+            findings.append(meta_finding)
+
+        if data is not None:
+            meta["github"] = {
+                "private": bool(data.get("private")),
+                "archived": bool(data.get("archived")),
+                "disabled": bool(data.get("disabled")),
+                "fork": bool(data.get("fork")),
+                "size": data.get("size"),
+                "default_branch": data.get("default_branch"),
+                "visibility": data.get("visibility"),
+            }
+            if data.get("private") or data.get("visibility") == "private":
+                findings.append(
+                    PreflightFinding(
+                        code="repo_private",
+                        message="repository is private; Killhub v1 accepts public repos only",
+                        severity="critical",
+                        hard=True,
+                    )
+                )
+            if data.get("disabled"):
+                findings.append(
+                    PreflightFinding(
+                        code="repo_disabled",
+                        message="repository is disabled on GitHub",
+                        severity="critical",
+                        hard=True,
+                    )
+                )
+            if data.get("archived"):
+                findings.append(
+                    PreflightFinding(
+                        code="repo_archived",
+                        message="repository is archived; continuing with caution",
+                        severity="low",
+                        hard=False,
+                    )
+                )
+            size_kb = int(data.get("size") or 0)
+            max_soft = int(getattr(cfg, "preflight_soft_max_size_kb", 500_000) or 500_000)
+            if size_kb > max_soft:
+                findings.append(
+                    PreflightFinding(
+                        code="repo_large",
+                        message=f"repository size {size_kb}KB exceeds soft threshold {max_soft}KB",
+                        severity="low",
+                        hard=False,
+                    )
+                )
+            if not data.get("default_branch"):
+                findings.append(
+                    PreflightFinding(
+                        code="repo_empty",
+                        message="repository has no default branch (empty?)",
+                        severity="high",
+                        hard=True,
+                    )
+                )
+    else:
+        reach = _host_reachability(parsed.url, timeout=timeout)
+        if reach is not None:
+            findings.append(reach)
 
     hard = [f for f in findings if f.hard]
     return PreflightResult(
@@ -310,7 +396,9 @@ def apply_preflight_to_job(
             "ok_to_bootstrap": result.ok_to_bootstrap,
             "finding_count": len(result.findings),
             "hard_count": len(result.hard_findings),
-            "meta": {k: v for k, v in result.meta.items() if k in {"owner", "repo", "skipped"}},
+            "meta": {
+                k: v for k, v in result.meta.items() if k in {"owner", "repo", "host", "skipped"}
+            },
         },
     )
 

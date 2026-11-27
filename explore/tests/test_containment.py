@@ -11,6 +11,7 @@ from canaries import generate_canaries, persist_canaries, scan_canaries
 from config import get_settings
 from containment import (
     compute_claim,
+    probe_host_access_denied,
     probe_timeout_enforcement,
     run_containment_probes,
 )
@@ -157,7 +158,7 @@ def test_run_containment_matrix_incomplete_without_live_msb(
             return ExecResult("tools_ok\n", "", 0)
         if "http.server" in joined:
             return ExecResult("1234\n", "", 0)
-        if "127.0.0.1:8080" in joined:
+        if "172.16.0.99:8080" in joined:
             return ExecResult("ok\n", "", 0)
         if "tooling_missing" in joined:
             return ExecResult("tooling_missing\n", "", 3)
@@ -179,6 +180,8 @@ def test_run_containment_matrix_incomplete_without_live_msb(
         lambda **k: {"env-contain"},
     )
 
+    monkeypatch.setattr("containment._tcp_positive_control", lambda url: (url, "connected"))
+
     # Sibling create/remove via fake CLI.
     cli = MagicMock()
     cli.remove.return_value = CliResult((), 0, "", "")
@@ -199,7 +202,13 @@ def test_run_containment_matrix_incomplete_without_live_msb(
     # Sibling local positive control via exec_command already returns 0 for wget/curl.
 
     result = run_containment_probes(job_id, settings=get_settings(), cli=cli)
-    assert result.claim == "proven"
+    assert result.claim == "incomplete"
+    probes = result.dimensions["host_access_denied"]["probes"]
+    guest_only = [p for p in probes if p["name"] in {"host_internal", "host_gateway_ip"}]
+    assert len(guest_only) == 2
+    assert all(
+        p["classification"] == "inconclusive" and p["checked_peer"] is None for p in guest_only
+    )
     assert set(result.dimensions) == {
         "timeout_enforcement",
         "host_access_denied",
@@ -216,3 +225,21 @@ def test_run_containment_matrix_incomplete_without_live_msb(
     assert receipt["containment"]["claim"] == result.claim
     events = get_ledger().list_events(job_id)
     assert any(e.type == "containment" for e in events)
+
+
+def test_missing_exact_host_control_prevents_proof(monkeypatch):
+    job_id = _seed_job()
+    monkeypatch.setattr(
+        "containment._tcp_positive_control",
+        lambda url: (url if url.startswith("https:") else None, "control"),
+    )
+    monkeypatch.setattr("containment._guest_fetch", lambda *a, **k: ("denied", 0, "unreachable"))
+    result = probe_host_access_denied(
+        "env-contain",
+        job_id=job_id,
+        settings=get_settings(),
+        install_cp={"classification": "policy_denied"},
+    )
+    assert result["classification"] == "inconclusive"
+    assert not result["ok"]
+    assert any(p["classification"] == "policy_denied" for p in result["probes"])

@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional, Union
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -20,7 +20,8 @@ from service import (
     cancel_job,
     create_job,
     get_public_snapshot,
-    list_job_summaries,
+    list_jobs_page,
+    list_repos_page,
 )
 
 router = APIRouter(
@@ -70,9 +71,26 @@ def post_job(
 @router.get("/jobs")
 def list_jobs(
     limit: int = Query(default=48, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    github_url: Optional[str] = Query(default=None),
 ) -> Dict[str, Any]:
-    """Recent jobs newest-first for the public feed (D69)."""
-    return {"jobs": list_job_summaries(limit=limit)}
+    """Recent jobs newest-first (D69 / D77). Optional github_url filter (D79)."""
+    filtered: Optional[str] = None
+    if github_url is not None and github_url.strip():
+        try:
+            filtered = validate_github_url(github_url)
+        except ValueError as exc:
+            raise _error(400, str(exc), "invalid_url") from exc
+    return list_jobs_page(limit=limit, offset=offset, github_url=filtered)
+
+
+@router.get("/repos")
+def list_repos(
+    limit: int = Query(default=48, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> Dict[str, Any]:
+    """Distinct github_url groups for the home feed (D79)."""
+    return list_repos_page(limit=limit, offset=offset)
 
 
 @router.get("/jobs/{job_id}")
@@ -228,6 +246,32 @@ async def _event_stream(
             return
 
 
+@router.get("/jobs/{job_id}/events/recent")
+def job_events_recent(
+    job_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+) -> Dict[str, Any]:
+    """Last N durable events ascending (D81 operator MCP ``tail_events``)."""
+    ledger = get_ledger()
+    if ledger.get_job(job_id) is None:
+        raise _error(404, "job not found", "not_found")
+    events = ledger.list_events_recent(job_id, limit=limit)
+    return {
+        "job_id": job_id,
+        "limit": limit,
+        "events": [
+            {
+                "event_id": ev.event_id,
+                "type": ev.type,
+                "message": ev.message,
+                "payload": ev.payload,
+                "timestamp": ev.timestamp,
+            }
+            for ev in events
+        ],
+    }
+
+
 @router.get("/jobs/{job_id}/events")
 async def job_events(
     job_id: str,
@@ -262,3 +306,45 @@ async def job_events(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.post("/mcp")
+async def operator_mcp_rpc(request: Request) -> Response:
+    """Operator Killhub MCP JSON-RPC (D81). Tools call public Jobs API via env base URL."""
+    from operator_mcp_tools import client_from_env, handle_jsonrpc
+
+    try:
+        request_body = await request.json()
+    except Exception as exc:  # noqa: BLE001 — invalid JSON
+        raise _error(400, "invalid JSON body", "invalid_rpc") from exc
+    if not isinstance(request_body, dict):
+        raise _error(400, "JSON-RPC body must be an object", "invalid_rpc")
+
+    client = client_from_env()
+    try:
+        response = handle_jsonrpc(client, request_body)
+    finally:
+        client.close()
+
+    if response is None:
+        return Response(status_code=204)
+    return JSONResponse(content=response)
+
+
+@router.get("/mcp")
+def operator_mcp_info() -> Dict[str, Any]:
+    """Discoverability for the operator MCP HTTP endpoint (D81)."""
+    return {
+        "name": "killhub",
+        "transport": "json-rpc",
+        "protocolVersion": "2024-11-05",
+        "path": "/internal/mcp",
+        "methods": [
+            "initialize",
+            "tools/list",
+            "tools/call",
+            "resources/list",
+            "resources/templates/list",
+            "resources/read",
+        ],
+    }

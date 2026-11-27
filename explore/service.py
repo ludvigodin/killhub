@@ -11,6 +11,8 @@ from admission import (
     get_admission_store,
 )
 from config import Settings, get_settings
+from fixtures import match_fixture
+from git_url import validate_public_git_url
 from jobs import get_ledger
 from ledger import Ledger
 from ledger.store import utc_now
@@ -133,6 +135,15 @@ def create_job(
     from preflight import apply_preflight_to_job, run_preflight
 
     cfg = settings or get_settings()
+    if cfg.public_demo_fixtures_only:
+        github_url = validate_public_git_url(github_url)
+        fixture = match_fixture(github_url)
+        if not fixture or not fixture.get("public_demo") or not fixture.get("commit"):
+            raise AdmissionError(
+                "Demo intake accepts only the three pinned Killhub SCA fixture repositories.",
+                "demo_fixture_required",
+                403,
+            )
     _enforce_admission(cfg, client_ip=client_ip)
     ledger = get_ledger(cfg)
     try:
@@ -156,33 +167,114 @@ def get_public_snapshot(job_id: str) -> dict[str, Any] | None:
     return get_ledger().get_snapshot(job_id)
 
 
+def _job_summary_dict(
+    job: Job,
+    *,
+    ledger: Ledger,
+    settings: Settings,
+) -> dict[str, Any]:
+    shots = ledger.list_screenshots(job.job_id)
+    latest_shot = shots[-1] if shots else None
+    latest = latest_shot["screenshot_id"] if latest_shot else None
+    screenshot_url: str | None = None
+    if latest_shot is not None and latest:
+        from screenshots import public_screenshot_url
+
+        screenshot_url = public_screenshot_url(
+            job.job_id,
+            str(latest),
+            storage_path=str(latest_shot.get("storage_path") or "") or None,
+            settings=settings,
+        )
+    return {
+        "job_id": job.job_id,
+        "github_url": job.github_url,
+        "status": job.status,
+        "progress": job.progress,
+        "current_step": job.current_step,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+        "screenshot_id": latest,
+        "screenshot_url": screenshot_url,
+        "error": job.error,
+        "verification": job.verification,
+    }
+
+
 def list_job_summaries(
     *,
     limit: int = 48,
+    offset: int = 0,
+    github_url: str | None = None,
     settings: Settings | None = None,
 ) -> list[dict[str, Any]]:
-    """Recent jobs for the public feed — summary fields only (D69)."""
+    """Recent jobs — summary fields only (D69 / D77). Optional github_url filter (D79)."""
     cfg = settings or get_settings()
     ledger = get_ledger(cfg)
-    out: list[dict[str, Any]] = []
-    for job in ledger.list_recent_jobs(limit=limit):
-        shots = ledger.list_screenshots(job.job_id)
-        latest = shots[-1]["screenshot_id"] if shots else None
-        out.append(
+    if github_url is not None:
+        jobs = ledger.list_jobs_for_url(github_url, limit=limit, offset=offset)
+    else:
+        jobs = ledger.list_recent_jobs(limit=limit, offset=offset)
+    return [_job_summary_dict(job, ledger=ledger, settings=cfg) for job in jobs]
+
+
+def list_jobs_page(
+    *,
+    limit: int = 48,
+    offset: int = 0,
+    github_url: str | None = None,
+    settings: Settings | None = None,
+) -> dict[str, Any]:
+    """Paginated job list with total count (D77). Optional github_url filter (D79)."""
+    cfg = settings or get_settings()
+    capped_limit = max(1, min(int(limit), 200))
+    capped_offset = max(0, int(offset))
+    ledger = get_ledger(cfg)
+    if github_url is not None:
+        total = ledger.count_jobs_for_url(github_url)
+    else:
+        total = ledger.count_jobs()
+    jobs = list_job_summaries(
+        limit=capped_limit,
+        offset=capped_offset,
+        github_url=github_url,
+        settings=cfg,
+    )
+    return {
+        "jobs": jobs,
+        "total": total,
+        "limit": capped_limit,
+        "offset": capped_offset,
+    }
+
+
+def list_repos_page(
+    *,
+    limit: int = 48,
+    offset: int = 0,
+    settings: Settings | None = None,
+) -> dict[str, Any]:
+    """Paginated repo groups: one latest job + run_count per github_url (D79)."""
+    cfg = settings or get_settings()
+    capped_limit = max(1, min(int(limit), 200))
+    capped_offset = max(0, int(offset))
+    ledger = get_ledger(cfg)
+    total = ledger.count_repos()
+    repos: list[dict[str, Any]] = []
+    for job, run_count in ledger.list_recent_repos(limit=capped_limit, offset=capped_offset):
+        repos.append(
             {
-                "job_id": job.job_id,
                 "github_url": job.github_url,
-                "status": job.status,
-                "progress": job.progress,
-                "current_step": job.current_step,
-                "created_at": job.created_at,
-                "updated_at": job.updated_at,
-                "screenshot_id": latest,
-                "error": job.error,
-                "verification": job.verification,
+                "run_count": run_count,
+                "latest": _job_summary_dict(job, ledger=ledger, settings=cfg),
             }
         )
-    return out
+    return {
+        "repos": repos,
+        "total": total,
+        "limit": capped_limit,
+        "offset": capped_offset,
+    }
 
 
 def cancel_job(job_id: str) -> dict[str, Any]:

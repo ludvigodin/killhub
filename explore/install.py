@@ -670,6 +670,15 @@ def provision_and_go_offline(
         failures = [s.name for s in steps if not s.ok]
         if not failures:
             break
+        # D80: repairs against a vanished VM can never succeed — hand the loss
+        # to the worker's self-heal instead of burning the remaining attempts.
+        from selfheal import sandbox_alive
+
+        if sandbox_alive(environment_id, cli=msb) is False:
+            raise InstallError(
+                f"sandbox lost during install: {environment_id}",
+                code="sandbox_lost",
+            )
 
     offline_meta = transition_to_verify_offline(
         environment_id, job_id=job_id, settings=cfg, cli=msb

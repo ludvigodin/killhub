@@ -29,12 +29,30 @@ export type JobSummary = {
   created_at: string;
   updated_at?: string;
   screenshot_id?: string | null;
+  /** Absolute CDN URL when Object Storage + CDN configured (D76); else API path. */
+  screenshot_url?: string | null;
   error?: string | null;
   verification?: VerificationInfo | null;
 };
 
 export type JobListResponse = {
   jobs: JobSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type RepoSummary = {
+  github_url: string;
+  run_count: number;
+  latest: JobSummary;
+};
+
+export type RepoListResponse = {
+  repos: RepoSummary[];
+  total: number;
+  limit: number;
+  offset: number;
 };
 
 type ReadinessInfo = {
@@ -116,7 +134,26 @@ export type ScreenshotMeta = {
 };
 
 async function parseJson<T>(res: Response): Promise<T> {
-  return (await res.json()) as T;
+  const text = await res.text();
+  if (!text.trim()) {
+    throw Object.assign(
+      new Error(
+        res.ok ? "Empty response from server" : "Explore sidecar unavailable",
+      ),
+      {
+        code: res.ok ? "empty_response" : "explore_unreachable",
+        status: res.status,
+      },
+    );
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw Object.assign(new Error("Invalid JSON from server"), {
+      code: "invalid_json",
+      status: res.status,
+    });
+  }
 }
 
 export async function createJob(githubUrl: string): Promise<CreateJobResponse> {
@@ -135,14 +172,22 @@ export async function createJob(githubUrl: string): Promise<CreateJobResponse> {
   return body;
 }
 
-export async function listJobs(limit = 48): Promise<JobListResponse> {
-  const res = await fetch(
-    `/api/jobs?limit=${encodeURIComponent(String(limit))}`,
-    {
-      headers: { Accept: "application/json" },
-      cache: "no-store",
-    },
-  );
+export async function listJobs(
+  limit = 9,
+  offset = 0,
+  githubUrl?: string,
+): Promise<JobListResponse> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(Math.max(0, offset)),
+  });
+  if (githubUrl) {
+    params.set("github_url", githubUrl);
+  }
+  const res = await fetch(`/api/jobs?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
   const body = await parseJson<JobListResponse & ApiError>(res);
   if (!res.ok) {
     throw Object.assign(new Error(body.error || "list failed"), {
@@ -152,6 +197,36 @@ export async function listJobs(limit = 48): Promise<JobListResponse> {
   }
   return {
     jobs: Array.isArray(body.jobs) ? body.jobs : [],
+    total: typeof body.total === "number" ? body.total : 0,
+    limit: typeof body.limit === "number" ? body.limit : limit,
+    offset: typeof body.offset === "number" ? body.offset : offset,
+  };
+}
+
+export async function listRepos(
+  limit = 9,
+  offset = 0,
+): Promise<RepoListResponse> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    offset: String(Math.max(0, offset)),
+  });
+  const res = await fetch(`/api/repos?${params.toString()}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  const body = await parseJson<RepoListResponse & ApiError>(res);
+  if (!res.ok) {
+    throw Object.assign(new Error(body.error || "list failed"), {
+      code: body.code || "error",
+      status: res.status,
+    });
+  }
+  return {
+    repos: Array.isArray(body.repos) ? body.repos : [],
+    total: typeof body.total === "number" ? body.total : 0,
+    limit: typeof body.limit === "number" ? body.limit : limit,
+    offset: typeof body.offset === "number" ? body.offset : offset,
   };
 }
 

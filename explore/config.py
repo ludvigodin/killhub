@@ -77,6 +77,7 @@ class Settings(BaseSettings):
         default="",
         alias="CONTROL_PLANE_DENY_HOSTS",
     )
+    management_probe_address: str = Field(default="", alias="MANAGEMENT_PROBE_ADDRESS")
     msb_ready_timeout_seconds: int = Field(
         default=120,
         alias="MSB_READY_TIMEOUT_SECONDS",
@@ -87,6 +88,7 @@ class Settings(BaseSettings):
     )
 
     # Plane-1 pre-flight (D45)
+    public_demo_fixtures_only: bool = Field(default=False, alias="PUBLIC_DEMO_FIXTURES_ONLY")
     preflight_enabled: bool = Field(default=True, alias="PREFLIGHT_ENABLED")
     preflight_deny_repos: str = Field(default="", alias="PREFLIGHT_DENY_REPOS")
     preflight_github_api: str = Field(
@@ -111,6 +113,8 @@ class Settings(BaseSettings):
     job_timeout_seconds: int = Field(default=3600, alias="JOB_TIMEOUT_SECONDS")
     env_ttl_seconds: int = Field(default=7200, alias="ENV_TTL_SECONDS")
     max_repair_attempts: int = Field(default=3, alias="MAX_REPAIR_ATTEMPTS")
+    # D80: re-provision a vanished sandbox this many times per job (0 = off).
+    max_sandbox_heals: int = Field(default=1, alias="MAX_SANDBOX_HEALS")
     max_concurrent_jobs: int = Field(default=2, alias="MAX_CONCURRENT_JOBS")
     max_queued_jobs: int = Field(default=8, alias="MAX_QUEUED_JOBS")
     # Optional hard reject for inference budget demos (D40).
@@ -201,6 +205,12 @@ class Settings(BaseSettings):
     object_storage_prefix: str = Field(
         default="killhub",
         alias="OBJECT_STORAGE_PREFIX",
+    )
+    # Optional Vultr CDN Pull Zone base for public screenshot URLs (D76).
+    # e.g. https://cdn-xxxxx.vultrcdn.com — no trailing slash.
+    object_storage_cdn_base_url: str = Field(
+        default="",
+        alias="OBJECT_STORAGE_CDN_BASE_URL",
     )
     # Nightly ledger backup may also upload when true (and object backend configured).
     ledger_backup_upload: bool = Field(

@@ -5,7 +5,11 @@ These do **not** substitute for a real `msb doctor` / create on VX1.
 
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
 from typing import Sequence
+from unittest.mock import MagicMock
+from uuid import uuid4
 
 from harness import (
     CliResult,
@@ -20,7 +24,7 @@ from harness import (
     wait_until_ready,
 )
 from jobs import get_ledger
-from reaper import reap_expired_from_host, reap_expired_from_ledger
+from reaper import reap_expired_from_host, reap_expired_from_ledger, reap_terminal_checkpoints
 
 
 def test_normalize_memory_and_env_name() -> None:
@@ -226,3 +230,23 @@ def test_ledger_reaper_marks_expired(client, auth_header, monkeypatch) -> None:
     assert refreshed is not None
     assert refreshed.destroyed_at is not None
     get_settings.cache_clear()
+
+
+def test_reaper_prunes_only_confirmed_terminal_checkpoint(monkeypatch):
+    ids = [uuid4() for _ in range(5)]
+    groups = [f"kh-snap-{i.hex}" for i in ids]
+    cli = MagicMock()
+    cli.run.side_effect = [
+        SimpleNamespace(stdout=json.dumps([{"name": n} for n in [*groups, "operator-backup"]])),
+        SimpleNamespace(stdout=json.dumps([{"name": f"kh-{ids[1]}"}])),
+    ]
+    cli.snapshot_remove_group.return_value.ok = True
+    jobs = {str(i): SimpleNamespace(status="completed", destroyed_at="confirmed") for i in ids[:4]}
+    jobs[str(ids[2])].status = "installing"
+    ledger = MagicMock()
+    ledger.get_job.side_effect = jobs.get
+    ledger.get_receipt.side_effect = lambda i: {"lifecycle": {"confirmed": i != str(ids[3])}}
+    monkeypatch.setattr("reaper.get_ledger", lambda cfg: ledger)
+    actions = reap_terminal_checkpoints(MagicMock(), cli)
+    assert actions == [{"job_id": str(ids[0]), "checkpoint": groups[0], "removed": True}]
+    cli.snapshot_remove_group.assert_called_once_with(groups[0])

@@ -32,6 +32,8 @@ class ObjectStoreClient(Protocol):
         path: Path,
         *,
         content_type: str | None = None,
+        acl: str | None = None,
+        cache_control: str | None = None,
     ) -> None: ...
 
     def get_bytes(self, key: str) -> bytes: ...
@@ -41,6 +43,11 @@ class ObjectStoreClient(Protocol):
     def list_keys(self, prefix: str) -> list[str]: ...
 
     def head_size(self, key: str) -> int | None: ...
+
+
+# Screenshot stills served via CDN Pull Zone (D76).
+SCREENSHOT_CDN_CACHE_CONTROL = "public, max-age=86400"
+SCREENSHOT_CDN_ACL = "public-read"
 
 
 @dataclass(frozen=True)
@@ -219,10 +226,19 @@ class Boto3ObjectStore:
         path: Path,
         *,
         content_type: str | None = None,
+        acl: str | None = None,
+        cache_control: str | None = None,
     ) -> None:
-        kwargs: dict[str, Any] = {}
+        extra: dict[str, Any] = {}
         if content_type:
-            kwargs["ExtraArgs"] = {"ContentType": content_type}
+            extra["ContentType"] = content_type
+        if acl:
+            extra["ACL"] = acl
+        if cache_control:
+            extra["CacheControl"] = cache_control
+        kwargs: dict[str, Any] = {}
+        if extra:
+            kwargs["ExtraArgs"] = extra
         self._client.upload_file(str(path), self.conf.bucket, key, **kwargs)
 
     def get_bytes(self, key: str) -> bytes:
@@ -299,6 +315,41 @@ def reset_object_store_cache() -> None:
     _client_cache_key = None
 
 
+def cdn_base_url(settings: Settings | None = None) -> str:
+    """Normalized CDN Pull Zone base (no trailing slash), or empty when unset (D76)."""
+    cfg = settings or get_settings()
+    return (cfg.object_storage_cdn_base_url or "").strip().rstrip("/")
+
+
+def cdn_url_for_key(key: str, *, settings: Settings | None = None) -> str | None:
+    """Absolute CDN URL for an object key, or None when CDN is not configured."""
+    base = cdn_base_url(settings)
+    if not base or not key:
+        return None
+    return f"{base}/{key.lstrip('/')}"
+
+
+def cdn_url_for_s3_ref(
+    storage_ref: str,
+    *,
+    settings: Settings | None = None,
+) -> str | None:
+    """CDN URL for an s3:// ref, or None when not an s3 ref / CDN unset."""
+    if not is_s3_ref(storage_ref):
+        return None
+    _bucket, key = parse_s3_ref(storage_ref)
+    return cdn_url_for_key(key, settings=settings)
+
+
+def _public_screenshot_upload(
+    kind: str,
+    *,
+    settings: Settings | None = None,
+) -> bool:
+    """True when screenshot uploads should be public-read for CDN (D76)."""
+    return kind == "screenshot" and bool(cdn_base_url(settings))
+
+
 def upload_file(
     path: Path,
     *,
@@ -320,7 +371,18 @@ def upload_file(
         filename=name,
         prefix=conf.prefix,
     )
-    store.put_file(key, path, content_type=content_type)
+    acl: str | None = None
+    cache_control: str | None = None
+    if _public_screenshot_upload(kind, settings=cfg):
+        acl = SCREENSHOT_CDN_ACL
+        cache_control = SCREENSHOT_CDN_CACHE_CONTROL
+    store.put_file(
+        key,
+        path,
+        content_type=content_type,
+        acl=acl,
+        cache_control=cache_control,
+    )
     ref = make_s3_ref(conf.bucket, key)
     logger.info("uploaded %s → %s", path.name, ref)
     return ref
