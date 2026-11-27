@@ -72,17 +72,18 @@ export function ConnectMcpPanel({ open, onClose }: ConnectMcpPanelProps) {
   }
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 backdrop-blur-[1px] sm:items-center"
-      onClick={onClose}
-      role="presentation"
-    >
+    <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/60 backdrop-blur-[1px]"
+        aria-label="Close dialog"
+        onClick={onClose}
+      />
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         className="relative z-10 w-full max-w-md rounded-xl border border-(--line) bg-(--paper-deep) text-left shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4 border-b border-(--line) px-5 py-4">
           <div className="min-w-0">
@@ -126,7 +127,9 @@ export function ConnectMcpPanel({ open, onClose }: ConnectMcpPanelProps) {
             <p className="mb-1.5 font-mono text-[11px] uppercase tracking-wider text-(--muted)">
               Config snippet
             </p>
-            <pre className="overflow-x-auto rounded-md border border-(--line) bg-(--paper) px-3 py-2.5 font-mono text-[12px] leading-5 whitespace-pre text-(--ink)">{config}</pre>
+            <pre className="overflow-x-auto rounded-md border border-(--line) bg-(--paper) px-3 py-2.5 font-mono text-[12px] leading-5 whitespace-pre text-(--ink)">
+              {config}
+            </pre>
           </div>
         </div>
 

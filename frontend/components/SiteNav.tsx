@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { listRepos } from "@/lib/api";
 import { KillhubLogo } from "./KillhubLogo";
 
@@ -48,10 +48,13 @@ function useHubsTotal() {
   return total;
 }
 
-export function SiteNav() {
-  const pathname = usePathname();
-  const hubsTotal = useHubsTotal();
-
+function SiteNavFrame({
+  pathname,
+  hubsTotal,
+}: {
+  pathname: string;
+  hubsTotal: number | null;
+}) {
   return (
     <nav className="flex items-center justify-between gap-4 py-6">
       <Link href="/" className="no-underline" aria-label="Killhub home">
@@ -109,5 +112,19 @@ export function SiteNav() {
         </a>
       </div>
     </nav>
+  );
+}
+
+function SiteNavInner() {
+  const pathname = usePathname();
+  const hubsTotal = useHubsTotal();
+  return <SiteNavFrame pathname={pathname} hubsTotal={hubsTotal} />;
+}
+
+export function SiteNav() {
+  return (
+    <Suspense fallback={<SiteNavFrame pathname="" hubsTotal={null} />}>
+      <SiteNavInner />
+    </Suspense>
   );
 }
