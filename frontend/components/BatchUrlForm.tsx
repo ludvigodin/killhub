@@ -130,7 +130,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
         <label className="sr-only" htmlFor="github-urls">
           Public git repository URL
         </label>
-        <div className="mx-auto flex w-full max-w-md flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-stretch">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-stretch">
           <input
             id="github-urls"
             name="github_urls"
@@ -171,7 +171,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
             </button>
           </div>
         </div>
-        <p className="mx-auto max-w-md text-center text-xs text-(--muted)">
+        <p className="mx-auto max-w-2xl text-center text-xs text-(--muted)">
           GitHub shortcut:{" "}
           <span className="font-mono">killhub.pro/owner/repo</span> starts a
           scan automatically.

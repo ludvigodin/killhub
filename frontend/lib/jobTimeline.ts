@@ -8,6 +8,14 @@ type TimelineStageId =
   | "receipt"
   | "destroy";
 
+/** "6:11 PM" for a timeline caption; falls back to the raw value if unparsable. */
+function clockTime(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? iso
+    : d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
 export type TimelineStageState =
   | "pending"
   | "active"
@@ -162,7 +170,7 @@ function stageDetails(
       : null,
     destroy: done.destroy
       ? snapshot.destroyed_at
-        ? `destroyed ${snapshot.destroyed_at}`
+        ? `destroyed ${clockTime(snapshot.destroyed_at)}`
         : "sandbox removed"
       : snapshot.cleanup?.status === "destroy_failed"
         ? snapshot.cleanup.last_error || "destroy not confirmed"

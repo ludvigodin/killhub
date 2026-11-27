@@ -149,7 +149,9 @@ export function JobEntryCard({
         ? "1 run"
         : null;
   const terminal = TERMINAL.has(job.status);
-  const stalled = !terminal && isJobStalled(job.updated_at);
+  const queued = job.status === "pending" || job.status === "queued";
+  // A queued job does not update while it waits; only running jobs can stall.
+  const stalled = !terminal && !queued && isJobStalled(job.updated_at);
   const active = !terminal && !stalled;
   const runLabel = when.absolute || when.relative || shortJobId(job.job_id);
   const verificationKind = job.verification?.kind;
@@ -184,7 +186,13 @@ export function JobEntryCard({
           <FeedThumb
             key={`${job.job_id}:${job.screenshot_id ?? ""}:${job.screenshot_url ?? ""}`}
             jobId={job.job_id}
-            screenshotId={job.screenshot_id}
+            screenshotId={
+              // Generated demos screenshot a bare directory listing (a white
+              // square at thumbnail size) — use the repo mark instead.
+              verificationKind === "original_application"
+                ? job.screenshot_id
+                : null
+            }
             screenshotUrl={job.screenshot_url}
             repo={title}
           />
@@ -195,8 +203,8 @@ export function JobEntryCard({
             <p className="type-display truncate text-sm font-semibold tracking-tight text-(--ink) sm:text-base">
               {emphasizeRun ? runLabel : title}
             </p>
-            {job.safety ? (
-              <ResultStamp safety={job.safety} />
+            {job.safety && job.safety !== "unknown" ? (
+              <ResultStamp safety={job.safety} compact />
             ) : (
               <StatusBadge status={job.status} />
             )}
@@ -252,10 +260,16 @@ export function JobEntryCard({
               </span>
             ) : null}
           </div>
-          {terminal && <ActiveCheckSummary checks={job.active_checks} />}
-          <div className="mt-2">
-            <ProgressBar progress={job.progress} active={active} />
-          </div>
+          {terminal && (
+            <div className="mt-1">
+              <ActiveCheckSummary checks={job.active_checks} />
+            </div>
+          )}
+          {!terminal && !queued ? (
+            <div className="mt-2">
+              <ProgressBar progress={job.progress} active={active} />
+            </div>
+          ) : null}
         </div>
       </Link>
 
@@ -280,11 +294,6 @@ export function JobEntryCard({
         >
           {when.relative || when.absolute}
         </time>
-        {when.absolute ? (
-          <p className="type-meta max-w-44 truncate text-right text-(--muted)">
-            {when.absolute}
-          </p>
-        ) : null}
         {updated ? (
           <p className="type-meta text-(--muted)">
             {terminal ? "ended" : "updated"} {updated.relative}

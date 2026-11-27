@@ -10,6 +10,7 @@ import {
   parseContainment,
   VERDICT_TONE,
 } from "@/lib/containment";
+import { formatJobWhen } from "@/lib/time";
 import { SectionHeader } from "./SectionHeader";
 import { SECTION_SCROLL_MT } from "./SectionNav";
 
@@ -18,6 +19,21 @@ type ContainmentPanelProps = {
   /** Compact = summary strip for live view; default = full axes. */
   compact?: boolean;
 };
+
+/** Skip axis detail that is only a raw code or restates the blurb. */
+function isRedundantDetail(detail: string, blurb?: string | null): boolean {
+  const d = detail.trim();
+  if (/^[a-z0-9_]+$/.test(d)) return true; // bare code, e.g. policy_denied
+  if (!blurb) return false;
+  const words = (t: string) =>
+    new Set(t.toLowerCase().match(/[a-z]{3,}/g) ?? []);
+  const a = words(d);
+  const b = words(blurb);
+  if (a.size === 0) return false;
+  let shared = 0;
+  for (const w of a) if (b.has(w)) shared += 1;
+  return shared / a.size >= 0.6;
+}
 
 function VerdictChip({ verdict }: { verdict: AxisVerdict }) {
   const tone = VERDICT_TONE[verdict];
@@ -107,7 +123,7 @@ function AxisRow({ axis }: { axis: ContainmentAxis }) {
             <VerdictChip verdict={axis.verdict} />
           </div>
           <p className="text-xs text-(--muted)">{axis.blurb}</p>
-          {axis.detail ? (
+          {axis.detail && !isRedundantDetail(axis.detail, axis.blurb) ? (
             <p className="type-mono text-(--muted)">{axis.detail}</p>
           ) : null}
           {hasProbes ? (
@@ -163,7 +179,7 @@ function ClaimHeader({ view }: { view: ContainmentView }) {
       <SectionHeader
         eyebrow="Containment matrix"
         title="Isolation evidence"
-        description={`${view.passed}/${view.total} axes proven${view.at ? ` · ${view.at}` : ""}`}
+        description={`${view.passed}/${view.total} axes proven${view.at ? ` · ${formatJobWhen(view.at).absolute || view.at}` : ""}`}
         meta={
           <span
             className="inline-flex items-center rounded-md px-2.5 py-1 font-mono text-xs uppercase tracking-wide"
