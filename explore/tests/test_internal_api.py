@@ -225,3 +225,22 @@ def test_fixture_catalog_matches_restricted_admission(client, auth_header, monke
         }
     finally:
         get_settings.cache_clear()
+
+
+def test_operator_rpc_can_call_back_into_sidecar(client, auth_header, monkeypatch):
+    import asyncio
+
+    import pytest
+
+    def dispatch(_client, body):
+        with pytest.raises(RuntimeError, match="no running event loop"):
+            asyncio.get_running_loop()
+        # A synchronous public API call requires another request on the same event loop.
+        nested = client.get("/internal/fixtures", headers=auth_header)
+        assert nested.status_code == 200
+        return {"jsonrpc": "2.0", "id": body["id"], "result": nested.json()}
+
+    monkeypatch.setattr("operator_mcp_tools.handle_jsonrpc", dispatch)
+    response = client.post("/internal/mcp", headers=auth_header, json={"id": 1})
+    assert response.status_code == 200
+    assert response.json()["result"]["fixtures"]

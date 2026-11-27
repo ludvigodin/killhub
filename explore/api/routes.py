@@ -328,7 +328,8 @@ async def operator_mcp_rpc(request: Request) -> Response:
 
     client = client_from_env()
     try:
-        response = handle_jsonrpc(client, request_body)
+        # HTTP tools call back through the frontend into this same sidecar.
+        response = await asyncio.to_thread(handle_jsonrpc, client, request_body)
     finally:
         client.close()
 

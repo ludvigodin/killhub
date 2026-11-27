@@ -202,7 +202,9 @@ def reap_expired_from_host(
 def exact_sandbox_names(cli: MsbCli) -> set[str]:
     inventory = cli.run(["list", "--format", "json"], timeout=60, check=True)
     rows = json.loads(inventory.stdout)
-    if not isinstance(rows, list) or not all(isinstance(r, dict) and r.get("name") for r in rows):
+    if not isinstance(rows, list) or not all(
+        isinstance(r, dict) and isinstance(r.get("name"), str) and r["name"].strip() for r in rows
+    ):
         raise ValueError("unexpected sandbox inventory")
     return {r["name"] for r in rows}
 
