@@ -238,10 +238,11 @@ export function parseContainment(
     axes,
     absorption,
     canary,
-    unverifiedHostTargets: axes
-      .find((axis) => axis.id === "host_access_denied")
-      ?.probes.filter((probe) => probe.verdict === "inconclusive")
-      .map((probe) => probe.name) ?? [],
+    unverifiedHostTargets:
+      axes
+        .find((axis) => axis.id === "host_access_denied")
+        ?.probes.filter((probe) => probe.verdict === "inconclusive")
+        .map((probe) => probe.name) ?? [],
     passed,
     total: AXIS_ORDER.length,
   };
