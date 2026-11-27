@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from active_report import ACTIVE_SOURCES, active_finding
 from config import Settings, get_settings
 from errors import HarnessError
 from fixtures import match_fixture
@@ -470,13 +471,14 @@ def collect_stream_findings(job_id: str, settings: Settings) -> list[dict[str, A
         source = payload.get("source")
         if source not in FINDING_SOURCES:
             continue
+        if source in ACTIVE_SOURCES:
+            out.append(active_finding(event))
+            continue
         finding = payload.get("finding")
         if isinstance(finding, dict) and finding.get("id"):
             out.append(finding)
             continue
         fid = str(payload.get("code") or f"{source}-{event.event_id}")
-        if source in {"activity", "mcp_tool_review"}:
-            fid = f"{fid}-{event.event_id}"
         out.append(
             {
                 "id": fid,

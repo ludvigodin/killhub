@@ -290,3 +290,39 @@ def test_active_checks_reach_card_and_agent(monkeypatch):
     assert agent["vuln_review"] == snapshot["vuln_report"]["summary"]
     assert len({f["id"] for f in agent["findings"] if f["source"] == "mcp_tool_review"}) == 2
     assert "untrusted text" not in str(snapshot["vuln_report"])
+
+
+def test_historical_report_uses_retained_evidence_without_rewriting_receipt():
+    from operator_mcp_tools import summarize_receipt
+    from service import list_job_summaries
+
+    job_id = _seed(with_sandbox=False)
+    ledger = get_ledger()
+    ledger.append_event(
+        job_id,
+        typ="log",
+        message="Install trace",
+        payload={"kind": "install_activity", "coverage": "full", "trace_bytes": 0},
+    )
+    ledger.append_event(
+        job_id,
+        typ="finding",
+        message="Install ran a network tool",
+        payload={"source": "activity", "code": "install_network_tools", "severity": "low"},
+    )
+    ledger.upsert_vuln_report(
+        job_id,
+        findings=[],
+        status="ok",
+        summary="No scan findings. Clean bill for this job's scanned surfaces.",
+    )
+    ledger.upsert_receipt(job_id, dossier={"outcome": "completed"})
+    snapshot = ledger.get_snapshot(job_id)
+    agent = summarize_receipt(snapshot, base_url="https://example.test")
+    checks = list_job_summaries()[0]["active_checks"]
+    assert checks == agent["active_checks"]
+    assert checks["finding_count"] == 1 and checks["install_trace"] == "none"
+    assert agent["findings"][0]["id"] == checks["leading_finding"]["id"]
+    assert "Clean bill" not in agent["vuln_review"]
+    assert ledger.get_vuln_report(job_id)["findings"] == []
+    assert "active_checks" not in ledger.get_receipt(job_id)["dossier"]

@@ -6,12 +6,12 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from active_report import summarize_active_checks
 from config import Settings, get_settings
 from harness import DestroyResult, destroy_job_environment
 from jobs import get_ledger
 from ledger.store import utc_now
 from models import CleanupState
-from safety import review_priority
 from vulnscan import VulnScanError, collect_stream_findings, run_vuln_scan
 
 logger = logging.getLogger("killhub.finalize")
@@ -286,30 +286,11 @@ def finalize_job(
         for r in ledger.list_profile_revisions(job_id)
     ]
 
-    # Keep measured coverage even when the checks produced no findings.
-    active_checks: dict[str, Any] = {"install_trace": None, "mcp_tools_reviewed": None}
-    for event in ledger.list_events(job_id):
-        payload = event.payload or {}
-        if event.type != "log":
-            continue
-        if payload.get("kind") == "install_activity":
-            active_checks["install_trace"] = payload.get("coverage")
-        elif payload.get("kind") == "mcp_tool_review":
-            active_checks["mcp_tools_reviewed"] = payload.get("tool_count")
-    active_findings = [
-        f
-        for f in (vuln_report or {}).get("findings") or []
-        if f.get("source") in {"activity", "mcp_tool_review"}
-    ]
-    active_checks["finding_count"] = len(active_findings)
-    leading = min(active_findings, key=review_priority, default=None)
-    active_checks["leading_finding"] = (
-        {k: leading[k] for k in ("id", "severity", "source", "title")} if leading else None
-    )
-
     dossier = {
         "outcome": terminal,
-        "active_checks": active_checks,
+        "active_checks": summarize_active_checks(
+            ledger.list_events(job_id), (vuln_report or {}).get("findings") or []
+        ),
         "gates": gates,
         "vuln_report_status": vuln_status or (vuln_report or {}).get("status"),
         "scan_error": scan_error,

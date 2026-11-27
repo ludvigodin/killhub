@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from active_report import ACTIVE_SOURCES, active_finding, summarize_active_checks
 from ledger.db import DbConnection, Row, open_ledger_connection
 from ledger.migrations import migrate
 from ledger.url import LedgerTarget, parse_ledger_url, parse_sqlite_path
@@ -348,6 +349,7 @@ class Ledger:
                     }
                     break
 
+        receipt, report = self.report_for_display(job_id)
         return {
             "job_id": job.job_id,
             "github_url": job.github_url,
@@ -374,9 +376,9 @@ class Ledger:
             "destroyed_at": job.destroyed_at,
             "cancel_requested_at": job.cancel_requested_at,
             "environment": environment,
-            "vuln_report": self.get_vuln_report(job_id),
+            "vuln_report": report,
             "screenshot_ids": [s["screenshot_id"] for s in self.list_screenshots(job_id)],
-            "receipt": self.get_receipt(job_id),
+            "receipt": receipt,
         }
 
     class WriterFrozenError(RuntimeError):
@@ -954,6 +956,49 @@ class Ledger:
         row = self.get_screenshot(job_id, shot_id)
         assert row is not None
         return row
+
+    def report_for_display(self, job_id: str) -> tuple[dict | None, dict | None]:
+        receipt = self.get_receipt(job_id)
+        report = self.get_vuln_report(job_id)
+        if not receipt or not report or "active_checks" in receipt["dossier"]:
+            return receipt, report
+        # Older workers emitted these events but omitted them from finalized reports.
+        rows = self._conn.execute(
+            """
+            SELECT * FROM job_events WHERE job_id = ? AND (
+                (type = 'finding' AND (payload LIKE '%"source":"activity"%'
+                                    OR payload LIKE '%"source":"mcp_tool_review"%'))
+                OR (type = 'log' AND (payload LIKE '%"kind":"install_activity"%'
+                                   OR payload LIKE '%"kind":"mcp_tool_review"%')))
+            ORDER BY CAST(event_id AS INTEGER)
+            """,
+            (job_id,),
+        ).fetchall()
+        if rows:
+            events = [self._row_to_event(row) for row in rows]
+            findings = report["findings"]
+            ids = {f["id"] for f in findings}
+            for event in events:
+                if (
+                    event.type == "finding"
+                    and (event.payload or {}).get("source") in ACTIVE_SOURCES
+                ):
+                    finding = active_finding(event)
+                    if finding["id"] not in ids:
+                        findings.append(finding)
+                        ids.add(finding["id"])
+            checks = summarize_active_checks(events, findings)
+            receipt["dossier"]["active_checks"] = checks
+            receipt["dossier"]["finding_ids"] = [f["id"] for f in findings]
+            if leading := checks["leading_finding"]:
+                prior = report["summary"]
+                if prior == "No scan findings. Clean bill for this job's scanned surfaces.":
+                    prior = "Historical dependency scan coverage is unknown."
+                    if report["status"] == "ok":
+                        report["status"] = "partial"
+                report["summary"] = f"{leading['title']} [{leading['id']}]. {prior}"
+                receipt["dossier"]["vuln_review"] = report["summary"]
+        return receipt, report
 
     def get_vuln_report(self, job_id: str) -> dict[str, Any] | None:
         row = self._conn.execute(

@@ -304,8 +304,7 @@ def _job_summary_dict(
             storage_path=str(latest_shot.get("storage_path") or "") or None,
             settings=settings,
         )
-    receipt = ledger.get_receipt(job.job_id)
-    vuln_report = ledger.get_vuln_report(job.job_id)
+    receipt, vuln_report = ledger.report_for_display(job.job_id)
     summary = {
         "job_id": job.job_id,
         "github_url": job.github_url,
