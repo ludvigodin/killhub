@@ -76,7 +76,7 @@ export function JobEntryCard({
     >
       <Link
         href={cardHref}
-        className="flex flex-1 flex-col no-underline outline-offset-[-2px]"
+        className="flex flex-1 flex-col no-underline -outline-offset-2"
         aria-label={
           runsLabel ? `Open history for ${title}` : `Open job ${title}`
         }
