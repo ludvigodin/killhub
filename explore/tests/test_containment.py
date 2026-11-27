@@ -261,9 +261,10 @@ def test_guest_network_probes_do_not_block_host_deny_proof(monkeypatch):
 
 def test_missing_control_plane_positive_control_prevents_proof(monkeypatch):
     job_id = _seed_job()
+    # An independently confirmed MSB host denial cannot stand in for the CP.
     monkeypatch.setattr(
         "containment._tcp_positive_control",
-        lambda url: (None, "unreachable"),
+        lambda url: (url, "connected") if url == "http://203.0.113.50/" else (None, "unreachable"),
     )
     monkeypatch.setattr("containment._guest_fetch", lambda *a, **k: ("denied", 0, "unreachable"))
     result = probe_host_access_denied(
@@ -274,7 +275,9 @@ def test_missing_control_plane_positive_control_prevents_proof(monkeypatch):
     )
     assert result["classification"] == "inconclusive"
     assert not result["ok"]
-    assert any(p["classification"] == "policy_denied" for p in result["probes"])
+    classifications = {p["name"]: p["classification"] for p in result["probes"]}
+    assert classifications["msb_host"] == "policy_denied"
+    assert classifications["control_plane"] == "inconclusive"
 
 
 def test_gateway_control_never_dials_default_interface(monkeypatch):
