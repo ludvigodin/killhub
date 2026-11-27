@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function NotFound() {
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-6 pb-24">
+    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 pb-24">
       <SiteNav />
 
       <section className="feed-hero mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center py-16 text-center sm:py-24">
