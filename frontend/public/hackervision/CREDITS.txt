@@ -1,0 +1,4 @@
+Velociraptor — Quaternius, Animated Dinosaur Pack, CC0 1.0.
+https://quaternius.com/packs/animateddinosaurs.html
+GLB conversion distributed by codepawl/quaternius-glb (uncompressed engine asset).
+https://huggingface.co/datasets/codepawl/quaternius-glb

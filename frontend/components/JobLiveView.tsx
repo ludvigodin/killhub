@@ -279,6 +279,14 @@ export function JobLiveView({
             type,
             message: activityMessage(type, data),
             timestamp: data.timestamp,
+            telemetry: {
+              ...data.payload,
+              ...(data.status !== undefined && { status: data.status }),
+              ...(data.progress !== undefined && { progress: data.progress }),
+              ...(data.current_step !== undefined && {
+                current_step: data.current_step,
+              }),
+            },
             kind: formatLogKind(data.payload),
             detail:
               type === "finding"

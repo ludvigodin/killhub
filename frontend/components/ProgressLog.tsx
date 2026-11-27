@@ -6,6 +6,7 @@ export type ProgressLogEntry = {
   type: string;
   message: string;
   timestamp?: string;
+  telemetry?: Record<string, unknown>;
   /** Structured log kind from SSE payload (sandbox_replace, repair_attempt, …). */
   kind?: string;
   /** Extra detail for findings / structured evidence. */

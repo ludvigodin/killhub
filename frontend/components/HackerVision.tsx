@@ -1,224 +1,257 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { type FrameEvent, mapEvents, stations } from "@/lib/mainframe";
 import type { ProgressLogEntry } from "./ProgressLog";
+import type { mountScene } from "./telemetryScene";
 
-function signalColor(type: string) {
-  if (type === "finding" || type === "error") return "#ff987b";
-  if (type === "containment" || type === "screenshot") return "#deb0ff";
-  if (type === "gap") return "#f7cf72";
-  return "#69f8ce";
-}
-
-// Perspective projection of a corridor. Each beacon occupies one event slot.
-function drawCorridor(
-  canvas: HTMLCanvasElement,
-  entries: ProgressLogEntry[],
-  camera: number,
-  selected: number,
-) {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  const w = canvas.clientWidth,
-    h = canvas.clientHeight;
-  if (!w || !h) return;
-  const scale = Math.min(window.devicePixelRatio || 1, 2);
-  if (
-    canvas.width !== Math.round(w * scale) ||
-    canvas.height !== Math.round(h * scale)
-  ) {
-    canvas.width = Math.round(w * scale);
-    canvas.height = Math.round(h * scale);
-  }
-  ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  ctx.clearRect(0, 0, w, h);
-  const focal = Math.min(w * 0.76, h * 1.35);
-  function project(x: number, y: number, z: number) {
-    return [w / 2 + (focal * x) / z, h * 0.47 - (focal * y) / z] as const;
-  }
-  function wire(points: number[][], color: string) {
-    if (!ctx) return;
-    ctx.strokeStyle = color;
-    ctx.beginPath();
-    for (const [i, [x, y, z]] of points.entries()) {
-      const p = project(x, y, z);
-      if (i === 0) ctx.moveTo(...p);
-      else ctx.lineTo(...p);
-    }
-    ctx.stroke();
-  }
-  for (let x = -8; x <= 8; x++) {
-    wire(
-      [
-        [x, -2, 1],
-        [x, -2, 88],
-      ],
-      "#266d66",
-    );
-    if (x % 2 === 0)
-      wire(
-        [
-          [x, 3, 1],
-          [x, 3, 88],
-        ],
-        "#19414e",
-      );
-  }
-  const travel = camera * 4;
-  for (let z = 2 - (travel % 2); z < 72; z += 2) {
-    if (z < 1) continue;
-    wire(
-      [
-        [-8, 3, z],
-        [-8, -2, z],
-        [8, -2, z],
-        [8, 3, z],
-      ],
-      "#225752",
-    );
-    wire(
-      [
-        [-8, 3, z],
-        [8, 3, z],
-      ],
-      "#193945",
-    );
-  }
-  // Look back along the stream: older events recede toward the vanishing point.
-  for (
-    let i = Math.max(0, Math.ceil(camera - 17));
-    i <= Math.min(entries.length - 1, Math.ceil(camera));
-    i++
-  ) {
-    const event = entries[i];
-    const z = 7 + (camera - i) * 4;
-    if (z < 1) continue;
-    const x = i % 2 ? 2.1 : -2.1;
-    const color = signalColor(event.type);
-    const y = 0.1 + (i % 3) * 0.34;
-    const r = 0.53;
-    const rim = [
-      [x - r, y, z],
-      [x, y, z - r],
-      [x + r, y, z],
-      [x, y, z + r],
-      [x - r, y, z],
-    ];
-    ctx.lineWidth = i === selected ? 2 : 1;
-    wire(
-      [
-        [x, -2, z],
-        [x, y - r, z],
-      ],
-      color,
-    );
-    wire(rim, color);
-    for (const point of rim.slice(0, 4))
-      wire([[x, y + r, z], point, [x, y - r, z]], color);
-    if (i === selected) {
-      const [px, py] = project(x, y + r, z);
-      ctx.fillStyle = color;
-      ctx.font = "bold 12px ui-monospace, monospace";
-      ctx.textAlign = "center";
-      ctx.fillText(event.type.toUpperCase(), px, py - 12);
-    }
-  }
-}
+const control =
+  "rounded border border-[#527167] px-2.5 py-1.5 text-xs hover:bg-[#28403b] disabled:opacity-40";
 
 export function HackerVision({ entries }: { entries: ProgressLogEntry[] }) {
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const position = useRef<number | null>(null);
-  const [pinned, setPinned] = useState<string | null>(null);
+  const canvas = useRef<HTMLCanvasElement>(null),
+    scene = useRef<ReturnType<typeof mountScene> | null>(null);
+  const [pinned, setPinned] = useState<string | null>(null),
+    [followCamera, setFollowCamera] = useState(true);
+  const [unavailable, setUnavailable] = useState(false),
+    [modelMissing, setModelMissing] = useState(false);
+  const events = useMemo(() => mapEvents(entries), [entries]);
   const index =
     pinned === null
-      ? entries.length - 1
+      ? events.length - 1
       : Math.max(
           0,
-          entries.findIndex((e) => e.id === pinned),
+          events.findIndex((e) => e.event.id === pinned),
         );
-  const event = entries[index];
-
-  useEffect(() => {
-    const el = canvas.current;
-    if (!el) return;
-    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    let frame = 0;
-    const start = performance.now();
-    const from = position.current ?? index;
-    function paint(now: number) {
-      if (!el) return;
-      const t = motion.matches ? 1 : Math.min(1, (now - start) / 380);
-      position.current = from + (index - from) * (1 - (1 - t) ** 3);
-      drawCorridor(el, entries, position.current, index);
-      if (t < 1 && from !== index) frame = requestAnimationFrame(paint);
+  const selected = events[index];
+  const { banks, danger } = useMemo(() => {
+    const banks: Array<FrameEvent | undefined> = Array(12);
+    let danger: FrameEvent | undefined;
+    for (const item of events.slice(0, index + 1)) {
+      banks[item.bank] = item;
+      if (item.alert) danger = item;
     }
-    paint(start);
-    const resize = new ResizeObserver(() =>
-      drawCorridor(el, entries, position.current ?? index, index),
-    );
-    resize.observe(el);
+    return { banks, danger };
+  }, [events, index]);
+  const lastByStation = useMemo(() => {
+    const latest: Array<FrameEvent | undefined> = Array(6);
+    for (const e of events) latest[e.station] = e;
+    return latest;
+  }, [events]);
+  const state = useRef({ banks, selected, danger, followCamera });
+  useEffect(() => {
+    state.current = { banks, selected, danger, followCamera };
+    scene.current?.update(banks, selected, Boolean(danger), followCamera);
+  }, [banks, selected, danger, followCamera]);
+  useEffect(() => {
+    let mounted = true;
+    import("./telemetryScene")
+      .then(({ mountScene }) => {
+        if (!mounted || !canvas.current) return;
+        scene.current = mountScene(
+          canvas.current,
+          setPinned,
+          () => setFollowCamera(false),
+          () => setModelMissing(true),
+        );
+        const v = state.current;
+        scene.current.update(
+          v.banks,
+          v.selected,
+          Boolean(v.danger),
+          v.followCamera,
+        );
+      })
+      .catch(() => {
+        if (mounted) setUnavailable(true);
+      });
     return () => {
-      cancelAnimationFrame(frame);
-      resize.disconnect();
+      mounted = false;
+      scene.current?.dispose();
+      scene.current = null;
     };
-  }, [entries, index]);
-
+  }, []);
+  const select = (item: FrameEvent) => {
+    setPinned(item.event.id);
+    setFollowCamera(true);
+  };
   return (
     <section
       aria-label="HackerVision telemetry"
-      className="overflow-hidden rounded-lg border border-[#32665d] bg-[#07151d] font-mono text-[#bce7dc]"
+      className="overflow-hidden rounded-lg border border-[#416459] bg-[#101e20] font-mono text-[#d5e8dc]"
     >
-      <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[#264740] px-5 py-3">
-        <h2 className="text-lg font-bold tracking-tight text-[#80ffdb]">
-          HackerVision
+      <header className="flex items-center justify-between gap-2 border-b border-[#38544b] px-4 py-3">
+        <h2 className="text-lg font-bold tracking-tight text-[#aff0c9]">
+          HackerVision{" "}
+          <span className="font-normal text-[#a2b9ac]">/ Mainframe</span>
         </h2>
-        <span className="text-xs">{entries.length} retained events</span>
+        <span className="text-right text-xs">
+          {events.length} retained events
+        </span>
       </header>
-      <canvas
-        ref={canvas}
-        role="img"
-        aria-label="Perspective grid with one beacon per visible event"
-        className="block h-64 w-full bg-[radial-gradient(ellipse_at_50%_47%,#21404e,#0b1928_48%,#050b13_95%)] sm:h-80"
-      />
-      <div className="space-y-3 border-t border-[#264740] p-5">
-        {event ? (
-          <>
-            <div className="flex flex-wrap items-baseline gap-x-3 text-xs">
-              <strong
-                className="uppercase"
-                style={{ color: signalColor(event.type) }}
+      <div className="relative bg-[#142c29]">
+        <canvas
+          ref={canvas}
+          role="img"
+          tabIndex={0}
+          aria-label="Mainframe cabinets. Drag to look, use W and S to fly, A and D to turn, or select a station below."
+          className="block h-72 w-full touch-pan-y outline-offset-[-3px] sm:h-96"
+        />
+        <div className="pointer-events-none absolute inset-x-3 bottom-3 flex items-end justify-between gap-3">
+          <div className="max-w-xl border-l-2 border-[#a6e9be] bg-[#071713ed] px-3 py-2">
+            <p className="text-xs uppercase tracking-wider text-[#9de9b9]">
+              {selected
+                ? `${stations[selected.station]} / ${selected.event.type}`
+                : "Waiting for telemetry"}
+            </p>
+            {selected && (
+              <p className="mt-1 line-clamp-2 wrap-anywhere text-sm">
+                {selected.event.message}
+              </p>
+            )}
+          </div>
+          {danger && (
+            <button
+              type="button"
+              onClick={() => select(danger)}
+              className="pointer-events-auto shrink-0 rounded border border-[#eea47c] bg-[#39261f] px-2 py-1 text-xs text-[#ffd3ad]"
+              title={danger.alert ?? ""}
+            >
+              ⚠ Event {danger.event.id}
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="space-y-3 border-t border-[#38544b] px-4 py-3">
+        {unavailable && (
+          <p className="text-sm">
+            3D unavailable. Use the stations and event controls below.
+          </p>
+        )}
+        {danger && (
+          <p className="text-sm text-[#ffd3ad]">
+            {danger.alert} · {danger.event.message}
+            {modelMissing && " · Raptor model unavailable"}
+          </p>
+        )}
+        <fieldset
+          className="grid grid-cols-3 gap-1 sm:grid-cols-6"
+          aria-label="Inspect station"
+        >
+          {stations.map((name, i) => (
+            <button
+              key={name}
+              type="button"
+              disabled={!lastByStation[i]}
+              aria-pressed={selected?.station === i}
+              onClick={() => {
+                const item = lastByStation[i];
+                if (item) select(item);
+              }}
+              className="border-t-2 border-[#445d53] py-2 text-xs hover:bg-[#28403b] aria-pressed:border-[#9ce4b4] aria-pressed:bg-[#243c32] disabled:opacity-40"
+            >
+              {name}
+            </button>
+          ))}
+        </fieldset>
+        {events.length > 0 && (
+          <fieldset
+            className="flex items-center gap-0.5"
+            aria-label="Recent event bus"
+          >
+            {events.slice(-30).map((item) => (
+              <button
+                key={item.event.id}
+                type="button"
+                title={item.event.message}
+                aria-label={`Inspect event ${item.event.id}, ${item.event.type}`}
+                aria-pressed={selected?.event.id === item.event.id}
+                className="group flex h-6 min-w-0 flex-1 items-center"
+                onClick={() => select(item)}
               >
-                {event.type}
-              </strong>
-              <span>Event {event.id}</span>
-              {event.timestamp && (
-                <time dateTime={event.timestamp}>{event.timestamp}</time>
-              )}
-            </div>
-            <p className="wrap-anywhere text-sm">{event.message}</p>
-            <div className="flex items-center gap-4">
-              <input
-                type="range"
-                aria-label="Explore retained events"
-                aria-valuetext={`Event ${event.id}, ${event.type}`}
-                min={0}
-                max={Math.max(entries.length - 1, 0)}
-                value={index}
-                onChange={(e) => setPinned(entries[Number(e.target.value)].id)}
-                className="min-w-0 flex-1 accent-[#69f8ce]"
-              />
+                <span
+                  className={`block h-2 w-full group-aria-pressed:h-5 ${item.alert ? "bg-[#ff936c]" : item.bank % 2 ? "bg-[#cdb58b]" : "bg-[#76ad94]"}`}
+                />
+              </button>
+            ))}
+          </fieldset>
+        )}
+        {selected && (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                aria-pressed={pinned === null}
-                onClick={() => setPinned(pinned === null ? event.id : null)}
-                className="rounded border border-[#49756b] px-2 py-1 text-xs"
+                className={control}
+                onClick={() =>
+                  setPinned(pinned === null ? selected.event.id : null)
+                }
               >
-                {pinned === null ? "Pause follow" : "Follow latest"}
+                {pinned === null ? "Hold event" : "Follow latest"}
               </button>
+              <input
+                aria-label="Explore retained events"
+                aria-valuetext={`Event ${selected.event.id}, ${selected.event.type}`}
+                className="min-w-20 flex-1 accent-[#9ce4b4]"
+                type="range"
+                min={0}
+                max={events.length - 1}
+                value={index}
+                onChange={(e) => select(events[Number(e.target.value)])}
+              />
+              <span className="text-xs">Event {selected.event.id}</span>
+              {!unavailable && (
+                <button
+                  className={control}
+                  type="button"
+                  onClick={() => {
+                    setFollowCamera(!followCamera);
+                    canvas.current?.focus();
+                  }}
+                >
+                  {followCamera ? "Take flight controls" : "Track station"}
+                </button>
+              )}
+              {!unavailable && !followCamera && (
+                <button
+                  type="button"
+                  className={control}
+                  onClick={() => scene.current?.flyForward()}
+                >
+                  Fly forward
+                </button>
+              )}
             </div>
+            {!unavailable && (
+              <p className="text-xs text-[#b3c9ba]">
+                Drag to look · W/S to fly · A/D to turn · Select a cabinet to
+                inspect
+              </p>
+            )}
+            <p className="flex flex-wrap gap-x-3 text-xs text-[#bad1bf]">
+              {typeof selected.event.telemetry?.progress === "number" && (
+                <span>Progress {selected.event.telemetry.progress}%</span>
+              )}
+              {typeof selected.event.telemetry?.elapsed_seconds ===
+                "number" && (
+                <span>Waiting {selected.event.telemetry.elapsed_seconds}s</span>
+              )}
+              {typeof selected.event.telemetry?.attempt === "number" && (
+                <span>Attempt {selected.event.telemetry.attempt}</span>
+              )}
+              {selected.event.kind === "heartbeat" && (
+                <span>Worker heartbeat</span>
+              )}
+            </p>
+            <details className="text-xs">
+              <summary className="cursor-pointer py-1">Event evidence</summary>
+              <p>
+                {selected.event.timestamp} {selected.event.kind}
+              </p>
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap wrap-anywhere py-2">
+                {JSON.stringify(selected.event.telemetry ?? {}, null, 2)}
+              </pre>
+            </details>
           </>
-        ) : (
-          <p className="text-sm">Waiting for telemetry…</p>
         )}
       </div>
     </section>

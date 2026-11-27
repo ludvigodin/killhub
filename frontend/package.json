@@ -10,14 +10,15 @@
     "lint:fix": "biome check --write .",
     "knip": "knip",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "node --experimental-strip-types --test lib/github.test.ts lib/time.test.ts lib/queue.test.ts lib/jobTimeline.test.ts",
+    "test": "node --experimental-strip-types --test lib/github.test.ts lib/time.test.ts lib/queue.test.ts lib/jobTimeline.test.ts lib/mainframe.test.ts",
     "format": "biome format --write ."
   },
   "dependencies": {
     "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "redis": "^5.12.4"
+    "redis": "^5.12.4",
+    "three": "0.183.2"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.2",
@@ -25,6 +26,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/three": "0.183.1",
     "knip": "^6.48.0",
     "tailwindcss": "4.3.3",
     "typescript": "^5"
