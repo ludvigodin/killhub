@@ -219,7 +219,9 @@ class Ledger:
         return self._row_to_job(row)
 
     def list_jobs(self) -> list[Job]:
-        rows = self._conn.execute("SELECT * FROM jobs ORDER BY created_at ASC").fetchall()
+        rows = self._conn.execute(
+            "SELECT * FROM jobs ORDER BY created_at ASC, job_id ASC"
+        ).fetchall()
         return [self._row_to_job(r) for r in rows]
 
     def count_jobs(self) -> int:

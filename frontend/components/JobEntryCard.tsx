@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import type { JobSummary } from "@/lib/api";
 import { hostLabelFromGithubUrl, ownerRepoFromGithubUrl } from "@/lib/github";
+import { formatQueueLine } from "@/lib/queue";
 import { formatJobWhen, isJobStalled } from "@/lib/time";
 import { ProgressBar } from "./ProgressBar";
 import { RepoThumbnail } from "./RepoThumbnail";
@@ -87,6 +88,12 @@ export function JobEntryCard({
     typeof job.error === "string" && job.error.trim().length > 0
       ? job.error.trim()
       : null;
+  const queueLine = formatQueueLine({
+    status: job.status,
+    queue_position: job.queue_position,
+    expected_wait_seconds: job.expected_wait_seconds,
+    fallback: job.current_step || "Waiting…",
+  });
 
   return (
     <article
@@ -146,18 +153,18 @@ export function JobEntryCard({
                 <span className="font-mono text-xs tracking-wide">
                   {shortJobId(job.job_id)}
                 </span>
-                {job.current_step ? (
+                {queueLine || job.current_step ? (
                   <>
                     <span aria-hidden className="mx-1.5 text-(--line)">
                       ·
                     </span>
-                    {job.current_step}
+                    {queueLine || job.current_step}
                   </>
                 ) : null}
               </>
             ) : (
               <>
-                {job.current_step || "Waiting…"}
+                {queueLine || job.current_step || "Waiting…"}
                 {stalled ? (
                   <>
                     <span aria-hidden className="mx-1.5 text-(--line)">

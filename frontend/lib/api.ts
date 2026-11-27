@@ -37,6 +37,10 @@ export type JobSummary = {
   verification?: VerificationInfo | null;
   /** Slim security stamp for feed cards; null while running / no receipt. */
   safety?: SafetyOutcome | null;
+  /** 1-based FIFO place when pending/queued; null otherwise. */
+  queue_position?: number | null;
+  /** Soft ETA while pending/queued; null otherwise. */
+  expected_wait_seconds?: number | null;
 };
 
 export type JobListResponse = {
@@ -139,6 +143,10 @@ export type JobSnapshot = {
   environment?: EnvironmentGen | null;
   vuln_report?: VulnReportData | null;
   receipt?: JobReceipt | null;
+  /** 1-based FIFO place when pending/queued; null otherwise. */
+  queue_position?: number | null;
+  /** Soft ETA while pending/queued; null otherwise. */
+  expected_wait_seconds?: number | null;
   [key: string]: unknown;
 };
 

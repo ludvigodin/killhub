@@ -82,7 +82,9 @@ Recent job summaries (D69 / D77). Newest first. Server-side pagination via `limi
       "screenshot_url": "/api/jobs/…/screenshots/…",
       "error": null,
       "verification": null,
-      "safety": null
+      "safety": null,
+      "queue_position": null,
+      "expected_wait_seconds": null
     }
   ],
   "total": 128,
@@ -91,7 +93,7 @@ Recent job summaries (D69 / D77). Newest first. Server-side pagination via `limi
 }
 ```
 
-`total` is the matching job count in the ledger (all jobs, or filtered to `github_url`). `screenshot_id` is the latest still when present; otherwise `null`. `screenshot_url` is an absolute Vultr CDN URL when Object Storage + `OBJECT_STORAGE_CDN_BASE_URL` are configured (D76); otherwise the relative `/api/jobs/{id}/screenshots/{screenshot_id}` path when a still exists; otherwise `null`. `safety` is a slim security-outcome stamp for the feed UI: `safe` | `high_risk` | `review` | `unknown`, or `null` while the job is non-terminal or has no receipt yet (full dossier / `vuln_report` stay on `GET /api/jobs/{id}`).
+`total` is the matching job count in the ledger (all jobs, or filtered to `github_url`). `screenshot_id` is the latest still when present; otherwise `null`. `screenshot_url` is an absolute Vultr CDN URL when Object Storage + `OBJECT_STORAGE_CDN_BASE_URL` are configured (D76); otherwise the relative `/api/jobs/{id}/screenshots/{screenshot_id}` path when a still exists; otherwise `null`. `safety` is a slim security-outcome stamp for the feed UI: `safe` | `high_risk` | `review` | `unknown`, or `null` while the job is non-terminal or has no receipt yet (full dossier / `vuln_report` stay on `GET /api/jobs/{id}`). When `status` is `pending` or `queued`, `queue_position` is the 1-based FIFO place (1 = next to claim) and `expected_wait_seconds` is a soft ETA derived from recent terminal job durations (fallback `ESTIMATED_JOB_SECONDS`); both are `null` once the job leaves the queue.
 
 ---
 
@@ -206,7 +208,9 @@ Full job snapshot for poll/hydrate.
   "environment": { "environment_id": "…", "generation": 1, "state": "running", "expires_at": "…" },
   "vuln_report": null,
   "screenshot_ids": [],
-  "receipt": null
+  "receipt": null,
+  "queue_position": null,
+  "expected_wait_seconds": null
 }
 ```
 
@@ -220,6 +224,7 @@ Full job snapshot for poll/hydrate.
 | `cancel_requested_at` | Set on cancel request; freezes ordinary writers before terminal `cancelled` (D61) |
 | `readiness` | Probe evidence; independent of terminal outcome (D37, D66) |
 | `screenshot_ids` | May be empty (D31) |
+| `queue_position` / `expected_wait_seconds` | Computed for `pending`/`queued` only (FIFO place + soft ETA); `null` when not in queue — not ledger columns |
 
 **Errors:** `404` unknown job.
 
@@ -302,7 +307,7 @@ pending → [queued] → analyzing → planning → provisioning → installing
 
 | Phase | Typical work |
 |-------|----------------|
-| `queued` | Waiting for concurrency slot (D40) |
+| `pending` / `queued` | In admission queue (D40). Create uses `queued` when running jobs already fill `MAX_CONCURRENT_JOBS`; otherwise `pending`. Worker claims either FIFO. Snapshot/list expose `queue_position` (1-based) + soft `expected_wait_seconds`. |
 | `analyzing` / `planning` | Bootstrap create → inspect → validated runtime profile (`schema_version`); replace VM if image differs |
 | `provisioning` / `installing` | Services + install commands from executable profile (D51); flag failures |
 | `verifying` / `repairing` | Supervise processes; probes — MCP stdio via in-guest helper or HTTP/TCP/command; set `readiness` + `verification.kind` |

@@ -150,7 +150,9 @@ erDiagram
 
 `pending` \| `destroying` \| `destroyed` \| `destroy_failed`
 
-`queued` is optional when admission queues a job (D40).
+`queued` is set on create when running jobs already fill `MAX_CONCURRENT_JOBS` (D40); otherwise jobs start as `pending`. Both are claimable (FIFO by `created_at`).
+
+**Computed (API only, not ledger columns):** when `status` is `pending` or `queued`, public/list snapshots may include `queue_position` (1-based FIFO place among waiting jobs) and `expected_wait_seconds` (soft ETA from recent terminal durations, fallback `ESTIMATED_JOB_SECONDS`). Both are `null` once the job leaves the queue.
 
 ---
 
