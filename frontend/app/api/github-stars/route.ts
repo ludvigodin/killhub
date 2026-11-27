@@ -1,3 +1,4 @@
+import { cacheLife } from "next/cache";
 import { connection } from "next/server";
 import { KILLHUB_GITHUB_OWNER, KILLHUB_GITHUB_REPO } from "@/lib/githubStars";
 
@@ -5,8 +6,8 @@ type GithubRepoPayload = {
   stargazers_count?: unknown;
 };
 
-export async function GET() {
-  await connection();
+async function readStarCount(): Promise<number | null> {
+  "use cache";
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
     "User-Agent": "killhub-frontend",
@@ -20,43 +21,36 @@ export async function GET() {
   try {
     const upstream = await fetch(
       `https://api.github.com/repos/${KILLHUB_GITHUB_OWNER}/${KILLHUB_GITHUB_REPO}`,
-      { headers, cache: "no-store" },
+      { headers },
     );
     if (!upstream.ok) {
-      return Response.json(
-        { stars: null },
-        {
-          status: 200,
-          headers: {
-            "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
-          },
-        },
-      );
+      cacheLife("minutes");
+      return null;
     }
     const body = (await upstream.json()) as GithubRepoPayload;
     const raw = body.stargazers_count;
-    const stars =
-      typeof raw === "number" && Number.isFinite(raw)
-        ? Math.max(0, Math.floor(raw))
-        : null;
-    return Response.json(
-      { stars },
-      {
-        headers: {
-          "Cache-Control":
-            "public, s-maxage=3600, stale-while-revalidate=86400",
-        },
-      },
-    );
+    cacheLife("hours");
+    return typeof raw === "number" && Number.isFinite(raw)
+      ? Math.max(0, Math.floor(raw))
+      : null;
   } catch {
-    return Response.json(
-      { stars: null },
-      {
-        status: 200,
-        headers: {
-          "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300",
-        },
-      },
-    );
+    cacheLife("minutes");
+    return null;
   }
+}
+
+export async function GET() {
+  await connection();
+  const stars = await readStarCount();
+  return Response.json(
+    { stars },
+    {
+      headers: {
+        "Cache-Control":
+          stars === null
+            ? "public, s-maxage=300, stale-while-revalidate=600"
+            : "public, s-maxage=3600, stale-while-revalidate=86400",
+      },
+    },
+  );
 }

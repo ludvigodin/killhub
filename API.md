@@ -461,3 +461,5 @@ Public HTTP remains unversioned under `/api/...` in v1. **Profile** schema is ve
 `GET /health` returns HTTP 503 if Explore is unconfigured, unavailable, or reports an unhealthy ledger or admission store. Explore also returns HTTP 503 on a failed dependency check.
 
 The vulnerability report summary includes checked and discovered pinned dependency entry counts when inputs yield packages. The terminal vulnerability-scan log also records `packages_checked` and `packages_discovered`. Budgets, unavailable inputs and failed lookups preserve partial coverage. Counts refer to entries extracted from copied files.
+
+GitHub preflight warnings include `http_status` and `reason` (`rate_limited` or `access_denied`). When GitHub supplies numeric quota headers, events also include `rate_limit_remaining`, `rate_limit_reset` (Unix seconds), and `retry_after_seconds`. During a cooldown the worker reuses the quota warning across repositories sharing the same API and credential. These warnings remain available in report details.

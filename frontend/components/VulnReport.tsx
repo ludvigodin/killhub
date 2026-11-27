@@ -3,6 +3,7 @@ import {
   countSeverities,
   formatFindingDetail,
   normalizeSeverity,
+  readerSummary,
   reportStatusTone,
   SEVERITY_ORDER,
   SEVERITY_TONE,
@@ -148,7 +149,7 @@ export function VulnReport({ report }: VulnReportProps) {
           {report.summary ===
           "No scan findings. Clean bill for this job's scanned surfaces."
             ? "No findings recorded. This historical summary does not establish scan coverage."
-            : report.summary}
+            : readerSummary(report)}
         </p>
       ) : null}
 

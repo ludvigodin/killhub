@@ -439,14 +439,20 @@ def collect_and_analyze(
     else:
         summary["coverage"] = "full"
 
-    ledger.append_event(
-        job_id,
-        typ="log",
-        message=(
+    if not traced:
+        message = "No install commands were traced."
+    elif not text:
+        message = "Install trace data unavailable."
+    else:
+        message = (
             f"install activity: {len(act.processes)} processes, {len(destinations)} destinations, "
             f"{len(act.dns_queries)} DNS queries, {len(hits)} canary hits "
             f"(coverage {summary['coverage']})"
-        ),
+        )
+    ledger.append_event(
+        job_id,
+        typ="log",
+        message=message,
         payload={"kind": "install_activity", **summary},
     )
     if hits:

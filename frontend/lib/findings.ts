@@ -1,4 +1,5 @@
 import type { JobSnapshot, SafetyOutcome, VulnFinding } from "@/lib/api";
+import { parseContainment } from "./containment";
 
 export const SEVERITY_ORDER = [
   "critical",
@@ -64,6 +65,22 @@ const legacyClean =
 
 export function readerSummary(report: JobSnapshot["vuln_report"]) {
   if (!report?.summary || report.summary === legacyClean) return null;
+  if (report.summary.includes("[github_api_limited]")) {
+    // Older reviews led with metadata availability. Keep independent scan evidence.
+    const sentences = report.summary
+      .split(/(?<=[.!?])\s+/)
+      .filter((sentence) => {
+        const citations = [...sentence.matchAll(/\[([^\]]+)\]/g)];
+        return (
+          !citations.length ||
+          citations.some((match) => match[1] !== "github_api_limited")
+        );
+      });
+    return (
+      sentences.join(" ") ||
+      "GitHub repository metadata was unavailable during preflight."
+    );
+  }
   if (!report.summary.includes("Cite-checked review —")) return report.summary;
 
   // Older receipts stored a list of titles. Rebuild the reader-facing sentence
@@ -130,6 +147,11 @@ export function securityVerdict(job: JobSnapshot) {
   }
   if (target === "original_application" && job.status !== "completed")
     gaps.push("The application started, but the job did not complete.");
+  const isolation = parseContainment(job.receipt?.containment);
+  if (isolation?.unverifiedHostTargets.length)
+    gaps.push(
+      `Unverified host targets: ${isolation.unverifiedHostTargets.join(", ")}.`,
+    );
   if (job.receipt?.containment?.claim !== "proven")
     gaps.push("Sandbox isolation was not fully verified.");
 

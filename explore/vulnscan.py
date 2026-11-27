@@ -915,13 +915,19 @@ def run_vuln_scan(
         if str(f.get("id")) not in known:
             all_findings.append(f)
 
+    # Keep metadata service warnings in the detailed report, outside the security review.
+    review_findings = [
+        f
+        for f in all_findings
+        if not (f.get("source") == "preflight" and f.get("id") == "github_api_limited")
+    ]
     # Optional AI draft (chat or RAG) then cite-filter (D48 / D75). Fail closed.
     draft: str | None = None
     review_mode = "deterministic"
     try:
         from inference_extras import draft_vuln_review, maybe_seed_embeddings_for_findings
 
-        ranked = sorted(all_findings, key=review_priority)
+        ranked = sorted(review_findings, key=review_priority)
         if ranked and review_priority(ranked[0]) != 5 and not _advisory_id_only(ranked[0]):
             draft = draft_vuln_review([ranked[0]], job_id=job_id, settings=cfg)
         if draft := _checked_draft(ranked[:1], draft or ""):
@@ -932,7 +938,9 @@ def run_vuln_scan(
         logger.info("vuln_review extras skipped: %s", exc.__class__.__name__)
 
     status = "partial" if copy_incomplete and sca_status == "ok" else sca_status
-    summary = with_active_summary(draft or cite_checked_review(all_findings), all_findings)
+    summary = with_active_summary(
+        draft or (cite_checked_review(review_findings) if review_findings else ""), all_findings
+    )
     if not lock_host:
         summary = f"{summary} No dependency files were available for scanning."
     elif status == "failed":
@@ -941,8 +949,15 @@ def run_vuln_scan(
         summary = f"{summary} Some dependencies could not be checked for known security issues."
 
     if discovered:
-        summary = f"{summary} Checked {checked} of {discovered} listed dependency versions."
+        coverage = f"Checked {checked} of {discovered} listed dependency versions."
+        if checked and not sca_findings:
+            coverage += " No known advisories were returned for the checked versions."
+        if any(review_priority(f) < 5 for f in review_findings):
+            summary = f"{summary} {coverage}"
+        else:
+            summary = f"{coverage} {summary}"
 
+    summary = summary.strip()
     report = ledger.upsert_vuln_report(
         job_id,
         summary=summary,

@@ -173,13 +173,13 @@ function UnverifiedHostTargets({ view }: { view: ContainmentView }) {
 }
 
 function ClaimHeader({ view }: { view: ContainmentView }) {
-  const tone = claimTone(view.claim);
+  const tone = claimTone(view.claim, view.unverifiedHostTargets.length);
   return (
     <div className="border-b border-(--line) px-3 py-4 sm:px-4">
       <SectionHeader
         eyebrow="Containment matrix"
         title="Isolation evidence"
-        description={`${view.passed}/${view.total} axes proven${view.at ? ` · ${formatJobWhen(view.at).absolute || view.at}` : ""}`}
+        description={`${view.passed}/${view.total} checks passed${view.at ? ` · ${formatJobWhen(view.at).absolute || view.at}` : ""}`}
         meta={
           <span
             className="inline-flex items-center rounded-md px-2.5 py-1 font-mono text-xs uppercase tracking-wide"
@@ -218,7 +218,7 @@ export function ContainmentPanel({
   }
 
   if (compact) {
-    const tone = claimTone(view.claim);
+    const tone = claimTone(view.claim, view.unverifiedHostTargets.length);
     return (
       <section
         aria-label="Containment summary"

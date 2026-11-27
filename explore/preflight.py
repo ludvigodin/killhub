@@ -6,8 +6,10 @@ Hard-fail ⇒ terminal failed + findings; soft signals continue with findings.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -30,6 +32,8 @@ class PreflightFinding:
     severity: str  # critical | high | medium | low | info
     hard: bool = False
 
+    diagnostics: dict[str, int | str] = field(default_factory=dict)
+
     def to_event_payload(self) -> dict[str, Any]:
         return {
             "source": "preflight",
@@ -37,6 +41,7 @@ class PreflightFinding:
             "severity": self.severity,
             "hard": self.hard,
             "message": self.message,
+            **self.diagnostics,
         }
 
 
@@ -104,6 +109,10 @@ class _AllowlistedRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+# One worker normally uses one GitHub API and credential. Bound the cache to one quota.
+_github_cooldown: tuple[tuple[str, str], float, PreflightFinding] | None = None
+
+
 def _github_repo_meta(
     owner: str,
     repo: str,
@@ -112,6 +121,11 @@ def _github_repo_meta(
     timeout: float,
     token: str = "",
 ) -> tuple[dict[str, Any] | None, PreflightFinding | None]:
+    global _github_cooldown
+    scope = (api_base, hashlib.sha256(token.encode()).hexdigest())
+    cooldown = _github_cooldown
+    if cooldown and cooldown[0] == scope and time.time() < cooldown[1]:
+        return None, cooldown[2]
     url = f"{api_base.rstrip('/')}/repos/{owner}/{repo}"
     headers = {
         "Accept": "application/vnd.github+json",
@@ -140,14 +154,41 @@ def _github_repo_meta(
                 severity="critical",
                 hard=True,
             )
-        if exc.code in {401, 403}:
-            # Soft: API rate/auth — continue without inventing success or hard-fail
-            return None, PreflightFinding(
-                code="github_api_limited",
-                message=f"GitHub metadata unavailable ({exc.code}); continuing without meta",
-                severity="low",
-                hard=False,
+        if exc.code in {401, 403, 429}:
+            headers = exc.headers or {}
+            diagnostics: dict[str, int | str] = {"http_status": exc.code}
+            for header, key in (
+                ("X-RateLimit-Remaining", "rate_limit_remaining"),
+                ("X-RateLimit-Reset", "rate_limit_reset"),
+                ("Retry-After", "retry_after_seconds"),
+            ):
+                raw = str(headers.get(header, ""))
+                if raw.isascii() and raw.isdigit() and len(raw) <= 12:
+                    diagnostics[key] = int(raw)
+            limited = exc.code == 429 or (
+                exc.code == 403
+                and (
+                    diagnostics.get("rate_limit_remaining") == 0
+                    or "retry_after_seconds" in diagnostics
+                )
             )
+            reason = "rate_limited" if limited else "access_denied"
+            finding = PreflightFinding(
+                code="github_api_limited",
+                message=f"GitHub metadata HTTP {exc.code} ({reason.replace('_', ' ')})",
+                severity="info",
+                diagnostics={**diagnostics, "reason": reason},
+            )
+            if limited:
+                now = time.time()
+                until = max(
+                    int(diagnostics.get("rate_limit_reset", 0))
+                    if diagnostics.get("rate_limit_remaining") == 0
+                    else 0,
+                    now + int(diagnostics.get("retry_after_seconds", 0)),
+                )
+                _github_cooldown = (scope, until if until > now else now + 60, finding)
+            return None, finding
         return None, PreflightFinding(
             code="github_api_error",
             message=f"GitHub metadata HTTP {exc.code}",
@@ -306,6 +347,11 @@ def run_preflight(
         )
         if meta_finding is not None:
             findings.append(meta_finding)
+            if meta_finding.diagnostics.get("reason") == "rate_limited":
+                # Public-page reachability still catches missing repos while metadata is limited.
+                reach = _host_reachability(parsed.url, timeout=timeout)
+                if reach is not None:
+                    findings.append(reach)
 
         if data is not None:
             meta["github"] = {
