@@ -98,7 +98,7 @@ export function ConnectMcpPanel({ open, onClose }: ConnectMcpPanelProps) {
             </h2>
             <p className="mt-1 text-sm leading-snug text-(--muted)">
               Point Cursor or Claude at Killhub’s public MCP endpoint. Same Jobs
-              API and admission caps as the UI — secrets stay on the control
+              API and admission caps as the UI - secrets stay on the control
               plane.
             </p>
           </div>

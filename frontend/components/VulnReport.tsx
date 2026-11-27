@@ -70,7 +70,7 @@ export function VulnReport({ report }: VulnReportProps) {
           Vulnerability report
         </p>
         <p className="text-sm text-(--muted)">
-          Scan not available yet — report appears after finalize.
+          Scan not available yet - report appears after finalize.
         </p>
       </section>
     );
@@ -156,7 +156,7 @@ export function VulnReport({ report }: VulnReportProps) {
             {JSON.stringify(report.mcp_assessment, null, 2)}
           </pre>
           <p className="mt-2 text-xs text-(--muted)">
-            Shown only when the profile enabled assessment — separate from SCA.
+            Shown only when the profile enabled assessment - separate from SCA.
           </p>
         </div>
       ) : null}

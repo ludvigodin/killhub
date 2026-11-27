@@ -4,7 +4,7 @@ import { HubsFeed } from "@/components/HubsFeed";
 export const metadata: Metadata = {
   title: "Hubs",
   description:
-    "All Killhub test runs — every repo planned, sandboxed, and verified.",
+    "All Killhub test runs - every repo planned, sandboxed, and verified.",
   alternates: {
     canonical: "/hubs",
   },

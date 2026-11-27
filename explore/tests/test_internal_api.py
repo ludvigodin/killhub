@@ -179,23 +179,68 @@ def test_health_unauthenticated(client: TestClient) -> None:
     assert res.json()["ledger"]["engine"] == "sqlite"
 
 
-def test_worker_stub_claims_pending(client: TestClient, auth_header: dict[str, str]) -> None:
+def test_worker_claims_pending_when_pipeline_enabled(
+    client: TestClient, auth_header: dict[str, str], monkeypatch
+) -> None:
+    from config import get_settings
     from service import claim_pending_job
 
-    create = client.post(
-        "/internal/jobs",
-        headers=auth_header,
-        json={"github_url": "https://github.com/heroku/node-js-getting-started"},
-    )
-    job_id = create.json()["job_id"]
+    monkeypatch.setenv("DISCOVER_ON_CLAIM", "true")
+    get_settings.cache_clear()
+    try:
+        create = client.post(
+            "/internal/jobs",
+            headers=auth_header,
+            json={"github_url": "https://github.com/heroku/node-js-getting-started"},
+        )
+        job_id = create.json()["job_id"]
 
-    claimed = claim_pending_job()
-    assert claimed is not None
-    assert claimed.job_id == job_id
-    assert claimed.status == "analyzing"
+        claimed = claim_pending_job()
+        assert claimed is not None
+        assert claimed.job_id == job_id
+        assert claimed.status == "analyzing"
+        assert claimed.current_step == "analyzing"
 
-    snap = client.get(f"/internal/jobs/{job_id}", headers=auth_header).json()
-    assert snap["status"] == "analyzing"
+        snap = client.get(f"/internal/jobs/{job_id}", headers=auth_header).json()
+        assert snap["status"] == "analyzing"
+    finally:
+        get_settings.cache_clear()
+
+
+def test_claim_without_pipeline_flags_fails(
+    client: TestClient, auth_header: dict[str, str], monkeypatch
+) -> None:
+    from config import get_settings
+    from service import claim_pending_job
+
+    # Default claim flags are off — claiming must fail closed (D81).
+    for key in (
+        "MSB_AUTO_CREATE",
+        "DISCOVER_ON_CLAIM",
+        "INSTALL_ON_CLAIM",
+        "VERIFY_ON_CLAIM",
+        "SCREENSHOTS_ON_CLAIM",
+        "CONTAINMENT_ON_CLAIM",
+        "FINALIZE_ON_CLAIM",
+    ):
+        monkeypatch.setenv(key, "false")
+    get_settings.cache_clear()
+    try:
+        create = client.post(
+            "/internal/jobs",
+            headers=auth_header,
+            json={"github_url": "https://github.com/heroku/node-js-getting-started"},
+        )
+        job_id = create.json()["job_id"]
+
+        claimed = claim_pending_job()
+        assert claimed is None
+
+        snap = client.get(f"/internal/jobs/{job_id}", headers=auth_header).json()
+        assert snap["status"] == "failed"
+        assert snap["receipt"]["dossier"]["code"] == "worker_misconfigured"
+    finally:
+        get_settings.cache_clear()
 
 
 def test_failed_ledger_health_returns_503(client, monkeypatch):

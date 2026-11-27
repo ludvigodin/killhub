@@ -17,10 +17,10 @@ const inFlight = new Map<string, Promise<string>>();
 
 function admissionHint(code?: string, status?: number): string | null {
   if (code === "rate_limited" || status === 429) {
-    return "Rate limited — wait a moment, then retry.";
+    return "Rate limited - wait a moment, then retry.";
   }
   if (code === "queue_full" || status === 503) {
-    return "Queue is full — try again when active jobs finish.";
+    return "Queue is full - try again when active jobs finish.";
   }
   if (code === "inference_budget") {
     return "Inference budget exhausted for this demo window.";

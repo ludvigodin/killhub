@@ -25,10 +25,10 @@ type BatchUrlFormProps = {
 
 function admissionHint(code?: string, status?: number): string | null {
   if (code === "rate_limited" || status === 429) {
-    return "Rate limited — wait a moment, then retry the remaining URLs.";
+    return "Rate limited - wait a moment, then retry the remaining URLs.";
   }
   if (code === "queue_full" || status === 503) {
-    return "Queue is full — try again when active jobs finish.";
+    return "Queue is full - try again when active jobs finish.";
   }
   if (code === "inference_budget") {
     return "Inference budget exhausted for this demo window.";
@@ -163,6 +163,11 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
             Connect MCP
           </button>
         </div>
+        <p className="mx-auto max-w-md text-center text-xs text-(--muted)">
+          GitHub shortcut:{" "}
+          <span className="font-mono">killhub.pro/owner/repo</span> starts a
+          scan automatically.
+        </p>
       </form>
       {catalog?.restricted && (
         <div className="mt-3 flex flex-wrap gap-2">
@@ -195,7 +200,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
             >
               {r.ok
                 ? `✓ ${r.url} → ${r.job_id}`
-                : `✗ ${r.url} — ${r.error}${r.code ? ` (${r.code})` : ""}`}
+                : `✗ ${r.url} - ${r.error}${r.code ? ` (${r.code})` : ""}`}
             </li>
           ))}
         </ul>

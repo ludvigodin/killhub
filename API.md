@@ -81,7 +81,8 @@ Recent job summaries (D69 / D77). Newest first. Server-side pagination via `limi
       "screenshot_id": "…",
       "screenshot_url": "/api/jobs/…/screenshots/…",
       "error": null,
-      "verification": null
+      "verification": null,
+      "safety": null
     }
   ],
   "total": 128,
@@ -90,7 +91,7 @@ Recent job summaries (D69 / D77). Newest first. Server-side pagination via `limi
 }
 ```
 
-`total` is the matching job count in the ledger (all jobs, or filtered to `github_url`). `screenshot_id` is the latest still when present; otherwise `null`. `screenshot_url` is an absolute Vultr CDN URL when Object Storage + `OBJECT_STORAGE_CDN_BASE_URL` are configured (D76); otherwise the relative `/api/jobs/{id}/screenshots/{screenshot_id}` path when a still exists; otherwise `null`. Full dossier stays on `GET /api/jobs/{id}`.
+`total` is the matching job count in the ledger (all jobs, or filtered to `github_url`). `screenshot_id` is the latest still when present; otherwise `null`. `screenshot_url` is an absolute Vultr CDN URL when Object Storage + `OBJECT_STORAGE_CDN_BASE_URL` are configured (D76); otherwise the relative `/api/jobs/{id}/screenshots/{screenshot_id}` path when a still exists; otherwise `null`. `safety` is a slim security-outcome stamp for the feed UI: `safe` | `high_risk` | `review` | `unknown`, or `null` while the job is non-terminal or has no receipt yet (full dossier / `vuln_report` stay on `GET /api/jobs/{id}`).
 
 ---
 
@@ -124,7 +125,8 @@ Repo-grouped feed for the home Entries grid (D79). One row per distinct canonica
         "screenshot_id": "…",
         "screenshot_url": "/api/jobs/…/screenshots/…",
         "error": null,
-        "verification": null
+        "verification": null,
+        "safety": "safe"
       }
     }
   ],
@@ -310,6 +312,8 @@ pending → [queued] → analyzing → planning → provisioning → installing
 | `cancelled` | Terminal only **after** finalizer + receipt (D61) |
 
 Destroy triggers: after finalizer on terminal paths \| absolute `expires_at` — **not** readiness alone. Cleanup may end `destroy_failed` without job-level `destroyed_at` (D57). Gate outcomes: [DECISIONS.md](DECISIONS.md) D66.
+
+**Stall / timeout terminalization (D81):** Plane-1 reaper also fails non-terminal jobs when (1) `now - created_at >= JOB_TIMEOUT_SECONDS` → receipt `dossier.code=job_timeout`; (2) `now >= expires_at` (even with no sandbox) → `expires_at`; (3) claimed/in-flight with `now - updated_at >= JOB_STALL_SECONDS` → `job_stalled`. Claiming with no pipeline flags fails as `worker_misconfigured`. Workers emit ledger `progress` heartbeats (`payload.kind=heartbeat`) so `updated_at` reflects liveness; SSE comment keep-alives alone do not.
 
 ---
 

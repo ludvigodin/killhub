@@ -119,6 +119,28 @@ export function ownerRepoFromGithubUrl(raw: string): string | null {
   return parsed.pathSegments.join("/");
 }
 
+/** Allowlisted host from a public git URL, or null. */
+export function hostFromGithubUrl(raw: string): string | null {
+  return parsePublicGitUrl(raw)?.host ?? null;
+}
+
+/** Short host label for UI chrome (GitHub / GitLab / Bitbucket / Codeberg). */
+export function hostLabelFromGithubUrl(raw: string): string {
+  const host = hostFromGithubUrl(raw);
+  switch (host) {
+    case "github.com":
+      return "GitHub";
+    case "gitlab.com":
+      return "GitLab";
+    case "bitbucket.org":
+      return "Bitbucket";
+    case "codeberg.org":
+      return "Codeberg";
+    default:
+      return host ?? "git";
+  }
+}
+
 /** App path for the repo history page, e.g. `/repos/github.com/org/repo`. */
 export function repoPathFromGithubUrl(raw: string): string | null {
   const parsed = parsePublicGitUrl(raw);

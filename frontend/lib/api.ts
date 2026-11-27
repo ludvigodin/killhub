@@ -20,6 +20,8 @@ type VerificationInfo = {
   [key: string]: unknown;
 };
 
+export type SafetyOutcome = "safe" | "high_risk" | "review" | "unknown";
+
 export type JobSummary = {
   job_id: string;
   github_url: string;
@@ -33,6 +35,8 @@ export type JobSummary = {
   screenshot_url?: string | null;
   error?: string | null;
   verification?: VerificationInfo | null;
+  /** Slim security stamp for feed cards; null while running / no receipt. */
+  safety?: SafetyOutcome | null;
 };
 
 export type JobListResponse = {
@@ -92,8 +96,18 @@ type JobReceipt = {
 type EnvironmentGen = {
   environment_id?: string;
   generation?: number;
+  image?: string | null;
   state?: string;
   expires_at?: string;
+  destroyed_at?: string | null;
+};
+
+type InferenceUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  wall_ms?: number;
+  [key: string]: unknown;
 };
 
 export type JobSnapshot = {
@@ -101,6 +115,7 @@ export type JobSnapshot = {
   status: string;
   progress: number;
   current_step: string;
+  steps_completed?: string[];
   event_cursor: string | null;
   error: string | null;
   cancel_requested_at: string | null;
@@ -114,6 +129,10 @@ export type JobSnapshot = {
   verify_result?: Record<string, unknown> | null;
   sandbox_id?: string | null;
   resolved_commit?: string | null;
+  current_profile_revision?: number | null;
+  current_sandbox_generation?: number | null;
+  inference_model?: string | null;
+  inference_usage?: InferenceUsage | null;
   expires_at?: string;
   cleanup?: CleanupState | null;
   destroyed_at?: string | null;

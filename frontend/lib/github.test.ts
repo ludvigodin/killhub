@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   githubUrlFromOwnerRepo,
+  hostFromGithubUrl,
+  hostLabelFromGithubUrl,
   isReservedAppSegment,
   validateGithubUrl,
 } from "./github.ts";
@@ -66,5 +68,38 @@ describe("githubUrlFromOwnerRepo", () => {
     const url = githubUrlFromOwnerRepo("heroku", "node-js-getting-started");
     assert.ok(url);
     assert.equal(validateGithubUrl(url), url);
+  });
+});
+
+describe("hostFromGithubUrl / hostLabelFromGithubUrl", () => {
+  it("extracts allowlisted hosts", () => {
+    assert.equal(
+      hostFromGithubUrl("https://github.com/org/repo"),
+      "github.com",
+    );
+    assert.equal(
+      hostFromGithubUrl("https://gitlab.com/group/project"),
+      "gitlab.com",
+    );
+    assert.equal(hostFromGithubUrl("not-a-url"), null);
+  });
+
+  it("labels hosts for UI chrome", () => {
+    assert.equal(
+      hostLabelFromGithubUrl("https://github.com/org/repo"),
+      "GitHub",
+    );
+    assert.equal(
+      hostLabelFromGithubUrl("https://gitlab.com/group/project"),
+      "GitLab",
+    );
+    assert.equal(
+      hostLabelFromGithubUrl("https://bitbucket.org/team/repo"),
+      "Bitbucket",
+    );
+    assert.equal(
+      hostLabelFromGithubUrl("https://codeberg.org/user/repo"),
+      "Codeberg",
+    );
   });
 });

@@ -17,6 +17,7 @@ from jobs import get_ledger
 from ledger import Ledger
 from ledger.store import utc_now
 from models import CleanupState, Job
+from safety import summary_safety
 
 logger = logging.getLogger("killhub.admission")
 
@@ -186,6 +187,8 @@ def _job_summary_dict(
             storage_path=str(latest_shot.get("storage_path") or "") or None,
             settings=settings,
         )
+    receipt = ledger.get_receipt(job.job_id)
+    vuln_report = ledger.get_vuln_report(job.job_id)
     return {
         "job_id": job.job_id,
         "github_url": job.github_url,
@@ -198,6 +201,12 @@ def _job_summary_dict(
         "screenshot_url": screenshot_url,
         "error": job.error,
         "verification": job.verification,
+        "safety": summary_safety(
+            status=job.status,
+            verification=job.verification if isinstance(job.verification, dict) else None,
+            vuln_report=vuln_report,
+            receipt=receipt,
+        ),
     }
 
 
@@ -418,8 +427,22 @@ def _run_cancel_finalizer(ledger: Ledger, job_id: str) -> None:
     release_admission_slot(was_running=was_running)
 
 
+def _pipeline_flags_enabled(cfg: Settings) -> bool:
+    return bool(
+        cfg.msb_auto_create
+        or cfg.discover_on_claim
+        or cfg.install_on_claim
+        or cfg.verify_on_claim
+        or cfg.screenshots_on_claim
+        or cfg.containment_on_claim
+        or cfg.finalize_on_claim
+    )
+
+
 def claim_pending_job() -> Job | None:
     """Background worker: pick the oldest pending job and move it to analyzing."""
+    from stall import fail_job, reason_for_misconfigured_worker
+
     cfg = get_settings()
     ledger = get_ledger(cfg)
     for job in ledger.list_jobs():
@@ -431,7 +454,7 @@ def claim_pending_job() -> Job | None:
             updated = ledger.update_job_fields(
                 job.job_id,
                 status="analyzing",
-                current_step="worker stub: analyzing",
+                current_step="analyzing",
                 progress=5,
                 steps_completed=["pending"],
             )
@@ -450,6 +473,16 @@ def claim_pending_job() -> Job | None:
             store = get_admission_store(cfg)
             if store.backend == "valkey":
                 store.on_claimed()
+            if not _pipeline_flags_enabled(cfg):
+                # D81: never leave a claimed stub with no runner.
+                fail_job(
+                    updated.job_id,
+                    code="worker_misconfigured",
+                    reason=reason_for_misconfigured_worker(),
+                    settings=cfg,
+                    destroy=False,
+                )
+                return None
             return updated
         except Ledger.WriterFrozenError:
             continue

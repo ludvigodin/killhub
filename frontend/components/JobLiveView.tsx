@@ -11,6 +11,7 @@ import {
   type ScreenshotMeta,
 } from "@/lib/api";
 import { ownerRepoFromGithubUrl, repoPathFromGithubUrl } from "@/lib/github";
+import { formatJobWhen, isJobStalled } from "@/lib/time";
 import { type BreadcrumbItem, Breadcrumbs } from "./Breadcrumbs";
 import { ContainmentPanel } from "./ContainmentPanel";
 import { ErrorBanner } from "./ErrorBanner";
@@ -27,6 +28,7 @@ import {
 } from "./ProgressLog";
 import { type ScreenshotItem, ScreenshotTimeline } from "./ScreenshotTimeline";
 import { StatusBadge } from "./StatusBadge";
+import { VerificationBadge } from "./VerificationBadge";
 
 function shortJobId(jobId: string): string {
   return jobId.length > 12 ? `${jobId.slice(0, 8)}…` : jobId;
@@ -73,6 +75,34 @@ type SsePayload = {
   payload?: Record<string, unknown>;
 };
 
+function activityMessage(type: string, data: SsePayload): string {
+  const payload = data.payload;
+  const stepCandidate = [
+    data.current_step,
+    data.step,
+    typeof payload?.step === "string" ? payload.step : null,
+    typeof payload?.current_step === "string" ? payload.current_step : null,
+  ].find((v): v is string => typeof v === "string" && v.length > 0);
+  const pct =
+    typeof data.progress === "number"
+      ? data.progress
+      : typeof payload?.progress === "number"
+        ? payload.progress
+        : null;
+
+  if (type === "status") {
+    if (stepCandidate) return stepCandidate;
+    return data.message || data.status || "status";
+  }
+  if (type === "progress") {
+    if (stepCandidate && pct != null) return `${stepCandidate} (${pct}%)`;
+    if (stepCandidate) return stepCandidate;
+    if (pct != null) return `${pct}%`;
+    return data.message || "progress";
+  }
+  return data.message || type;
+}
+
 function toShot(meta: ScreenshotMeta, jobId: string): ScreenshotItem {
   return {
     screenshot_id: meta.screenshot_id,
@@ -85,6 +115,52 @@ function toShot(meta: ScreenshotMeta, jobId: string): ScreenshotItem {
   };
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function formatFindingDetail(
+  payload: Record<string, unknown> | undefined,
+): string | undefined {
+  if (!payload) return undefined;
+  const parts: string[] = [];
+  if (typeof payload.source === "string") parts.push(payload.source);
+  if (typeof payload.severity === "string") parts.push(payload.severity);
+  if (typeof payload.package === "string") parts.push(payload.package);
+  if (typeof payload.id === "string") parts.push(payload.id);
+  if (typeof payload.classification === "string") {
+    parts.push(payload.classification);
+  }
+  if (typeof payload.title === "string") parts.push(payload.title);
+  return parts.length ? parts.join(" · ") : undefined;
+}
+
+function formatLogKind(
+  payload: Record<string, unknown> | undefined,
+): string | undefined {
+  if (!payload) return undefined;
+  if (typeof payload.kind === "string" && payload.kind.length > 0) {
+    return payload.kind;
+  }
+  if (typeof payload.phase === "string" && payload.phase.length > 0) {
+    return payload.phase;
+  }
+  return undefined;
+}
+
+function isContainmentMatrix(
+  payload: Record<string, unknown> | undefined,
+): payload is Record<string, unknown> {
+  if (!payload) return false;
+  return (
+    typeof payload.claim === "string" ||
+    asRecord(payload.dimensions) != null ||
+    asRecord(payload.canary_scan) != null
+  );
+}
+
 export function JobLiveView({
   jobId,
   embedded = false,
@@ -93,6 +169,10 @@ export function JobLiveView({
   const [snapshot, setSnapshot] = useState<JobSnapshot | null>(null);
   const [logs, setLogs] = useState<ProgressLogEntry[]>([]);
   const [shots, setShots] = useState<ScreenshotItem[]>([]);
+  const [liveContainment, setLiveContainment] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const [error, setError] = useState<{ message: string; code?: string } | null>(
     null,
   );
@@ -115,6 +195,10 @@ export function JobLiveView({
 
   const onSnapshot = useEffectEvent((snap: JobSnapshot) => {
     setSnapshot(snap);
+    const receiptContainment = asRecord(snap.receipt?.containment);
+    if (receiptContainment) {
+      setLiveContainment(receiptContainment);
+    }
   });
 
   useEffect(() => {
@@ -150,7 +234,7 @@ export function JobLiveView({
     function openSse(after: string | null) {
       if (cancelled) return;
       source?.close();
-      // EventSource ignores SSE comment keep-alives (`: keepalive`) — no flicker (D50).
+      // EventSource ignores SSE comment keep-alives (`: keepalive`) - no flicker (D50).
       source = new EventSource(jobEventsUrl(jobId, after));
 
       const handlePayload = (event: MessageEvent, type: string) => {
@@ -158,7 +242,7 @@ export function JobLiveView({
         try {
           data = JSON.parse(String(event.data)) as SsePayload;
         } catch {
-          // Malformed or empty frames — ignore (keep-alive comments never reach here).
+          // Malformed or empty frames - ignore (keep-alive comments never reach here).
           return;
         }
 
@@ -178,9 +262,18 @@ export function JobLiveView({
           onLog({
             id,
             type,
-            message: data.message || type,
+            message: activityMessage(type, data),
             timestamp: data.timestamp,
+            kind: formatLogKind(data.payload),
+            detail:
+              type === "finding"
+                ? formatFindingDetail(data.payload)
+                : undefined,
           });
+        }
+
+        if (type === "containment" && isContainmentMatrix(data.payload)) {
+          setLiveContainment(data.payload);
         }
 
         if (type === "screenshot") {
@@ -213,10 +306,6 @@ export function JobLiveView({
           }
         }
 
-        if (data.event_id) {
-          // cursor advanced via snapshot patch below
-        }
-
         setSnapshot((prev) => {
           if (!prev) return prev;
           const next = { ...prev };
@@ -237,8 +326,17 @@ export function JobLiveView({
             if (typeof payload.current_step === "string") {
               next.current_step = payload.current_step;
             }
+            if (typeof payload.cancel_requested_at === "string") {
+              next.cancel_requested_at = payload.cancel_requested_at;
+            }
           }
           if (data.event_id) next.event_cursor = data.event_id;
+          // Meaningful SSE frames refresh last-activity (keep-alives never arrive).
+          if (typeof data.timestamp === "string" && data.timestamp.length > 0) {
+            next.updated_at = data.timestamp;
+          } else {
+            next.updated_at = new Date().toISOString();
+          }
           return next;
         });
 
@@ -324,6 +422,9 @@ export function JobLiveView({
   }
 
   const terminal = snapshot ? TERMINAL.has(snapshot.status) : false;
+  const stalled =
+    Boolean(snapshot) && !terminal && isJobStalled(snapshot?.updated_at);
+  const cancelling = Boolean(snapshot?.cancel_requested_at && !terminal);
   const showReport = Boolean(
     snapshot &&
       (terminal ||
@@ -331,16 +432,27 @@ export function JobLiveView({
         snapshot.vuln_report ||
         snapshot.profile),
   );
+  const containment =
+    asRecord(snapshot?.receipt?.containment) || liveContainment;
+  const stepsCompleted = Array.isArray(snapshot?.steps_completed)
+    ? snapshot.steps_completed.filter(
+        (step): step is string => typeof step === "string" && step.length > 0,
+      )
+    : [];
+  const jobError =
+    typeof snapshot?.error === "string" && snapshot.error.trim().length > 0
+      ? snapshot.error.trim()
+      : null;
 
   const actions = (
     <div className="flex flex-wrap items-center justify-end gap-2">
       <button
         type="button"
         onClick={() => void onCancel()}
-        disabled={busy || terminal || !snapshot}
+        disabled={busy || terminal || cancelling || !snapshot}
         className="rounded-md border border-[#ff4d4d]/55 bg-[#1a0a0a] px-4 py-2 font-mono text-sm tracking-wide text-[#ff6b6b] shadow-[0_0_8px_rgba(255,77,77,0.2)] transition-[box-shadow,border-color,opacity,background-color] hover:border-[#ff4d4d] hover:bg-[#2a1010] hover:shadow-[0_0_14px_rgba(255,77,77,0.4)] disabled:opacity-40 disabled:shadow-none"
       >
-        Cancel job
+        {cancelling ? "Cancelling…" : "Cancel job"}
       </button>
       <button
         type="button"
@@ -357,6 +469,12 @@ export function JobLiveView({
   const repoTitle = githubUrl
     ? (ownerRepoFromGithubUrl(githubUrl) ?? null)
     : null;
+  const started = snapshot?.created_at
+    ? formatJobWhen(snapshot.created_at)
+    : null;
+  const updated = snapshot?.updated_at
+    ? formatJobWhen(snapshot.updated_at)
+    : null;
 
   return (
     <div className="space-y-8">
@@ -372,6 +490,39 @@ export function JobLiveView({
             >
               {repoTitle ?? "Job"}
             </h1>
+            {started ? (
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-(--muted)">
+                <time
+                  dateTime={started.iso}
+                  className="tabular-nums text-(--ink)"
+                  title={started.absolute || undefined}
+                >
+                  Started {started.relative || started.absolute}
+                </time>
+                {started.absolute ? (
+                  <>
+                    <span aria-hidden className="text-(--line)">
+                      ·
+                    </span>
+                    <span className="tabular-nums">{started.absolute}</span>
+                  </>
+                ) : null}
+                {updated && updated.iso !== started.iso ? (
+                  <>
+                    <span aria-hidden className="text-(--line)">
+                      ·
+                    </span>
+                    <time
+                      dateTime={updated.iso}
+                      className="tabular-nums"
+                      title={updated.absolute || undefined}
+                    >
+                      Updated {updated.relative}
+                    </time>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
           </div>
           {actionsHost ? null : (
             <div className="shrink-0 self-start sm:pt-1">{actions}</div>
@@ -394,7 +545,17 @@ export function JobLiveView({
           >
             <div className="flex flex-wrap items-center gap-3">
               <StatusBadge status={snapshot.status} />
-              {!terminal ? (
+              <VerificationBadge kind={snapshot.verification?.kind} />
+              {cancelling ? (
+                <span className="inline-flex items-center gap-1.5 font-mono text-xs tracking-wide text-(--warn)">
+                  <span className="job-live-dot" aria-hidden />
+                  Cancelling
+                </span>
+              ) : stalled ? (
+                <span className="inline-flex items-center gap-1.5 font-mono text-xs tracking-wide text-(--muted)">
+                  May be stalled
+                </span>
+              ) : !terminal ? (
                 <span className="inline-flex items-center gap-1.5 font-mono text-xs tracking-wide text-(--accent)">
                   <span className="job-live-dot" aria-hidden />
                   Live
@@ -405,9 +566,45 @@ export function JobLiveView({
                   (terminal ? "Finished." : "Waiting for next step…")}
               </p>
             </div>
-            <ProgressBar progress={snapshot.progress} active={!terminal} />
+            {stepsCompleted.length > 0 ? (
+              <p className="font-mono text-xs text-(--muted)">
+                steps {stepsCompleted.join(" → ")}
+              </p>
+            ) : null}
+            {started ? (
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs tabular-nums text-(--muted)">
+                <time
+                  dateTime={started.iso}
+                  title={started.absolute || undefined}
+                >
+                  Started {started.relative || started.absolute}
+                  {started.absolute ? ` · ${started.absolute}` : ""}
+                </time>
+                {updated && updated.iso !== started.iso ? (
+                  <time
+                    dateTime={updated.iso}
+                    title={updated.absolute || undefined}
+                  >
+                    · Updated {updated.relative}
+                  </time>
+                ) : null}
+              </p>
+            ) : null}
+            <ProgressBar
+              progress={snapshot.progress}
+              active={!terminal && !stalled}
+            />
             <p className="font-mono text-xs text-(--muted)">
-              cursor {snapshot.event_cursor ?? "—"}
+              cursor {snapshot.event_cursor ?? "-"}
+              {snapshot.inference_model
+                ? ` · model ${snapshot.inference_model}`
+                : ""}
+              {snapshot.current_profile_revision != null
+                ? ` · profile rev ${snapshot.current_profile_revision}`
+                : ""}
+              {snapshot.current_sandbox_generation != null
+                ? ` · sandbox gen ${snapshot.current_sandbox_generation}`
+                : ""}
             </p>
           </section>
         </>
@@ -418,11 +615,11 @@ export function JobLiveView({
         />
       )}
 
+      {jobError ? <ErrorBanner message={jobError} code="job_error" /> : null}
+
       <ScreenshotTimeline jobId={jobId} shots={shots} />
 
-      {snapshot?.receipt?.containment ? (
-        <ContainmentPanel containment={snapshot.receipt.containment} />
-      ) : null}
+      {containment ? <ContainmentPanel containment={containment} /> : null}
 
       {snapshot && (snapshot.vuln_report || terminal) ? (
         <FindingsSummary snapshot={snapshot} />

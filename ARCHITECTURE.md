@@ -508,8 +508,9 @@ Install phase keeps package/git egress; verify/containment switch to **deny-all 
 | `VULTR_CR_ENDPOINT` / `VULTR_CR_ROBOT_*` | Host-only registry pull auth for `*.vultrcr.com` images (D74); never guest |
 | `MSB_NET_POLICY` / control-plane deny list | Plane 2 egress policy + install/offline phases (D39, D43) |
 | Reverse proxy / bind `127.0.0.1` | Demo edge (D46) |
-| `JOB_TIMEOUT_SECONDS` | Hard wall clock |
-| `ENV_TTL_SECONDS` / `expires_at` | Absolute sandbox expiry (D41; not extended by touch) |
+| `JOB_TIMEOUT_SECONDS` | Hard wall clock from `created_at`; reaper terminalizes (D81) |
+| `JOB_STALL_SECONDS` | Ledger silence on `updated_at` → `job_stalled` (D81; heartbeats keep it fresh) |
+| `ENV_TTL_SECONDS` / `expires_at` | Absolute sandbox expiry (D41; not extended by touch); job also terminalized (D81) |
 | `MAX_REPAIR_ATTEMPTS` | Repair loop cap |
 | `MAX_CONCURRENT_JOBS` / `MAX_QUEUED_JOBS` / rate limits | Admission (D40) |
 | `ADMISSION_STORE` / `VALKEY_URL` / `REDIS_URL` | Shared admission backend — memory default, Valkey optional (D71) |

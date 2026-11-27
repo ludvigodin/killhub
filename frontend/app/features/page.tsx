@@ -29,7 +29,7 @@ export default function FeaturesPage() {
             Pattern A on Vultr
           </h1>
           <p className="max-w-xl text-base leading-relaxed text-(--muted)">
-            How Killhub plans, sandboxes, proves, and destroys — with a hard
+            How Killhub plans, sandboxes, proves, and destroys - with a hard
             plane boundary.
           </p>
         </header>

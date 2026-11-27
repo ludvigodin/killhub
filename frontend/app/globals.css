@@ -797,8 +797,10 @@ a:hover {
   );
 }
 
+.result-stamp,
 .done-dossier-stamp {
   margin: 0;
+  display: inline-block;
   flex-shrink: 0;
   padding: 0.35rem 0.65rem;
   border: 1px solid color-mix(in srgb, var(--ok) 45%, var(--line));
@@ -808,12 +810,34 @@ a:hover {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
+  line-height: 1.2;
   text-transform: uppercase;
   transform: rotate(-6deg);
   background: color-mix(in srgb, var(--ok-soft) 70%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 18%, transparent);
-  animation: done-dossier-stamp-in 0.55s ease-out both;
+  animation: result-stamp-in 0.55s ease-out both;
   animation-delay: 0.18s;
+}
+
+.result-stamp-ok {
+  border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok-soft) 70%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 18%, transparent);
+}
+
+.result-stamp-danger {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger-soft) 70%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
+.result-stamp-warn {
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn-soft) 70%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 18%, transparent);
 }
 
 .done-dossier-columns {
@@ -864,7 +888,7 @@ a:hover {
   background: var(--danger-soft);
 }
 
-@keyframes done-dossier-stamp-in {
+@keyframes result-stamp-in {
   from {
     opacity: 0;
     transform: rotate(-6deg) scale(0.86);
@@ -916,6 +940,7 @@ a:hover {
   .two-planes-flow-out,
   .two-planes-flow-back,
   .done-dossier-stamp,
+  .result-stamp,
   .pattern-loop-step {
     animation: none;
   }
@@ -937,7 +962,8 @@ a:hover {
     animation: none;
   }
 
-  .done-dossier-stamp {
+  .done-dossier-stamp,
+  .result-stamp {
     opacity: 1;
     transform: rotate(-6deg);
   }
