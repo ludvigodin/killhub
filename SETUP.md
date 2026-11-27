@@ -310,7 +310,7 @@ Outbound at the Vultr Firewall layer: leave unrestricted. Optional later: tighte
 
 - Vultr MCP `firewall_groups_list`: **0 groups** (account readable).
 - Vultr MCP / `vultr-cli` **instance list**: often **401** until Account → API → Access Control allows the operator IP (#20). Do **not** invent instance IDs.
-- Public host label: `killhub-vx1` · IP ~`140.82.59.188` · DNS on Hostinger.
+- Public host label: `killhub-vx1` · IP ~`140.82.59.188` · DNS zone on Vultr (registrar NS may still lag).
 
 **Dry-run helper (preferred)**
 
@@ -529,7 +529,7 @@ cd ../explore && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .v
 |-----|---------|
 | [README.md](README.md) | Product |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Planes, trust zones, deploy topology |
-| [DECISIONS.md](DECISIONS.md) | D24, D25, D41, D46, D59, D70, D72, D73, … |
+| [DECISIONS.md](DECISIONS.md) | D24, D25, D41, D46, D59, D70–D75, … |
 | [`ops/vx1-firewall.sh`](ops/vx1-firewall.sh) | Dry-run / apply Vultr Firewall for VX1 (D70) |
 | [AGENTS.md](AGENTS.md) | Agent rules, quality gate, Vultr tooling |
 | [DATABASE.md](DATABASE.md) | Ledger, reaper, backups |

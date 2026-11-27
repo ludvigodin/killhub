@@ -107,7 +107,7 @@ flowchart LR
 
 | From → to | Allowed? | Enforced by |
 |-----------|----------|-------------|
-| Internet → control plane | Only via edge proxy; app binds `127.0.0.1` on demo (D46) | Vultr Firewall host-edge allowlist (D73: 80/443 world, 22 operator CIDRs) + reverse proxy + bind address |
+| Internet → control plane | Only via edge proxy; app binds `127.0.0.1` on demo (D46) | Vultr Firewall host-edge allowlist (D70: 80/443 world, 22 operator CIDRs) + reverse proxy + bind address |
 | Browser → secrets | Never | No secrets in client bundles; D19 |
 | Control plane → sandbox | Harness `msb` create/exec/copy/destroy only | D23, D38 |
 | Sandbox → control plane / management | Never | D39 network policy + `network_probe` |
