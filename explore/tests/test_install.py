@@ -55,6 +55,7 @@ RUNTIME_PROFILE: dict[str, Any] = {
 
 @pytest.fixture(autouse=True)
 def _env(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("screenshots.ensure_playwright_tooling", lambda *args, **kwargs: {})
     monkeypatch.setenv("LEDGER_URL", f"sqlite:///{(tmp_path / 'l.db').as_posix()}")
     monkeypatch.setenv("REAPER_ENABLED", "false")
     monkeypatch.setenv("PREFLIGHT_ENABLED", "false")

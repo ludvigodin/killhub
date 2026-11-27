@@ -4,7 +4,7 @@ import { JobLiveView } from "@/components/JobLiveView";
 
 async function JobShell({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  return <JobLiveView jobId={id} />;
+  return <JobLiveView key={id} jobId={id} />;
 }
 
 export default function JobPage(props: PageProps<"/jobs/[id]">) {

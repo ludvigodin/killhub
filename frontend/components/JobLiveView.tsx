@@ -111,6 +111,7 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
     }
 
     function openSse(after: string | null) {
+      if (cancelled) return;
       source?.close();
       // EventSource ignores SSE comment keep-alives (`: keepalive`) — no flicker (D50).
       source = new EventSource(jobEventsUrl(jobId, after));
