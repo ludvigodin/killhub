@@ -12,32 +12,7 @@ async function RepoShell({ params }: { params: Promise<{ slug: string[] }> }) {
   }
   const title = ownerRepoFromGithubUrl(githubUrl) ?? githubUrl;
 
-  return (
-    <>
-      <header className="mb-10 max-w-3xl">
-        <h1
-          className="mb-2 text-3xl font-semibold tracking-tight sm:text-4xl"
-          style={{
-            fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-          }}
-        >
-          {title}
-        </h1>
-        <p className="mb-3 text-sm text-(--muted)">
-          Latest run in full, with earlier runs listed below.
-        </p>
-        <a
-          href={githubUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sm text-(--accent) underline-offset-2 hover:underline"
-        >
-          {githubUrl}
-        </a>
-      </header>
-      <RepoHistory githubUrl={githubUrl} />
-    </>
-  );
+  return <RepoHistory githubUrl={githubUrl} title={title} />;
 }
 
 export default function RepoPage(props: {

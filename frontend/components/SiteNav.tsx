@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { listRepos } from "@/lib/api";
 import { KillhubLogo } from "./KillhubLogo";
 
@@ -48,68 +48,50 @@ function useHubsTotal() {
   return total;
 }
 
-function NavLinks({
-  pathname,
-  hubsTotal,
-}: {
-  pathname: string | null;
-  hubsTotal: number | null;
-}) {
-  return (
-    <ul className="m-0 flex list-none items-center gap-1 p-0">
-      {LINKS.map((link) => {
-        const active =
-          pathname != null ? isActivePath(pathname, link.href) : false;
-        const showCount = link.href === "/hubs" && hubsTotal != null;
-        return (
-          <li key={link.href}>
-            <Link
-              href={link.href}
-              className={
-                active
-                  ? "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium text-(--ink) no-underline"
-                  : "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-(--muted) no-underline transition hover:text-(--ink)"
-              }
-              aria-current={active ? "page" : undefined}
-              aria-label={
-                showCount
-                  ? `Hubs, ${hubsTotal} ${hubsTotal === 1 ? "project" : "projects"} tested`
-                  : undefined
-              }
-            >
-              {link.label}
-              {showCount ? (
-                <span className="tabular-nums opacity-70">{hubsTotal}</span>
-              ) : null}
-            </Link>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-function NavLinksActive() {
+export function SiteNav() {
   const pathname = usePathname();
   const hubsTotal = useHubsTotal();
-  return <NavLinks pathname={pathname} hubsTotal={hubsTotal} />;
-}
 
-export function SiteNav() {
   return (
     <nav className="flex items-center justify-between gap-4 py-6">
       <Link href="/" className="no-underline" aria-label="Killhub home">
-        <KillhubLogo size={28} withWordmark />
+        <KillhubLogo size={26} />
       </Link>
       <div className="flex items-center gap-1 sm:gap-2">
-        <Suspense fallback={<NavLinks pathname={null} hubsTotal={null} />}>
-          <NavLinksActive />
-        </Suspense>
+        <ul className="m-0 flex list-none items-center gap-1 p-0">
+          {LINKS.map((link) => {
+            const active = isActivePath(pathname, link.href);
+            const showCount = link.href === "/hubs" && hubsTotal != null;
+            return (
+              <li key={link.href}>
+                <Link
+                  href={link.href}
+                  aria-current={active ? "page" : undefined}
+                  aria-label={
+                    showCount
+                      ? `Hubs, ${hubsTotal} ${hubsTotal === 1 ? "project" : "projects"} tested`
+                      : undefined
+                  }
+                  className={
+                    active
+                      ? "inline-flex items-center gap-1.5 rounded-md bg-(--paper-deep) px-2.5 py-1.5 text-sm font-medium text-(--ink) ring-1 ring-(--line) no-underline"
+                      : "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-(--muted) no-underline transition hover:bg-(--paper-deep)/60 hover:text-(--ink)"
+                  }
+                >
+                  {link.label}
+                  {showCount ? (
+                    <span className="tabular-nums opacity-70">{hubsTotal}</span>
+                  ) : null}
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
         <a
           href="https://github.com/ludvigodin/killhub"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-(--muted) no-underline transition hover:text-(--ink)"
+          className="inline-flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm text-(--muted) no-underline transition hover:bg-(--paper-deep)/60 hover:text-(--ink)"
           aria-label="Killhub on GitHub"
         >
           <svg

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 type ConnectMcpPanelProps = {
   open: boolean;
@@ -26,6 +27,11 @@ export function ConnectMcpPanel({ open, onClose }: ConnectMcpPanelProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const [copied, setCopied] = useState(false);
   const [origin, setOrigin] = useState("https://killhub.pro");
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -39,16 +45,22 @@ export function ConnectMcpPanel({ open, onClose }: ConnectMcpPanelProps) {
       return;
     }
     closeRef.current?.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") onClose();
     }
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
   const config = mcpConfigJson(origin);
+  const endpoint = `${origin}/mcp`;
 
   async function copyConfig() {
     try {
@@ -59,32 +71,31 @@ export function ConnectMcpPanel({ open, onClose }: ConnectMcpPanelProps) {
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
-      <button
-        type="button"
-        className="absolute inset-0 bg-black/60"
-        aria-label="Close connect MCP dialog"
-        onClick={onClose}
-      />
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 backdrop-blur-[1px] sm:items-center"
+      onClick={onClose}
+      role="presentation"
+    >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative z-10 w-full max-w-lg rounded-lg border border-(--line) bg-(--paper-deep) p-5 shadow-2xl"
+        className="relative z-10 w-full max-w-md rounded-xl border border-(--line) bg-(--paper-deep) text-left shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
       >
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
+        <div className="flex items-start justify-between gap-4 border-b border-(--line) px-5 py-4">
+          <div className="min-w-0">
             <h2
               id={titleId}
-              className="text-lg font-semibold tracking-tight"
+              className="text-lg font-semibold tracking-tight text-(--ink)"
               style={{
                 fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
               }}
             >
               Connect MCP
             </h2>
-            <p className="mt-1 text-sm text-(--muted)">
+            <p className="mt-1 text-sm leading-snug text-(--muted)">
               Point Cursor or Claude at Killhub’s public MCP endpoint. Same Jobs
               API and admission caps as the UI — secrets stay on the control
               plane.
@@ -94,33 +105,48 @@ export function ConnectMcpPanel({ open, onClose }: ConnectMcpPanelProps) {
             ref={closeRef}
             type="button"
             onClick={onClose}
-            className="rounded-md px-2 py-1 text-sm text-(--muted) transition hover:bg-(--paper) hover:text-(--ink)"
+            className="shrink-0 rounded-md px-2 py-1 text-lg leading-none text-(--muted) transition hover:bg-(--paper) hover:text-(--ink)"
             aria-label="Close"
           >
-            Esc
+            ×
           </button>
         </div>
 
-        <pre className="max-h-56 overflow-auto rounded-md border border-(--line) bg-(--paper) p-3 font-mono text-xs leading-relaxed text-(--ink)">
-          {config}
-        </pre>
+        <div className="space-y-3 px-5 py-4">
+          <div>
+            <p className="mb-1.5 font-mono text-[11px] uppercase tracking-wider text-(--muted)">
+              Endpoint
+            </p>
+            <p className="truncate rounded-md border border-(--line) bg-(--paper) px-3 py-2 font-mono text-xs text-(--accent)">
+              {endpoint}
+            </p>
+          </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <div>
+            <p className="mb-1.5 font-mono text-[11px] uppercase tracking-wider text-(--muted)">
+              Config snippet
+            </p>
+            <pre className="overflow-x-auto rounded-md border border-(--line) bg-(--paper) px-3 py-2.5 font-mono text-[12px] leading-5 whitespace-pre text-(--ink)">{config}</pre>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3 border-t border-(--line) px-5 py-4">
           <button
             type="button"
             onClick={() => void copyConfig()}
-            className="rounded-md bg-(--accent) px-4 py-2 text-sm font-medium text-(--paper) transition hover:brightness-110"
+            className="w-full rounded-md bg-(--accent) px-4 py-2.5 text-sm font-medium text-(--paper) transition hover:brightness-110"
           >
             {copied ? "Copied" : "Copy config"}
           </button>
-          <p className="text-xs text-(--muted)">
+          <p className="text-center text-xs leading-snug text-(--muted)">
             Prefer slim tools:{" "}
-            <code className="text-(--ink)">create_and_wait</code>,{" "}
-            <code className="text-(--ink)">get_receipt</code>,{" "}
-            <code className="text-(--ink)">run_fixture</code>.
+            <code className="font-mono text-(--ink)">create_and_wait</code>,{" "}
+            <code className="font-mono text-(--ink)">get_receipt</code>,{" "}
+            <code className="font-mono text-(--ink)">run_fixture</code>.
           </p>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

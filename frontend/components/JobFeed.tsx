@@ -69,16 +69,8 @@ export function JobFeed() {
       <SiteNav />
 
       <header className="feed-hero mx-auto w-full max-w-3xl pb-12 pt-6 text-center sm:pt-10">
-        <div className="mb-4 flex flex-col items-center gap-4">
-          <KillhubLogo size={72} />
-          <p
-            className="text-5xl font-semibold tracking-tight sm:text-6xl md:text-7xl"
-            style={{
-              fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-            }}
-          >
-            Killhub
-          </p>
+        <div className="mb-6 flex justify-center">
+          <KillhubLogo size={64} />
         </div>
         <h1 className="mx-auto mb-3 max-w-2xl text-xl font-medium tracking-tight text-(--ink) sm:text-2xl">
           Plan → sandboxed execution → verifiable output → destroy
