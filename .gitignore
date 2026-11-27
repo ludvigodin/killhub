@@ -82,3 +82,8 @@ docker-compose.override.yml
 .vercel
 .opencode/
 .cursor/mcp.json
+.agents/mcp_config.json
+.hackbus/local.json
+.mcp.json
+opencode.json
+.codex/config.toml

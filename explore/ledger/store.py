@@ -213,6 +213,58 @@ class Ledger:
         assert job.event_cursor == event.event_id
         return job
 
+    def try_claim_pending_job(self, job_id: str) -> Job | None:
+        """Claim or expire the same pending row before it consumes a worker slot."""
+        with self._conn:
+            # Concurrent workers must decide using one locked status and deadline.
+            lock = " FOR UPDATE" if self._conn.engine == "postgres" else ""
+            row = self._conn.execute("SELECT * FROM jobs WHERE job_id = ?" + lock, (job_id,))
+            raw = row.fetchone()
+            if raw is None:
+                return None
+            job = self._row_to_job(raw)
+            if job.status != "pending" or job.cancel_requested_at is not None or job.sandbox_id:
+                return None
+
+            try:
+                deadline = datetime.fromisoformat(job.expires_at.replace("Z", "+00:00"))
+            except ValueError:
+                deadline = None
+            if deadline is None or deadline.tzinfo is None:
+                self._finalize_before_sandbox_unlocked(
+                    job, status="failed", code="invalid_deadline", reason="Job deadline is invalid."
+                )
+            elif deadline <= datetime.now(timezone.utc):
+                self._finalize_before_sandbox_unlocked(
+                    job,
+                    status="failed",
+                    code="job_expired",
+                    reason="Job deadline elapsed before a worker could provision a sandbox.",
+                )
+            else:
+                self._write_job_fields_unlocked(
+                    job_id,
+                    {
+                        "status": "analyzing",
+                        "current_step": "worker stub: analyzing",
+                        "progress": 5,
+                        "steps_completed": ["pending"],
+                    },
+                )
+                self._insert_event_unlocked(
+                    job_id,
+                    typ="status",
+                    message="analyzing",
+                    payload={"status": "analyzing", "kind": "agent"},
+                )
+                self._insert_event_unlocked(
+                    job_id,
+                    typ="log",
+                    message="background worker claimed job",
+                    payload={"kind": "agent"},
+                )
+            return self.get_job(job_id)
+
     def get_job(self, job_id: str) -> Job | None:
         row = self._conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
         if row is None:
@@ -1239,6 +1291,7 @@ class Ledger:
                     "verification": job.verification,
                     "lifecycle": lifecycle,
                     "dossier": {
+                        **((self.get_receipt(job.job_id) or {}).get("dossier") or {}),
                         "outcome": status,
                         "code": "worker_restart",
                         "interrupted_step": job.current_step,
@@ -1277,32 +1330,40 @@ class Ledger:
                 return False
             status = "cancelled" if job.cancel_requested_at else "failed"
             reason = "Worker restarted before this run created a sandbox."
-            self._finalize_unlocked(
-                job,
-                status,
-                {
-                    "verification": job.verification
-                    or {
-                        "kind": "setup_failed",
-                        "original_failure": {"step": "worker_restart", "summary": reason},
-                    },
-                    "dossier": {
-                        **((self.get_receipt(job.job_id) or {}).get("dossier") or {}),
-                        "outcome": status,
-                        "code": "worker_restart",
-                        "interrupted_step": job.current_step,
-                    },
-                },
-                reason,
-                {"reason": "worker_restart"},
-                {"current_step": status, "error": reason, "progress": 100},
-                include_verdict=True,
+            self._finalize_before_sandbox_unlocked(
+                job, status=status, code="worker_restart", reason=reason
             )
             self._conn.commit()
         except Exception:
             self._conn.rollback()
             raise
         return True
+
+    def _finalize_before_sandbox_unlocked(
+        self, job: Job, *, status: JobStatus, code: str, reason: str
+    ) -> None:
+        """Publish terminal evidence without making a sandbox removal claim."""
+        self._finalize_unlocked(
+            job,
+            status,
+            {
+                "verification": job.verification
+                or {
+                    "kind": "setup_failed",
+                    "original_failure": {"step": code, "summary": reason},
+                },
+                "dossier": {
+                    **((self.get_receipt(job.job_id) or {}).get("dossier") or {}),
+                    "outcome": status,
+                    "code": code,
+                    "interrupted_step": job.current_step,
+                },
+            },
+            reason,
+            {"reason": code},
+            {"current_step": status, "error": reason, "progress": 100},
+            include_verdict=True,
+        )
 
     def upsert_vuln_report(
         self,
@@ -1381,6 +1442,58 @@ class Ledger:
 
     # --- reconciliation (D41) --------------------------------------------------
 
+    def record_reaped_cleanup(
+        self,
+        job_id: str,
+        generation: int,
+        environment_id: str,
+        *,
+        confirmed: bool,
+        error: str | None,
+    ) -> None:
+        """Reconcile current job and receipt cleanup in one transaction (D57)."""
+        with self._conn:
+            # Serialize with writes that change the job's current generation.
+            lock = " FOR UPDATE" if self._conn.engine == "postgres" else ""
+            raw = self._conn.execute(
+                "SELECT * FROM jobs WHERE job_id = ?" + lock, (job_id,)
+            ).fetchone()
+            if raw is None:
+                return
+            job = self._row_to_job(raw)
+            if (
+                job.current_sandbox_generation != generation
+                or job.sandbox_id != environment_id
+                or job.destroyed_at is not None
+            ):
+                return
+            now = utc_now()
+            destroyed_at = now if confirmed else None
+            cleanup = CleanupState(
+                status="destroyed" if confirmed else "destroy_failed",
+                attempts=job.cleanup.attempts + 1,
+                last_error=None if confirmed else error,
+                updated_at=now,
+            )
+            self._write_job_fields_unlocked(
+                job_id, {"cleanup": cleanup, "destroyed_at": destroyed_at}
+            )
+            # Leave the terminal verdict and evidence intact. A live job may
+            # not have a receipt yet, so do not create one during reaping.
+            receipt = self.get_receipt(job_id)
+            if receipt is not None:
+                lifecycle = {
+                    **(receipt["lifecycle"] or {}),
+                    "cleanup": cleanup.status,
+                    "destroyed_at": destroyed_at,
+                    "confirmed": confirmed,
+                    "destroy_error": cleanup.last_error,
+                }
+                self._conn.execute(
+                    "UPDATE job_receipts SET lifecycle = ? WHERE job_id = ?",
+                    (_dumps(lifecycle), job_id),
+                )
+
     def reconcile_startup(
         self,
         *,
@@ -1397,12 +1510,20 @@ class Ledger:
         live = live_environment_ids
         live_gens: list[SandboxGeneration] = []
         expired: list[SandboxGeneration] = []
+        cleanup_retries: list[SandboxGeneration] = []
         notes: list[str] = []
 
         jobs = self.list_jobs()
         for job in jobs:
             for gen in self.list_sandbox_generations(job.job_id):
-                if gen.state in {"destroyed", "replaced", "failed"}:
+                needs_current_cleanup = (
+                    job.current_sandbox_generation == gen.generation
+                    and job.sandbox_id == gen.environment_id
+                    and job.destroyed_at is None
+                )
+                if gen.state in {"replaced", "failed"} or (
+                    gen.state == "destroyed" and not needs_current_cleanup
+                ):
                     continue
                 try:
                     exp = datetime.fromisoformat(gen.expires_at.replace("Z", "+00:00"))
@@ -1411,6 +1532,11 @@ class Ledger:
                     continue
                 if exp <= now:
                     expired.append(gen)
+                    continue
+                if needs_current_cleanup and job.status in TERMINAL_STATUSES:
+                    # Retry before expiry and recover if the worker stopped
+                    # after recording removal but before updating the receipt.
+                    cleanup_retries.append(gen)
                     continue
                 if live is not None and gen.environment_id not in live:
                     notes.append(
@@ -1432,6 +1558,7 @@ class Ledger:
             live_generations=live_gens,
             expired_generations=expired,
             orphan_notes=notes,
+            cleanup_retry_generations=cleanup_retries,
         )
 
     # --- row mappers -----------------------------------------------------------

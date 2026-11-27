@@ -242,7 +242,10 @@ def finalize_job(
             settings=cfg,
             finalizer=True,
         )
-    elif not job.sandbox_id:
+    elif job.sandbox_id:
+        # Skipping removal leaves a live sandbox for the reaper to confirm (D57).
+        destroy_result = DestroyResult(confirmed=False, error="Sandbox removal was skipped")
+    else:
         ledger.append_event(
             job_id,
             typ="lifecycle",

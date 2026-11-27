@@ -15,7 +15,7 @@ from typing import Any
 
 from config import Settings, get_settings
 from errors import HarnessError
-from harness import MsbCli, copy_in, exec_command, wait_until_ready
+from harness import MsbCli, copy_in, exec_command, stop_and_remove_sandbox, wait_until_ready
 from jobs import get_ledger
 from ledger import Ledger
 from models import Job
@@ -543,12 +543,11 @@ def transition_to_verify_offline(
     # Best-effort cleanup of prior group.
     msb.snapshot_remove_group(group)
     msb.snapshot_create(group, sandbox=environment_id, checkpoint="post-install", full=True)
-    # Remove install-phase VM before restore (never two concurrent).
-    stop = msb.stop(environment_id, force=False)
-    remove = msb.remove(environment_id, force=True)
-    if not remove.ok and "not found" not in (remove.stderr + remove.stdout).lower():
+    # Restore only after a confirmed removal, including when transport is interrupted.
+    removal = stop_and_remove_sandbox(environment_id, cli=msb)
+    if not removal.confirmed:
         raise InstallError(
-            f"failed to remove sandbox before offline restore: {remove.stderr[:200]}",
+            f"failed to remove sandbox before offline restore: {removal.error}",
             code="offline_remove_failed",
         )
     msb.snapshot_restore_offline(group, name=environment_id)
@@ -568,7 +567,7 @@ def transition_to_verify_offline(
             "environment_id": environment_id,
             "snapshot_group": group,
             "net": {"no_net": True, "phase": policy.phase},
-            "stop_ok": stop.ok,
+            "stop_ok": removal.stop_ok,
         },
     )
     return {"snapshot_group": group, "phase": policy.phase}

@@ -147,7 +147,9 @@ def create_job(
     _enforce_admission(cfg, client_ip=client_ip)
     ledger = get_ledger(cfg)
     try:
-        job = ledger.create_job(github_url, env_ttl_seconds=cfg.env_ttl_seconds)
+        # The host reaper reads this immutable deadline from the sandbox label.
+        lifetime = min(cfg.env_ttl_seconds, cfg.job_timeout_seconds)
+        job = ledger.create_job(github_url, env_ttl_seconds=lifetime)
     except Exception:
         # Undo Valkey queue reservation if ledger create fails.
         release_admission_slot(was_running=False, settings=cfg)
@@ -387,6 +389,8 @@ def _run_cancel_finalizer(ledger: Ledger, job_id: str) -> None:
                 "destroyed_at": destroyed_at,
                 "cleanup": cleanup_status,
                 "destroy_error": destroy_result.error,
+                # The host checkpoint reaper requires positive receipt evidence.
+                "confirmed": destroy_result.confirmed,
             },
             "dossier": {
                 **(prior_receipt.get("dossier") or {}),
@@ -407,39 +411,22 @@ def _run_cancel_finalizer(ledger: Ledger, job_id: str) -> None:
     release_admission_slot(was_running=was_running)
 
 
-def claim_pending_job() -> Job | None:
-    """Background worker: pick the oldest pending job and move it to analyzing."""
-    cfg = get_settings()
+def claim_pending_job(*, settings: Settings | None = None) -> Job | None:
+    """Close expired queued jobs, then return the oldest successfully claimed job."""
+    cfg = settings or get_settings()
     ledger = get_ledger(cfg)
     for job in ledger.list_jobs():
         if job.status != "pending":
             continue
-        if job.cancel_requested_at is not None:
+        updated = ledger.try_claim_pending_job(job.job_id)
+        if updated is None:
             continue
-        try:
-            updated = ledger.update_job_fields(
-                job.job_id,
-                status="analyzing",
-                current_step="worker stub: analyzing",
-                progress=5,
-                steps_completed=["pending"],
-            )
-            ledger.append_event(
-                job.job_id,
-                typ="status",
-                message="analyzing",
-                payload={"status": "analyzing", "kind": "agent"},
-            )
-            ledger.append_event(
-                job.job_id,
-                typ="log",
-                message="background worker claimed job",
-                payload={"kind": "agent"},
-            )
-            store = get_admission_store(cfg)
-            if store.backend == "valkey":
-                store.on_claimed()
-            return updated
-        except Ledger.WriterFrozenError:
+        if updated.status == "failed":
+            # Expiry never took a running slot.
+            release_admission_slot(was_running=False, settings=cfg)
             continue
+        store = get_admission_store(cfg)
+        if store.backend == "valkey":
+            store.on_claimed()
+        return updated
     return None

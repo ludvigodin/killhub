@@ -32,7 +32,8 @@ async def worker_loop(settings: Settings | None = None) -> None:
     )
     while True:
         try:
-            claimed = await asyncio.to_thread(claim_pending_job)
+            # Claim using the same settings that govern this worker's deadline.
+            claimed = await asyncio.to_thread(claim_pending_job, settings=cfg)
             if claimed is not None:
                 logger.info("claimed job %s", claimed.job_id)
                 if (

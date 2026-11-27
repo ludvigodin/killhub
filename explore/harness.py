@@ -13,6 +13,7 @@ import shlex
 import subprocess
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Mapping, Optional, Sequence
 
@@ -66,8 +67,11 @@ class CliResult:
 
 @dataclass(frozen=True)
 class DestroyResult:
+    """Outcome of a Plane 2 sandbox teardown and confirmation check (D57)."""
+
     confirmed: bool
     error: str | None = None
+    stop_ok: bool = False
 
 
 @dataclass(frozen=True)
@@ -530,6 +534,15 @@ def create_environment(
         )
     if job.destroyed_at is not None:
         raise HarnessError("job sandbox already destroyed", code="already_destroyed")
+    try:
+        deadline = datetime.fromisoformat(job.expires_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HarnessError("job deadline is invalid", code="invalid_deadline") from exc
+    if deadline.tzinfo is None:
+        raise HarnessError("job deadline is invalid", code="invalid_deadline")
+    if deadline <= datetime.now(timezone.utc):
+        # An expired queued or recovered job must never provision another VM.
+        raise HarnessError("job deadline elapsed before provisioning", code="job_expired")
     # D45: never create a sandbox after preflight hard-fail findings.
     for event in ledger.list_events(job_id):
         if event.type != "finding":
@@ -752,20 +765,11 @@ def replace_environment(
         progress=max(job.progress, 50),
     )
 
-    # Remove prior VM before create — never two concurrent (D27).
-    stop = msb.stop(prior_id, force=False)
-    remove = msb.remove(prior_id, force=True)
-    status = msb.status(prior_id)
-    still_present = status.ok and prior_id in (status.stdout + status.stderr)
-    confirmed = remove.ok or not still_present
-    if (
-        not confirmed
-        and "not found" in (remove.stderr + remove.stdout + status.stderr + stop.stderr).lower()
-    ):
-        confirmed = True
-    if not confirmed:
+    # Require evidence that the prior VM is gone before opening a generation (D27).
+    removal = stop_and_remove_sandbox(prior_id, cli=msb)
+    if not removal.confirmed:
         raise HarnessError(
-            f"failed to remove prior sandbox {prior_id} before replace",
+            f"failed to remove prior sandbox {prior_id} before replace: {removal.error}",
             code="replace_remove_failed",
         )
 
@@ -939,6 +943,43 @@ def wait_until_ready(
     )
 
 
+def exact_sandbox_names(cli: MsbCli) -> set[str]:
+    """Read a complete inventory for absence and cleanup decisions."""
+    inventory = cli.run(["list", "--format", "json"], timeout=60, check=True)
+    rows = json.loads(inventory.stdout)
+    if not isinstance(rows, list) or not all(
+        isinstance(r, dict) and isinstance(r.get("name"), str) and r["name"].strip() for r in rows
+    ):
+        raise ValueError("unexpected sandbox inventory")
+    return {r["name"] for r in rows}
+
+
+def stop_and_remove_sandbox(
+    environment_id: str, *, cli: MsbCli, force_stop: bool = False
+) -> DestroyResult:
+    """Trust synchronous remove or absence from a validated host inventory (D57)."""
+    try:
+        stop_ok = cli.stop(environment_id, force=force_stop).ok
+    except HarnessError:
+        # A timed-out stop can still be followed by a successful forced remove.
+        stop_ok = False
+    try:
+        if cli.remove(environment_id, force=True).ok:
+            return DestroyResult(confirmed=True, stop_ok=stop_ok)
+    except HarnessError:
+        # Check the current inventory because the remote remove may have completed.
+        pass
+
+    # A failed status, a substring match, or a partial listing cannot prove absence.
+    try:
+        live = exact_sandbox_names(cli)
+    except (HarnessError, ValueError):
+        return DestroyResult(False, "Sandbox removal could not be verified", stop_ok)
+    if environment_id in live:
+        return DestroyResult(False, "Sandbox remains in the host inventory", stop_ok)
+    return DestroyResult(confirmed=True, stop_ok=stop_ok)
+
+
 def destroy_environment(
     environment_id: str,
     *,
@@ -947,6 +988,7 @@ def destroy_environment(
     settings: Settings | None = None,
     cli: MsbCli | None = None,
     finalizer: bool = False,
+    reconcile_cleanup: bool = False,
 ) -> DestroyResult:
     """
     `msb stop` + `msb remove`. Confirmed-only destroyed_at (D57).
@@ -965,14 +1007,17 @@ def destroy_environment(
         # Host reaper may see labels for jobs from another ledger DB.
         resolved_job_id = None
 
+    generation = None
     if resolved_job_id is not None:
-        job = ledger.get_job(resolved_job_id)
-        if job is not None and job.current_sandbox_generation is not None:
-            ledger.mark_generation_state(
-                resolved_job_id,
-                job.current_sandbox_generation,
-                "destroying",
-            )
+        # An orphan or historical VM must not change the current generation's state.
+        for candidate in reversed(ledger.list_sandbox_generations(resolved_job_id)):
+            if candidate.environment_id == environment_id:
+                generation = candidate
+                if candidate.destroyed_at is None:
+                    ledger.mark_generation_state(
+                        resolved_job_id, candidate.generation, "destroying"
+                    )
+                break
         ledger.append_event(
             resolved_job_id,
             typ="lifecycle",
@@ -985,55 +1030,41 @@ def destroy_environment(
             finalizer=finalizer,
         )
 
-    stop = msb.stop(environment_id, force=False)
-    remove = msb.remove(environment_id, force=True)
-    # Confirm gone: status should fail or not show running.
-    status = msb.status(environment_id)
-    still_present = status.ok and environment_id in (status.stdout + status.stderr)
-    confirmed = remove.ok or not still_present
-    # If stop failed but force-remove succeeded, treat as confirmed.
-    if remove.ok:
-        confirmed = True
-    if not confirmed and "not found" in (remove.stderr + remove.stdout + status.stderr).lower():
-        confirmed = True
-
-    now = utc_now()
+    result = stop_and_remove_sandbox(environment_id, cli=msb)
     if resolved_job_id is not None:
-        job = ledger.get_job(resolved_job_id)
-        if job is not None and job.current_sandbox_generation is not None:
-            if confirmed:
+        phase = "destroyed" if result.confirmed else "destroy_failed"
+        if generation is not None:
+            if generation.destroyed_at is None:
                 ledger.mark_generation_state(
                     resolved_job_id,
-                    job.current_sandbox_generation,
-                    "destroyed",
-                    destroyed_at=now,
+                    generation.generation,
+                    phase,
+                    destroyed_at=utc_now() if result.confirmed else None,
                 )
-            else:
-                ledger.mark_generation_state(
+            if reconcile_cleanup:
+                # Normal cancel/finalize writes its own receipt. The reaper
+                # updates only lifecycle evidence when that receipt exists.
+                ledger.record_reaped_cleanup(
                     resolved_job_id,
-                    job.current_sandbox_generation,
-                    "destroy_failed",
+                    generation.generation,
+                    environment_id,
+                    confirmed=result.confirmed,
+                    error=result.error,
                 )
-        err = None if confirmed else (remove.stderr or stop.stderr or "remove not confirmed")
         ledger.append_event(
             resolved_job_id,
             typ="lifecycle",
-            message="sandbox destroyed" if confirmed else "sandbox destroy failed",
+            message="sandbox destroyed" if result.confirmed else "sandbox destroy failed",
             payload={
-                "phase": "destroyed" if confirmed else "destroy_failed",
+                "phase": phase,
                 "environment_id": environment_id,
                 "reason": reason,
-                "confirmed": confirmed,
-                "error": err,
+                "confirmed": result.confirmed,
+                "error": result.error,
             },
             finalizer=finalizer,
         )
-        return DestroyResult(confirmed=confirmed, error=err)
-
-    return DestroyResult(
-        confirmed=confirmed,
-        error=None if confirmed else (remove.stderr or "remove not confirmed"),
-    )
+    return result
 
 
 def list_live_environment_ids(
