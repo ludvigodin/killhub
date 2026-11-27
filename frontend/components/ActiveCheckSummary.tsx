@@ -24,6 +24,18 @@ export function ActiveCheckSummary({
           {checks.leading_finding.title}
         </p>
       )}
+      {checks.by_check && checks.by_check.length > 0 && (
+        <ul
+          aria-label="Findings by check"
+          className="flex flex-wrap gap-x-3 text-xs"
+        >
+          {checks.by_check.map((group) => (
+            <li key={group.check}>
+              {group.label} ({group.count})
+            </li>
+          ))}
+        </ul>
+      )}
       <p className="text-xs text-(--muted)">
         {trace} ·{" "}
         {tools == null

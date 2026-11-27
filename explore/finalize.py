@@ -6,7 +6,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from active_report import summarize_active_checks
+from active_report import summarize_active_checks, with_active_summary
 from config import Settings, get_settings
 from harness import DestroyResult, destroy_job_environment
 from jobs import get_ledger
@@ -168,10 +168,11 @@ def finalize_job(
         except VulnScanError as exc:
             scan_error = exc.message
             vuln_status = "failed"
+            findings = collect_stream_findings(job_id, cfg)
             ledger.upsert_vuln_report(
                 job_id,
-                summary=f"Scan aborted: {exc.message}",
-                findings=collect_stream_findings(job_id, cfg),
+                summary=with_active_summary(f"Scan aborted: {exc.message}", findings),
+                findings=findings,
                 status="failed",
                 finalizer=True,
             )
@@ -186,10 +187,11 @@ def finalize_job(
             scan_error = exc.__class__.__name__
             vuln_status = "failed"
             logger.exception("vulnscan crashed for %s", job_id)
+            findings = collect_stream_findings(job_id, cfg)
             ledger.upsert_vuln_report(
                 job_id,
-                summary=f"Scanner crash ({exc.__class__.__name__}); report partial.",
-                findings=collect_stream_findings(job_id, cfg),
+                summary=with_active_summary("The dependency scan failed.", findings),
+                findings=findings,
                 status="failed",
                 finalizer=True,
             )

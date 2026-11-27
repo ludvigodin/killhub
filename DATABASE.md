@@ -312,6 +312,8 @@ Cap: `MAX_SCREENSHOTS_PER_JOB` and disk budget (D40). Capture in Plane 2 (D38); 
 
 ## VulnReport
 
+New reports store the full active findings and a cited breakdown by check. To persist retained evidence for historical finalized jobs, run `python -m ledger.import_active_findings` from `explore/` with the deployment ledger configuration. Each report and its receipt update together. Repeated imports skip completed updates.
+
 | Field | Type | Rules |
 |-------|------|-------|
 | `job_id` | string | PK/FK |

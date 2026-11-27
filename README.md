@@ -1,10 +1,16 @@
+<p align="center">
+  <a href="https://killhub.pro">
+    <img src="docs/killhub-hero.gif" alt="Killhub - Pull. Penetrate. Destroy." width="800" />
+  </a>
+</p>
+
 # Killhub
 
 **Submit a public GitHub repository or a pinned fixture. Follow its sandbox job and review the resulting evidence and receipt.**
 
 Killhub uses a disposable Vultr Microsandbox VM for repository execution. The control plane runs on Vultr Cloud Compute and uses Vultr Serverless Inference. Start with the [setup and deployment guide](SETUP.md).
 
-The architecture below describes the alignment target. Registry intake, live noVNC viewing, and the complete telemetry and containment pipeline await integration and VX1 acceptance. See the [alignment execution plan](ALIGNMENT_EXECUTION_PLAN.md) for the release gates.
+The architecture below describes the alignment target. Registry intake and the full telemetry and containment pipeline are pending. The opt-in view-only console still needs VX1 acceptance. See the [alignment execution plan](ALIGNMENT_EXECUTION_PLAN.md) for the release gates.
 
 ---
 

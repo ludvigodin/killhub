@@ -294,6 +294,14 @@ def test_active_checks_reach_card_and_agent(monkeypatch):
     assert checks["install_trace"] == "partial" and checks["mcp_tools_reviewed"] == 3
     assert checks["finding_count"] == 5 and checks["leading_finding"]["severity"] == "critical"
     assert agent["findings"][0]["id"] == checks["leading_finding"]["id"]
+    assert {row["check"]: row["count"] for row in checks["by_check"]} == {
+        "canary_exfiltration": 1,
+        "persistence_write": 1,
+        "install_network_tools": 1,
+        "mcp_tool_poisoning": 2,
+    }
+    for row in checks["by_check"]:
+        assert f"[{row['finding_id']}]" in agent["vuln_review"]
     assert agent["finding_count"] == 17 and len(agent["findings"]) == 10
     assert agent["scan_status"] == "partial"
     assert agent["vuln_review"] == snapshot["vuln_report"]["summary"]
@@ -335,3 +343,9 @@ def test_historical_report_uses_retained_evidence_without_rewriting_receipt():
     assert "Clean bill" not in agent["vuln_review"]
     assert ledger.get_vuln_report(job_id)["findings"] == []
     assert "active_checks" not in ledger.get_receipt(job_id)["dossier"]
+    assert not ledger.import_active_findings(job_id)
+    ledger.update_job_fields(job_id, status="completed")
+    assert ledger.import_active_findings(job_id)
+    assert ledger.get_vuln_report(job_id) == snapshot["vuln_report"]
+    assert ledger.get_receipt(job_id) == snapshot["receipt"]
+    assert not ledger.import_active_findings(job_id)

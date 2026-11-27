@@ -40,6 +40,13 @@ export type ActiveChecks = {
   mcp_tools_reviewed: number | null;
   finding_count: number;
   leading_finding: VulnFinding | null;
+  by_check?: {
+    check: string;
+    label: string;
+    count: number;
+    finding_id: string;
+    severity: string;
+  }[];
 };
 
 export type JobSummary = {

@@ -12,7 +12,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from active_report import ACTIVE_SOURCES, active_finding, summarize_active_checks
+from active_report import (
+    ACTIVE_SOURCES,
+    active_finding,
+    summarize_active_checks,
+    with_active_summary,
+)
 from ledger.db import DbConnection, Row, open_ledger_connection
 from ledger.migrations import migrate
 from ledger.url import LedgerTarget, parse_ledger_url, parse_sqlite_path
@@ -189,6 +194,9 @@ class Ledger:
         )
         jid = job_id or str(uuid.uuid4())
         cleanup = CleanupState(status="pending", attempts=0, updated_at=now)
+        if preflight is not None and not preflight.ok_to_bootstrap:
+            # A rejected row must never have a claimable status, even inside this transaction.
+            status, current_step = "finalizing", "recording preflight rejection"
 
         self._conn.begin()
         try:
@@ -1235,7 +1243,10 @@ class Ledger:
     def report_for_display(self, job_id: str) -> tuple[dict | None, dict | None]:
         receipt = self.get_receipt(job_id)
         report = self.get_vuln_report(job_id)
-        if not receipt or not report or "active_checks" in receipt["dossier"]:
+        if not receipt:
+            return receipt, report
+        existing = receipt["dossier"].get("active_checks")
+        if existing and "by_check" in existing:
             return receipt, report
         # Older workers emitted these events but omitted them from finalized reports.
         rows = self._conn.execute(
@@ -1249,31 +1260,68 @@ class Ledger:
             """,
             (job_id,),
         ).fetchall()
-        if rows:
+        if rows or (existing and report):
+            if report is None:
+                report = {
+                    "job_id": job_id,
+                    "status": "partial",
+                    "findings": [],
+                    "mcp_assessment": None,
+                    "summary": "Dependency scan results are unavailable for this job.",
+                }
             events = [self._row_to_event(row) for row in rows]
             findings = report["findings"]
-            ids = {f["id"] for f in findings}
+            by_id = {f["id"]: f for f in findings}
             for event in events:
                 if (
                     event.type == "finding"
                     and (event.payload or {}).get("source") in ACTIVE_SOURCES
                 ):
                     finding = active_finding(event)
-                    if finding["id"] not in ids:
-                        findings.append(finding)
-                        ids.add(finding["id"])
+                    by_id[finding["id"]] = finding
+            findings = report["findings"] = list(by_id.values())
             checks = summarize_active_checks(events, findings)
+            if existing:
+                for key in ("install_trace", "mcp_tools_reviewed"):
+                    if checks[key] is None:
+                        checks[key] = existing.get(key)
             receipt["dossier"]["active_checks"] = checks
             receipt["dossier"]["finding_ids"] = [f["id"] for f in findings]
-            if leading := checks["leading_finding"]:
+            if checks["finding_count"]:
                 prior = report["summary"]
                 if prior == "No scan findings. Clean bill for this job's scanned surfaces.":
                     prior = "Historical dependency scan coverage is unknown."
                     if report["status"] == "ok":
                         report["status"] = "partial"
-                report["summary"] = f"{leading['title']} [{leading['id']}]. {prior}"
+                prior = prior.removeprefix("No findings recorded.").strip()
+                report["summary"] = with_active_summary(prior, findings).strip()
+                receipt["dossier"]["vuln_report_status"] = report["status"]
                 receipt["dossier"]["vuln_review"] = report["summary"]
         return receipt, report
+
+    def import_active_findings(self, job_id: str) -> bool:
+        """Materialize historical check evidence once, only for finalized jobs."""
+        with self._conn:
+            job = self.get_job(job_id)
+            if not job or job.status not in TERMINAL_STATUSES:
+                return False
+            stored = self.get_receipt(job_id)
+            if not stored or "by_check" in (stored["dossier"].get("active_checks") or {}):
+                return False
+            receipt, report = self.report_for_display(job_id)
+            if not receipt or not report or not receipt["dossier"].get("active_checks"):
+                return False
+            self._conn.execute(
+                """INSERT INTO vuln_reports(job_id, summary, findings, status) VALUES (?, ?, ?, ?)
+                ON CONFLICT(job_id) DO UPDATE SET summary=excluded.summary,
+                findings=excluded.findings, status=excluded.status""",
+                (job_id, report["summary"], _dumps(report["findings"]), report["status"]),
+            )
+            self._conn.execute(
+                "UPDATE job_receipts SET dossier=? WHERE job_id=?",
+                (_dumps(receipt["dossier"]), job_id),
+            )
+        return True
 
     def get_vuln_report(self, job_id: str) -> dict[str, Any] | None:
         row = self._conn.execute(
