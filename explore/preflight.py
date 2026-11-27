@@ -327,31 +327,25 @@ def apply_preflight_to_job(
 
     now = utc_now()
     hard_msgs = "; ".join(f.message for f in result.hard_findings)[:500]
-    ledger.update_job_fields(
+    # Receipt, status event and terminal status in one transaction (D61).
+    ledger.finalize_job(
         job_id,
-        finalizer=True,
         status="failed",
+        receipt={
+            "verification": {"kind": "preflight_failed"},
+            "containment": {"status": "skipped", "reason": "preflight_hard_fail"},
+            "lifecycle": {"preflight": False, "sandbox_created": False},
+            "dossier": {
+                "outcome": "failed",
+                "reason": "preflight_hard_fail",
+                "findings": [f.to_event_payload() for f in result.findings],
+            },
+        },
+        event_message="failed",
+        event_payload={"reason": "preflight"},
         progress=100,
         current_step="preflight hard-fail",
         error=hard_msgs or "preflight hard-fail",
         cleanup=CleanupState(status="destroyed", attempts=0, updated_at=now),
         destroyed_at=now,
-    )
-    ledger.upsert_receipt(
-        job_id,
-        verification={"kind": "preflight_failed"},
-        containment={"status": "skipped", "reason": "preflight_hard_fail"},
-        lifecycle={"preflight": False, "sandbox_created": False},
-        dossier={
-            "outcome": "failed",
-            "reason": "preflight_hard_fail",
-            "findings": [f.to_event_payload() for f in result.findings],
-        },
-    )
-    ledger.append_event(
-        job_id,
-        typ="status",
-        message="failed",
-        payload={"status": "failed", "reason": "preflight"},
-        finalizer=True,
     )

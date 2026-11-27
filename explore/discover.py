@@ -655,6 +655,13 @@ def discover_runtime_profile(
             if exc.code == "setup_failed_fixture":
                 # Record verification evidence but stay non-terminal so the
                 # finalizer can SCA + destroy + set failed (D37, D53, D61).
+                verification = {
+                    "kind": "setup_failed",
+                    "original_failure": {
+                        "step": "discover",
+                        "summary": exc.message,
+                    },
+                }
                 ledger.append_event(
                     job_id,
                     typ="log",
@@ -665,13 +672,7 @@ def discover_runtime_profile(
                     job_id,
                     current_step="setup_failed (fixture) — finalizing",
                     error=exc.message,
-                    verification={
-                        "kind": "setup_failed",
-                        "original_failure": {
-                            "step": "discover",
-                            "summary": exc.message,
-                        },
-                    },
+                    verification=verification,
                 )
             raise
 
