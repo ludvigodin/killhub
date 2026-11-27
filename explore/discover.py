@@ -573,7 +573,8 @@ def infer_runtime_profile(
             **base,
             "intent": "webapp",
             "runtime": "node",
-            "packages": ["nodejs", "npm"],
+            # The offline HTTP probe requires a client installed before egress is closed.
+            "packages": ["nodejs", "npm", "curl"],
             "commands": {
                 "install": [_cmd(["npm", "install"], timeout=600, cwd=GUEST_REPO_ROOT)],
                 "run": [_cmd(["npm", "start"], timeout=60, cwd=GUEST_REPO_ROOT)],

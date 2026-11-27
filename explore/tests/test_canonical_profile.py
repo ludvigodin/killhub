@@ -51,6 +51,8 @@ def test_discovered_profile_keeps_canonical_shape_in_storage(
     validator.validate(profile)
     assert profile["commands"]["install"]
     assert profile["commands"]["run"]
+    if fixture_id == "webapp_success":
+        assert "curl" in profile["packages"]
     assert profile["source"]["commit"] == require_fixture(fixture_id)["commit"]
 
     ledger = get_ledger(settings)
