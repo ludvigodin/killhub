@@ -75,3 +75,94 @@ a:hover {
     animation: none;
   }
 }
+
+.repo-space {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 15% 67%, #fff9 0 1px, transparent 2px),
+    radial-gradient(circle at 78% 19%, #fffb 0 1px, transparent 2px),
+    radial-gradient(circle at 86% 74%, #fff8 0 1.5px, transparent 2px),
+    radial-gradient(circle at 32% 24%, #fffb 0 1px, transparent 2px),
+    radial-gradient(
+      ellipse at 38% 105%,
+      hsl(var(--planet-hue) 46% 34%),
+      #141a32 85%
+    );
+}
+
+.repo-orbit {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  rotate: var(--orbit-angle);
+}
+
+.repo-planet,
+.repo-moon {
+  border-radius: 50%;
+  aspect-ratio: 1;
+}
+
+.repo-planet {
+  width: 31%;
+  background:
+    radial-gradient(circle at 26% 20%, #fff5, transparent 42%, #15163170 78%),
+    repeating-linear-gradient(
+      172deg,
+      transparent 0 12%,
+      #ffefc266 13% 17%,
+      transparent 18% 27%
+    ),
+    linear-gradient(
+      135deg,
+      hsl(var(--planet-hue) 80% 75%),
+      hsl(calc(var(--planet-hue) + 45) 58% 51%)
+    );
+  box-shadow:
+    inset 1px 2px 2px #fff6,
+    0 8px 22px #0b102940;
+}
+
+.repo-ring {
+  position: absolute;
+  width: 54%;
+  height: 16%;
+  border: 3px solid #ffe8b8;
+  border-radius: 50%;
+  box-shadow: 0 2px 0 #edac8ba3;
+  /* The planet hides the far side of the ring. */
+  clip-path: polygon(
+    0 0,
+    24% 0,
+    24% 55%,
+    76% 55%,
+    76% 0,
+    100% 0,
+    100% 100%,
+    0 100%
+  );
+}
+
+.repo-moon {
+  position: absolute;
+  left: var(--moon-x);
+  top: var(--moon-y);
+  width: 5%;
+  background: radial-gradient(circle at 29% 24%, #fff0ce, #dc9e78 55%, #745a83);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .repo-orbit,
+  .repo-moon {
+    transition: transform 450ms ease-out;
+  }
+  .job-entry:is(:hover, :focus-within) .repo-orbit {
+    transform: translateY(-3px) rotate(5deg);
+  }
+  .job-entry:is(:hover, :focus-within) .repo-moon {
+    transform: translate(4px, 2px);
+  }
+}

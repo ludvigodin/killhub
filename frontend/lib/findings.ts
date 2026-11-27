@@ -1,4 +1,4 @@
-import type { VulnFinding, VulnReportData } from "@/lib/api";
+import type { JobSnapshot, VulnFinding } from "@/lib/api";
 
 export const SEVERITY_ORDER = [
   "critical",
@@ -53,24 +53,68 @@ export function countSeverities(
   return counts;
 }
 
-/** Short headline for the above-the-fold findings strip. */
-export function findingsHeadline(
-  report: VulnReportData | null | undefined,
-): string {
-  if (!report) return "Scan pending";
-  const counts = countSeverities(report.findings);
-  if (counts.total === 0) return "No vulnerabilities reported";
-  const parts: string[] = [];
-  for (const sev of SEVERITY_ORDER) {
-    if (counts[sev] > 0) {
-      parts.push(`${counts[sev]} ${sev}`);
-    }
+export function securityVerdict(job: JobSnapshot) {
+  const report = job.vuln_report;
+  const counts = countSeverities(report?.findings);
+  const gates = job.receipt?.dossier?.gates as
+    | { reasons?: unknown }
+    | undefined;
+  const reasons = gates?.reasons;
+  const bypass =
+    Array.isArray(reasons) &&
+    reasons.some(
+      (r) => r === "policy_bypass" || r === "containment_policy_bypass",
+    );
+  const target = (job.verification ?? job.receipt?.verification)?.kind;
+  const gaps: string[] = [];
+  if (!report) gaps.push("No vulnerability report is available for this run.");
+  else if (
+    report.status !== "ok" ||
+    !Array.isArray(report.findings) ||
+    report.summary ===
+      "No scan findings. Clean bill for this job's scanned surfaces."
+  ) {
+    gaps.push("Dependency scan coverage is incomplete or unknown.");
   }
-  if (counts.other > 0) {
-    parts.push(`${counts.other} other`);
+  if (target === "generated_demo")
+    gaps.push("Only a generated demo was verified.");
+  else if (target !== "original_application" || job.status !== "completed") {
+    gaps.push("Verification of the original application is incomplete.");
   }
-  const noun = counts.total === 1 ? "finding" : "findings";
-  return `${counts.total} ${noun} · ${parts.join(" · ")}`;
+  if (job.receipt?.containment?.claim !== "proven")
+    gaps.push("Sandbox isolation was not fully verified.");
+
+  if (bypass || counts.critical || counts.high)
+    return {
+      label: "High risk",
+      color: "#9b2c2c",
+      reason: bypass
+        ? "A sandbox isolation check recorded a policy bypass."
+        : "The scan reported a high or critical finding. Review it before running this code.",
+      gaps,
+    };
+  if (
+    counts.medium ||
+    counts.low ||
+    counts.other ||
+    report?.findings?.some((f) => !f.severity)
+  )
+    return {
+      label: "Review before use",
+      color: "#805015",
+      reason:
+        "The scan flagged issues that need a closer look. See the findings in the receipt.",
+      gaps,
+    };
+  if (gaps.length)
+    return { label: "Safety unknown", color: "#805015", reason: "", gaps };
+  return {
+    label: "No risks flagged by these checks",
+    color: "#226442",
+    reason:
+      "The dependency scan and sandbox checks raised no warnings for this run. Other risks may still exist.",
+    gaps,
+  };
 }
 
 export function formatFindingDetail(detail: unknown): string | null {

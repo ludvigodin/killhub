@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import type { JobSummary } from "@/lib/api";
 import { ownerRepoFromGithubUrl } from "@/lib/github";
+import { RepoThumbnail } from "./RepoThumbnail";
 import { StatusBadge } from "./StatusBadge";
 
 function relativeTime(iso: string): string {
@@ -51,8 +53,7 @@ export function JobEntryCard({
   runCount,
 }: JobEntryCardProps) {
   const title = ownerRepoFromGithubUrl(job.github_url) ?? job.github_url;
-  const initial =
-    (title.split("/")[1] ?? title).slice(0, 1).toUpperCase() || "K";
+  const [failedShot, setFailedShot] = useState<string | null>(null);
   const shot =
     job.screenshot_url && job.screenshot_url.length > 0
       ? job.screenshot_url
@@ -82,31 +83,16 @@ export function JobEntryCard({
         }
       >
         <div className="relative aspect-16/10 overflow-hidden bg-(--paper-deep)">
-          {shot ? (
+          {shot && shot !== failedShot ? (
             // biome-ignore lint/performance/noImgElement: dynamic API screenshot bytes
             <img
               src={shot}
+              onError={() => setFailedShot(shot)}
               alt=""
               className="h-full w-full object-cover transition duration-500 ease-out group-hover:scale-[1.03]"
             />
           ) : (
-            <div
-              className="flex h-full w-full items-center justify-center"
-              style={{
-                background:
-                  "linear-gradient(145deg, var(--accent-soft) 0%, var(--paper-deep) 55%, #c9d5e0 100%)",
-              }}
-              aria-hidden
-            >
-              <span
-                className="text-5xl font-semibold text-(--accent) opacity-80"
-                style={{
-                  fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-                }}
-              >
-                {initial}
-              </span>
-            </div>
+            <RepoThumbnail repo={title} />
           )}
           <div className="absolute inset-x-0 bottom-0 h-1.5 bg-black/10">
             <div

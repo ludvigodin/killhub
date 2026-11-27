@@ -325,10 +325,7 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
       )}
 
       {snapshot && (snapshot.vuln_report || terminal) ? (
-        <FindingsSummary
-          report={snapshot.vuln_report}
-          showPending={terminal && !snapshot.vuln_report}
-        />
+        <FindingsSummary snapshot={snapshot} />
       ) : null}
 
       {error ? <ErrorBanner message={error.message} code={error.code} /> : null}
