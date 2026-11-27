@@ -10,7 +10,7 @@ import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ledger.db import DbConnection, Row, open_ledger_connection
 from ledger.migrations import migrate
@@ -27,6 +27,9 @@ from models import (
     SandboxGeneration,
     SandboxState,
 )
+
+if TYPE_CHECKING:
+    from preflight import PreflightResult
 
 # Re-export for callers that imported parse_sqlite_path from store.
 __all__ = ["Ledger", "parse_ledger_url", "parse_sqlite_path"]
@@ -157,6 +160,7 @@ class Ledger:
         resolved_commit: str | None = None,
         status: JobStatus = "pending",
         current_step: str = "accepted",
+        preflight: PreflightResult | None = None,
     ) -> Job:
         github_url = validate_github_url(github_url)
         # Known fixture pins must be present in the row before a worker can claim it.
@@ -204,22 +208,74 @@ class Ledger:
                     now,
                 ),
             )
-            event = self._insert_event_unlocked(
+            self._insert_event_unlocked(
                 jid,
                 typ="status",
                 message=f"job created ({status})",
                 payload={"status": status, "github_url": github_url},
                 timestamp=now,
             )
+            # Claimers only see the row after its preflight evidence and any rejection commit.
+            if preflight is not None and not preflight.meta.get("skipped"):
+                self._record_preflight_unlocked(jid, preflight)
+            job = self.get_job(jid)
+            assert job is not None
             self._conn.commit()
         except Exception:
             self._conn.rollback()
             raise
-
-        job = self.get_job(jid)
-        assert job is not None
-        assert job.event_cursor == event.event_id
         return job
+
+    def _record_preflight_unlocked(self, job_id: str, result: PreflightResult) -> None:
+        """Publish the Plane 1 decision within the new job's ledger transaction."""
+        self._insert_event_unlocked(
+            job_id,
+            typ="log",
+            message="preflight completed" if result.ok_to_bootstrap else "preflight hard-fail",
+            payload={
+                "kind": "preflight",
+                "ok_to_bootstrap": result.ok_to_bootstrap,
+                "finding_count": len(result.findings),
+                "hard_count": len(result.hard_findings),
+                "meta": {
+                    k: v
+                    for k, v in result.meta.items()
+                    if k in {"owner", "repo", "host", "skipped"}
+                },
+            },
+        )
+        for finding in result.findings:
+            self._insert_event_unlocked(
+                job_id, typ="finding", message=finding.message, payload=finding.to_event_payload()
+            )
+        if result.ok_to_bootstrap:
+            return
+
+        job = self.get_job(job_id)
+        assert job is not None
+        self._finalize_unlocked(
+            job,
+            "failed",
+            {
+                "verification": {"kind": "preflight_failed"},
+                "containment": {"status": "skipped", "reason": "preflight_hard_fail"},
+                "lifecycle": {"preflight": False, "sandbox_created": False},
+                "dossier": {
+                    "outcome": "failed",
+                    "reason": "preflight_hard_fail",
+                    "findings": [f.to_event_payload() for f in result.findings],
+                },
+            },
+            "failed",
+            {"reason": "preflight"},
+            {
+                "progress": 100,
+                "current_step": "preflight hard-fail",
+                "error": "; ".join(f.message for f in result.hard_findings)[:500]
+                or "preflight hard-fail",
+            },
+            include_verdict=True,
+        )
 
     def try_claim_pending_job(self, job_id: str) -> Job | None:
         """Claim or expire a waiting row before it consumes a worker slot."""

@@ -228,8 +228,8 @@ def create_job(
     settings: Settings | None = None,
     client_ip: str | None = None,
 ) -> Job:
-    """Admit + create ledger row, then Plane-1 pre-flight (D45) before any msb."""
-    from preflight import apply_preflight_to_job, run_preflight
+    """Admit, run Plane 1 preflight, then publish the job and decision (D45)."""
+    from preflight import run_preflight
 
     # New jobs must match the canonical GitHub runtime profile before reserving capacity.
     target = parse_public_git_url(github_url)
@@ -249,16 +249,20 @@ def create_job(
                 403,
             )
     _enforce_admission(cfg, client_ip=client_ip)
-    ledger = get_ledger(cfg)
-    running = sum(1 for j in ledger.list_jobs() if j.status in RUNNING_STATUSES)
-    initial_status: JobStatus
-    if running >= cfg.max_concurrent_jobs:
-        initial_status = "queued"
-        initial_step = "in queue"
-    else:
-        initial_status = "pending"
-        initial_step = "accepted"
     try:
+        # Finish network checks before creating any row a worker could claim.
+        result = run_preflight(github_url, settings=cfg)
+        ledger = get_ledger(cfg)
+        if (
+            result.ok_to_bootstrap
+            and get_admission_store(cfg).backend != "valkey"
+            and _ledger_capacity_full(cfg)
+        ):
+            # Other requests may have filled the local queue during the metadata lookup.
+            raise AdmissionError("Job concurrency and queue are full", "queue_full", 503)
+        running = sum(1 for j in ledger.list_jobs() if j.status in RUNNING_STATUSES)
+        initial_status: JobStatus = "queued" if running >= cfg.max_concurrent_jobs else "pending"
+        initial_step = "in queue" if initial_status == "queued" else "accepted"
         # The host reaper reads this immutable deadline from the sandbox label.
         lifetime = cfg.env_ttl_seconds
         if cfg.job_timeout_seconds > 0:
@@ -269,20 +273,16 @@ def create_job(
             resolved_commit=fixture_commit,
             status=initial_status,
             current_step=initial_step,
+            preflight=result,
         )
     except Exception:
-        # Undo Valkey queue reservation if ledger create fails.
+        # Every failed publication releases the reservation made before preflight.
         release_admission_slot(was_running=False, settings=cfg)
         raise
-    result = run_preflight(job.github_url, settings=cfg)
-    if not result.meta.get("skipped"):
-        apply_preflight_to_job(job.job_id, result, settings=cfg)
-    refreshed = ledger.get_job(job.job_id)
-    assert refreshed is not None
-    # Preflight may terminal-fail the job before claim — release queued slot.
-    if refreshed.status in TERMINAL:
+    # Use the preflight decision so a fast worker cannot race this reservation release.
+    if not result.ok_to_bootstrap:
         release_admission_slot(was_running=False, settings=cfg)
-    return refreshed
+    return job
 
 
 def get_public_snapshot(job_id: str, *, settings: Settings | None = None) -> dict[str, Any] | None:
