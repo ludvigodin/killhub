@@ -89,9 +89,8 @@ export function JobFeed() {
           Pull. Penetrate. Destroy.
         </h1>
         <p className="mx-auto mb-8 max-w-xl text-base leading-relaxed text-(--muted)">
-          Try an unfamiliar public repository in a disposable sandbox. See
-          whether the app runs, what it does during setup, and which risks
-          deserve a closer look.
+          Hot repos in your area are looking for a one-run stand. Drop a public
+          Git URL. We bring the sandbox and clean up afterward.
         </p>
         <BatchUrlForm onCreated={onCreated} />
         <div className="mt-5 flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm">
