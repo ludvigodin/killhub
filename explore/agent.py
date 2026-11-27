@@ -458,3 +458,70 @@ class EnvironmentAgent:
 
     def infer(self, messages: list[dict[str, Any]]) -> InferenceResult:
         return chat_completion(messages, job_id=self.job_id, settings=self.settings)
+
+    # -- Adaptive planning (D85). Plan-only: the model never executes anything;
+    # -- Killhub validates its proposals and runs them through the harness.
+
+    def inference_available(self) -> tuple[bool, str]:
+        """(usable, reason). Fails closed on missing key, disabled flag or spent budget."""
+        if not self.settings.adaptive_plan_llm:
+            return False, "adaptive_plan_llm_disabled"
+        try:
+            ensure_inference_ready(self.settings)
+        except AgentError as exc:
+            return False, exc.code
+        if self.inference_budget_exhausted():
+            return False, "inference_budget"
+        return True, "ok"
+
+    def inference_budget_exhausted(self) -> bool:
+        budget = int(self.settings.inference_budget_tokens_per_job or 0)
+        if budget <= 0:
+            return False
+        job = get_ledger(self.settings).get_job(self.job_id)
+        usage = job.inference_usage if job and isinstance(job.inference_usage, dict) else {}
+        return int(usage.get("total_tokens") or 0) >= budget
+
+    def infer_json(self, *, system: str, user: str) -> tuple[dict[str, Any], InferenceResult]:
+        """One budgeted Vultr call that must return a JSON object."""
+        result = self.infer(
+            [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ]
+        )
+        parsed = extract_json_object(result.content)
+        if parsed is None:
+            raise AgentError("inference reply was not a JSON object", code="inference_bad_json")
+        return parsed, result
+
+    def propose_runtime_profile(self, **kwargs: Any) -> Any:
+        """Discovery: inspect evidence -> validated runtime profile proposal."""
+        from plan_llm import propose_discovery_profile
+
+        return propose_discovery_profile(self, **kwargs)
+
+    def revise_runtime_profile(self, **kwargs: Any) -> Any:
+        """Repair: real install/launch/probe failure -> justified profile revision."""
+        from plan_llm import propose_repair_profile
+
+        return propose_repair_profile(self, **kwargs)
+
+
+def extract_json_object(text: str) -> dict[str, Any] | None:
+    """Pull the first top-level JSON object out of a model reply (fences tolerated)."""
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return None
+    fenced = re.search(r"```(?:json)?\s*(\{.*\})\s*```", cleaned, re.S)
+    if fenced:
+        cleaned = fenced.group(1)
+    start = cleaned.find("{")
+    if start < 0:
+        return None
+    decoder = json.JSONDecoder()
+    try:
+        obj, _ = decoder.raw_decode(cleaned[start:])
+    except ValueError:
+        return None
+    return obj if isinstance(obj, dict) else None

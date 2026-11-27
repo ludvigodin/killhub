@@ -16,7 +16,6 @@ import { ProgressBar } from "./ProgressBar";
 import { RepoThumbnail } from "./RepoThumbnail";
 import { ResultStamp } from "./ResultStamp";
 import { StatusBadge } from "./StatusBadge";
-import { VerificationBadge } from "./VerificationBadge";
 
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 
@@ -187,8 +186,8 @@ export function JobEntryCard({
             key={`${job.job_id}:${job.screenshot_id ?? ""}:${job.screenshot_url ?? ""}`}
             jobId={job.job_id}
             screenshotId={
-              // Generated demos screenshot a bare directory listing (a white
-              // square at thumbnail size) — use the repo mark instead.
+              // Fallback targets screenshot a bare directory listing (a white
+              // square at thumbnail size) - use the repo mark instead.
               verificationKind === "original_application"
                 ? job.screenshot_id
                 : null
@@ -208,7 +207,6 @@ export function JobEntryCard({
             ) : (
               <StatusBadge status={job.status} />
             )}
-            <VerificationBadge kind={verificationKind} />
             {runsLabel ? (
               <span className="text-xs text-(--muted)">{runsLabel}</span>
             ) : null}

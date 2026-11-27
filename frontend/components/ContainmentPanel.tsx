@@ -10,6 +10,7 @@ import {
   parseContainment,
   VERDICT_TONE,
 } from "@/lib/containment";
+import type { CanaryAttempt } from "@/lib/findings";
 import { formatJobWhen } from "@/lib/time";
 import { SectionHeader } from "./SectionHeader";
 import { SECTION_SCROLL_MT } from "./SectionNav";
@@ -18,7 +19,21 @@ type ContainmentPanelProps = {
   containment: Record<string, unknown> | null | undefined;
   /** Compact = summary strip for live view; default = full axes. */
   compact?: boolean;
+  /** Install-trace canary send attempt: repository behavior, not a boundary result. */
+  canaryAttempt?: CanaryAttempt | null;
 };
+
+function CanaryAttemptNote({ attempt }: { attempt: CanaryAttempt }) {
+  return (
+    <p className="text-xs text-(--muted)" data-canary-outcome={attempt.outcome}>
+      <span style={{ color: "var(--danger)" }}>
+        Install trace: canary send {attempt.outcome}.
+      </span>{" "}
+      {attempt.summary} The checks above test host and sibling reachability
+      only, so this does not change the isolation verdict.
+    </p>
+  );
+}
 
 /** Skip axis detail that is only a raw code or restates the blurb. */
 function isRedundantDetail(detail: string, blurb?: string | null): boolean {
@@ -173,7 +188,11 @@ function UnverifiedHostTargets({ view }: { view: ContainmentView }) {
 }
 
 function ClaimHeader({ view }: { view: ContainmentView }) {
-  const tone = claimTone(view.claim, view.unverifiedHostTargets.length);
+  const tone = claimTone(
+    view.claim,
+    view.unverifiedHostTargets.length,
+    view.claimScope,
+  );
   return (
     <div className="border-b border-(--line) px-3 py-4 sm:px-4">
       <SectionHeader
@@ -197,6 +216,7 @@ function ClaimHeader({ view }: { view: ContainmentView }) {
 export function ContainmentPanel({
   containment,
   compact = false,
+  canaryAttempt = null,
 }: ContainmentPanelProps) {
   const view = parseContainment(containment);
   if (!view) {
@@ -218,7 +238,11 @@ export function ContainmentPanel({
   }
 
   if (compact) {
-    const tone = claimTone(view.claim, view.unverifiedHostTargets.length);
+    const tone = claimTone(
+      view.claim,
+      view.unverifiedHostTargets.length,
+      view.claimScope,
+    );
     return (
       <section
         aria-label="Containment summary"
@@ -226,7 +250,7 @@ export function ContainmentPanel({
       >
         {view.absorption?.absorbed ? (
           <p className="text-sm font-medium" style={{ color: "var(--ok)" }}>
-            Absorbed ∞ loop · guest alive
+            Absorbed ∞ loop · process terminated · guest alive
           </p>
         ) : null}
         <div className="flex flex-wrap items-center gap-3">
@@ -262,6 +286,7 @@ export function ContainmentPanel({
           </ul>
         </div>
         <UnverifiedHostTargets view={view} />
+        {canaryAttempt ? <CanaryAttemptNote attempt={canaryAttempt} /> : null}
       </section>
     );
   }
@@ -302,6 +327,11 @@ export function ContainmentPanel({
               {view.canary.status}
             </span>
           ) : null}
+        </div>
+      ) : null}
+      {canaryAttempt ? (
+        <div className="border-t border-(--line) px-3 py-3 sm:px-4">
+          <CanaryAttemptNote attempt={canaryAttempt} />
         </div>
       ) : null}
     </section>

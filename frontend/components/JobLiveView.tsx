@@ -10,7 +10,7 @@ import {
   listScreenshots,
   type ScreenshotMeta,
 } from "@/lib/api";
-import { snapshotSafety } from "@/lib/findings";
+import { canaryAttempt, snapshotSafety } from "@/lib/findings";
 import { ownerRepoFromGithubUrl, repoPathFromGithubUrl } from "@/lib/github";
 import { formatQueueLine, isInQueue } from "@/lib/queue";
 import { resolveScreenshotSrc } from "@/lib/screenshots";
@@ -712,7 +712,12 @@ export function JobLiveView({
 
       <ScreenshotTimeline jobId={jobId} shots={shots} />
 
-      {containment ? <ContainmentPanel containment={containment} /> : null}
+      {containment ? (
+        <ContainmentPanel
+          containment={containment}
+          canaryAttempt={snapshot ? canaryAttempt(snapshot) : null}
+        />
+      ) : null}
 
       {showFindings && snapshot ? (
         <FindingsSummary snapshot={snapshot} />

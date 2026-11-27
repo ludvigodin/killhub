@@ -553,6 +553,194 @@ def _enrich_sca_findings(
     return incomplete
 
 
+_SEVERITY_RANK = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1, "unknown": 0}
+
+# Conflict policy for grouped advisories (documented in DECISIONS.md / API.md).
+SEVERITY_CONFLICT_POLICY = "max_known"
+
+
+def _canonical_severity(raw: Any) -> str:
+    label = _normalize_severity_label(raw)
+    return label if label else "unknown"
+
+
+def _package_group_key(ecosystem: str, name: str, version: str) -> tuple[str, str, str]:
+    if ecosystem == "PyPI":
+        # PEP 503 normalization: Foo_Bar, foo.bar and foo-bar are one project.
+        name = re.sub(r"[-_.]+", "-", name).lower()
+    return (ecosystem, name, version)
+
+
+def _split_package(package: str) -> tuple[str, str]:
+    name, sep, version = package.rpartition("@")
+    if not sep or not name:
+        return package, ""
+    return name, version
+
+
+def _advisory_tokens(finding: dict[str, Any]) -> set[str]:
+    detail = finding.get("detail") if isinstance(finding.get("detail"), dict) else {}
+    tokens: set[str] = set()
+    osv_id = detail.get("osv_id")
+    if isinstance(osv_id, str) and osv_id:
+        tokens.add(osv_id.upper())
+    for alias in detail.get("aliases") or []:
+        if isinstance(alias, str) and alias:
+            tokens.add(alias.upper())
+    return tokens
+
+
+def _id_rank(osv_id: str) -> int:
+    # Prefer GHSA as the display ID, then anything else in first-seen order.
+    return 0 if osv_id.upper().startswith("GHSA-") else 1
+
+
+def _merge_group(members: list[dict[str, Any]], ecosystem: str) -> dict[str, Any]:
+    """Collapse raw SCA records for one vulnerability into one grouped finding."""
+    # Merge raw records sharing the same advisory ID (e.g. one per lockfile).
+    sources: dict[str, dict[str, Any]] = {}
+    for member in members:
+        detail = member.get("detail") if isinstance(member.get("detail"), dict) else {}
+        osv_id = str(detail.get("osv_id") or member.get("id"))
+        source = sources.setdefault(
+            osv_id,
+            {
+                "osv_id": osv_id,
+                "aliases": [],
+                "severity": "unknown",
+                "title": None,
+                "advisory_url": None,
+                "lockfiles": [],
+                "finding_ids": [],
+            },
+        )
+        for alias in detail.get("aliases") or []:
+            if isinstance(alias, str) and alias not in source["aliases"]:
+                source["aliases"].append(alias)
+        if (
+            _SEVERITY_RANK[_canonical_severity(member.get("severity"))]
+            > _SEVERITY_RANK[source["severity"]]
+        ):
+            source["severity"] = _canonical_severity(member.get("severity"))
+        if source["title"] is None and not _advisory_id_only(member):
+            source["title"] = member.get("title")
+        if source["title"] is None:
+            source["_fallback_title"] = member.get("title")
+        source["advisory_url"] = source["advisory_url"] or member.get("advisory_url")
+        lockfile = detail.get("lockfile")
+        if isinstance(lockfile, str) and lockfile not in source["lockfiles"]:
+            source["lockfiles"].append(lockfile)
+        if member.get("id") is not None:
+            source["finding_ids"].append(str(member["id"]))
+
+    ordered = sorted(sources.values(), key=lambda s: _id_rank(s["osv_id"]))  # stable
+    primary = ordered[0]
+    # Group title: first published description in primary-first order, else the primary's text.
+    title = next((s["title"] for s in ordered if s["title"]), None)
+    for source in ordered:
+        source["title"] = source["title"] or source.pop("_fallback_title", None) or source["osv_id"]
+        source.pop("_fallback_title", None)
+    title = title or primary["title"]
+
+    severity_by_source = {s["osv_id"]: s["severity"] for s in ordered}
+    known = {sev for sev in severity_by_source.values() if sev != "unknown"}
+    severity = max(known, key=lambda sev: _SEVERITY_RANK[sev]) if known else "unknown"
+
+    lockfiles: list[str] = []
+    advisory_ids: list[str] = []
+    for source in ordered:
+        for lockfile in source["lockfiles"]:
+            if lockfile not in lockfiles:
+                lockfiles.append(lockfile)
+        for token in [source["osv_id"], *source["aliases"]]:
+            if token not in advisory_ids:
+                advisory_ids.append(token)
+    first = members[0]
+    aliases = [i for i in advisory_ids if i != primary["osv_id"]]
+    package = str(first.get("package") or "")
+    return {
+        **{k: v for k, v in first.items() if k not in {"detail"}},
+        "id": first.get("id"),
+        "severity": severity,
+        "package": package,
+        "title": title,
+        "advisory_url": primary["advisory_url"] or first.get("advisory_url"),
+        "source": "sca",
+        "detail": {
+            "osv_id": primary["osv_id"],
+            "ecosystem": ecosystem,
+            # Severity first: the UI truncates serialized detail.
+            "severity_conflict": len(known) > 1,
+            "severity_by_source": severity_by_source,
+            "severity_policy": SEVERITY_CONFLICT_POLICY,
+            "aliases": aliases,
+            "lockfile": lockfiles[0] if lockfiles else None,
+            "lockfiles": lockfiles,
+            "advisory_ids": advisory_ids,
+            "sources": ordered,
+        },
+    }
+
+
+def group_sca_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Group SCA records of one package version that share any advisory ID or alias.
+
+    Union-find over advisory ID/alias tokens within (ecosystem, package, version).
+    Aliases are reciprocal in effect: a link from either side merges both records.
+    One vulnerability yields one finding. Severity policy is ``max_known``: the highest
+    known source severity wins, ``severity_conflict`` is true when known sources
+    disagree, and ``severity_by_source`` keeps every source's own value.
+    Non-SCA findings and SCA records without an advisory ID pass through unchanged.
+    Output order follows each group's first record.
+    """
+    out_slots: list[Any] = []
+    buckets: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+    for finding in findings:
+        detail = finding.get("detail") if isinstance(finding.get("detail"), dict) else {}
+        if (
+            finding.get("source") != "sca"
+            or not isinstance(detail.get("osv_id"), str)
+            or not detail["osv_id"]
+        ):
+            out_slots.append(finding)
+            continue
+        name, version = _split_package(str(finding.get("package") or ""))
+        ecosystem = str(detail.get("ecosystem") or "unknown")
+        key = _package_group_key(ecosystem, name, version)
+        bucket = buckets.setdefault(key, [])
+        if not bucket:
+            out_slots.append(key)
+        bucket.append(finding)
+
+    result: list[dict[str, Any]] = []
+    for slot in out_slots:
+        if not isinstance(slot, tuple):
+            result.append(slot)
+            continue
+        bucket = buckets[slot]
+        parent = list(range(len(bucket)))
+
+        def find(i: int, parent: list[int] = parent) -> int:
+            while parent[i] != i:
+                parent[i] = parent[parent[i]]
+                i = parent[i]
+            return i
+
+        owner: dict[str, int] = {}
+        for index, finding in enumerate(bucket):
+            for token in _advisory_tokens(finding):
+                if token in owner:
+                    parent[find(index)] = find(owner[token])
+                else:
+                    owner[token] = index
+        groups: dict[int, list[dict[str, Any]]] = {}
+        for index, finding in enumerate(bucket):
+            groups.setdefault(find(index), []).append(finding)
+        for members in groups.values():
+            result.append(_merge_group(members, slot[0]))
+    return result
+
+
 def sca_findings_from_lockfiles(
     lockfiles: list[Path],
     *,
@@ -615,6 +803,9 @@ def sca_findings_from_lockfiles(
     enrichment_incomplete = False
     if findings and osv_endpoint == OSV_QUERYBATCH:
         enrichment_incomplete = _enrich_sca_findings(findings, deadline=deadline)
+    # Group before events/persist so report, receipt and severity totals count each
+    # vulnerability once.
+    findings = group_sca_findings(findings)
     if errors and scanned == 0:
         return findings, "failed", scanned, discovered
     if errors or incomplete or enrichment_incomplete:

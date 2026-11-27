@@ -94,9 +94,10 @@ def list_jobs(
 def list_repos(
     limit: int = Query(default=48, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    q: Optional[str] = Query(default=None, max_length=200),
 ) -> Dict[str, Any]:
-    """Distinct github_url groups for the home feed (D79)."""
-    return list_repos_page(limit=limit, offset=offset)
+    """Distinct github_url groups for the home/hubs feed (D79). Optional q search."""
+    return list_repos_page(limit=limit, offset=offset, q=q)
 
 
 @router.get("/jobs/{job_id}")

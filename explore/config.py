@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     )
     # AI draft for vuln_review (still cite-filtered — D48). Fail closed → deterministic.
     enable_vuln_review_llm: bool = Field(default=True, alias="ENABLE_VULN_REVIEW_LLM")
+    # LLM-assisted discovery + repair of the runtime profile (D85). Fail closed to
+    # the heuristic planner when inference is unavailable or over budget.
+    adaptive_plan_llm: bool = Field(default=True, alias="ADAPTIVE_PLAN_LLM")
     # Optional screenshot captioning; never gates completion (D31).
     enable_screenshot_vision: bool = Field(
         default=False,

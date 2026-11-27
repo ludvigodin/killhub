@@ -65,7 +65,8 @@ Central list: [SETUP.md](../SETUP.md) §5 · [`.env.example`](../.env.example) �
 
 | Piece | Path |
 |-------|------|
-| Heuristic runtime profile | [`explore/discover.py`](../explore/discover.py) `infer_runtime_profile` |
+| Heuristic runtime profile (fallback) | [`explore/discover.py`](../explore/discover.py) `infer_runtime_profile` |
+| LLM discovery + repair (D85) | [`explore/plan_llm.py`](../explore/plan_llm.py) via `EnvironmentAgent.propose_runtime_profile` / `revise_runtime_profile` |
 | Pinned M7 fixtures | [`explore/fixtures/m7.json`](../explore/fixtures/m7.json) (D53) |
 | Intended agent prompts | [`explore/prompts/`](../explore/prompts/) (trusted; not submitted-repo config) |
 | Where LLM *is* used | [`explore/inference_extras.py`](../explore/inference_extras.py) (`vuln_review`, optional vision/RAG) · [`explore/agent.py`](../explore/agent.py) |

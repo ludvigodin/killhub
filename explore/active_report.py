@@ -17,9 +17,9 @@ ACTIVE_SOURCES = {"activity", "mcp_tool_review"}
 def active_finding(event: JobEvent) -> dict[str, Any]:
     payload = event.payload or {}
     code = payload.get("code") or payload["source"]
+    # Canary findings carry an outcome-specific message (activity.CANARY_OUTCOME_TITLES);
+    # events from older workers keep their original wording.
     title = event.message
-    if code == "canary_exfiltration":
-        title = "The install trace matched a test secret in an outgoing network attempt"
     if code == "install_network_tools" and not payload.get("repository_steps_only"):
         title = (
             "Network tooling ran during installation. This trace does not distinguish "

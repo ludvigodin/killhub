@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -14,6 +15,28 @@ from config import get_settings
 
 TOKEN = "test-internal-token"
 
+# Ambient proxy settings must not reach unit tests: httpx honours them (trust_env), and a
+# socks:// proxy without the optional ``socksio`` package fails every client at construction.
+# Unit tests are offline by design, so scrub rather than install SOCKS support.
+# (acceptance/ is a separate suite with its own conftest and keeps the ambient proxy.)
+PROXY_ENV_VARS = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+)
+
+
+def _scrub_proxy_env() -> None:
+    for name in PROXY_ENV_VARS:
+        os.environ.pop(name, None)
+
+
+# Also at import time: some modules build httpx clients while the suite is collected.
+_scrub_proxy_env()
+
 
 @pytest.fixture(autouse=True)
 def _isolate_deployment_env(
@@ -25,6 +48,8 @@ def _isolate_deployment_env(
     symlink to the deployment dotenv, so delenv falls through to live s3/CDN.
     Run each test with a cwd that has no .env (PRODUCT_FIXES §6).
     """
+    for name in PROXY_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.chdir(tmp_path_factory.mktemp("cwd"))
     monkeypatch.setenv("STORAGE_BACKEND", "filesystem")
     monkeypatch.setenv("OBJECT_STORAGE_CDN_BASE_URL", "")
@@ -33,6 +58,8 @@ def _isolate_deployment_env(
     monkeypatch.setenv("OBJECT_STORAGE_ACCESS_KEY", "")
     monkeypatch.setenv("OBJECT_STORAGE_SECRET_KEY", "")
     monkeypatch.setenv("LEDGER_BACKUP_UPLOAD", "false")
+    # Never let an ambient inference key turn heuristic-path tests into live calls.
+    monkeypatch.delenv("VULTR_INFERENCE_API_KEY", raising=False)
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

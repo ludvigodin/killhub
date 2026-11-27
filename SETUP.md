@@ -135,12 +135,21 @@ Never commit `.env`, `frontend/.env.local`, or real keys.
 
 ### A. Native (recommended for day-to-day)
 
+**Python must be 3.12** (the runtime in `explore/Dockerfile`, pinned for tooling by [`.python-version`](.python-version)). The venv is not portable across minor versions, so recreate it instead of reusing an older one (a 3.9 venv imports most modules but is not what ships or what the gate should be judged on).
+
+```bash
+# macOS: brew install python@3.12   |   pyenv/uv: honour .python-version (pyenv install 3.12 / uv python install 3.12)
+python3.12 --version   # must print 3.12.x
+```
+
 ```bash
 # explore sidecar (from explore/, with explore/.env → ../.env)
 cd explore
+rm -rf .venv                      # drop any venv built with another Python
 python3.12 -m venv .venv
+.venv/bin/python --version        # must print Python 3.12.x
 .venv/bin/pip install -r requirements.txt
-# optional for quality gate: .venv/bin/pip install -r requirements-dev.txt
+# for the quality gate and tests: .venv/bin/pip install -r requirements-dev.txt
 ln -sf ../.env .env
 .venv/bin/python -m main
 # listens on EXPLORE_HOST:EXPLORE_PORT (default 127.0.0.1:8100)
@@ -586,6 +595,8 @@ Historical private objects are not rewritten — only new uploads get public ACL
 cd frontend && pnpm lint:fix && pnpm lint && pnpm knip && pnpm typecheck && pnpm build
 cd ../explore && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/pytest -q
 ```
+
+**Reproducible tests.** Run the gate with the Python 3.12 venv (`requirements-dev.txt`). `explore/tests/conftest.py` clears `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and their lowercase forms for every unit test, so an ambient `socks5://` proxy in your shell cannot break httpx clients (it would otherwise need the optional `socksio` package). Unit tests are offline by design, so `socksio` is not installed. The acceptance suite (`acceptance/`) is separate and keeps your ambient proxy; if you need a SOCKS proxy to reach the deployment, `pip install socksio` in the venv you run it from. Acceptance setup, release mode and artifacts: [acceptance/README.md](acceptance/README.md).
 
 ---
 

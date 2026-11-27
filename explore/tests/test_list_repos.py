@@ -69,3 +69,99 @@ def test_list_jobs_filter_invalid_url(client: TestClient, auth_header: dict[str,
     assert bad.status_code == 400
     detail = bad.json()["detail"]
     assert detail["code"] == "invalid_url"
+
+
+def test_list_repos_q_filters_by_url_substring(
+    client: TestClient, auth_header: dict[str, str]
+) -> None:
+    keep = "https://github.com/octocat/Hello-World"
+    drop = "https://github.com/heroku/node-js-getting-started"
+    a = client.post("/internal/jobs", headers=auth_header, json={"github_url": keep})
+    b = client.post("/internal/jobs", headers=auth_header, json={"github_url": keep})
+    c = client.post("/internal/jobs", headers=auth_header, json={"github_url": drop})
+    assert a.status_code == 201 and b.status_code == 201 and c.status_code == 201
+
+    listed = client.get(
+        "/internal/repos",
+        headers=auth_header,
+        params={"q": "Hello-World", "limit": 50},
+    )
+    assert listed.status_code == 200
+    body = listed.json()
+    urls = [r["github_url"] for r in body["repos"]]
+    assert keep in urls
+    assert drop not in urls
+    assert body["total"] == len(urls)
+    by_url = {r["github_url"]: r for r in body["repos"]}
+    assert by_url[keep]["run_count"] >= 2
+    assert by_url[keep]["latest"]["job_id"] == b.json()["job_id"]
+
+
+def test_list_repos_q_filters_by_job_id(client: TestClient, auth_header: dict[str, str]) -> None:
+    url = "https://github.com/octocat/Spoon-Knife"
+    other = "https://github.com/octocat/Hello-World"
+    first = client.post("/internal/jobs", headers=auth_header, json={"github_url": url})
+    second = client.post("/internal/jobs", headers=auth_header, json={"github_url": url})
+    third = client.post("/internal/jobs", headers=auth_header, json={"github_url": other})
+    assert first.status_code == 201 and second.status_code == 201 and third.status_code == 201
+    target_id = first.json()["job_id"]
+
+    listed = client.get(
+        "/internal/repos",
+        headers=auth_header,
+        params={"q": target_id, "limit": 50},
+    )
+    assert listed.status_code == 200
+    body = listed.json()
+    assert body["total"] == 1
+    assert len(body["repos"]) == 1
+    row = body["repos"][0]
+    assert row["github_url"] == url
+    # Full run_count, not shrunk to the single matching job_id row.
+    assert row["run_count"] >= 2
+    assert row["latest"]["job_id"] == second.json()["job_id"]
+
+
+def test_list_repos_empty_q_unfiltered(client: TestClient, auth_header: dict[str, str]) -> None:
+    url = "https://github.com/octocat/Hello-World"
+    other = "https://gitlab.com/gitlab-org/gitlab-test"
+    assert (
+        client.post("/internal/jobs", headers=auth_header, json={"github_url": url}).status_code
+        == 201
+    )
+    assert (
+        client.post("/internal/jobs", headers=auth_header, json={"github_url": other}).status_code
+        == 201
+    )
+
+    blank = client.get(
+        "/internal/repos",
+        headers=auth_header,
+        params={"q": "   ", "limit": 50},
+    )
+    full = client.get("/internal/repos?limit=50", headers=auth_header)
+    assert blank.status_code == 200 and full.status_code == 200
+    assert blank.json()["total"] == full.json()["total"]
+    assert {r["github_url"] for r in blank.json()["repos"]} == {
+        r["github_url"] for r in full.json()["repos"]
+    }
+
+
+def test_list_repos_q_escapes_like_wildcards(
+    client: TestClient, auth_header: dict[str, str]
+) -> None:
+    url = "https://github.com/octocat/Hello-World"
+    assert (
+        client.post("/internal/jobs", headers=auth_header, json={"github_url": url}).status_code
+        == 201
+    )
+
+    listed = client.get(
+        "/internal/repos",
+        headers=auth_header,
+        params={"q": "%Hello%", "limit": 50},
+    )
+    assert listed.status_code == 200
+    # Literal % wildcards must not match everything; only an exact substring with %.
+    assert listed.json()["total"] == 0
+    assert listed.json()["repos"] == []

@@ -169,3 +169,84 @@ def test_fail_claimed_job_reclaims_terminal_live_sandbox(
 
     worker._fail_claimed_job(job_id, Boom(), ledger=ledger, settings=get_settings())
     reclaim.assert_called_once()
+
+
+def test_unexpected_exception_after_sandbox_finalizes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """RuntimeError after sandbox create still scans, destroys, receipts, terminals."""
+    job_id = _seed_verifying_with_sandbox()
+    cfg = get_settings()
+    scan_calls: list[str] = []
+    destroy_calls: list[str] = []
+    admission_releases: list[bool] = []
+
+    def fake_discover(jid: str, **kwargs: Any) -> None:
+        return None
+
+    def boom_provision(jid: str, **kwargs: Any) -> None:
+        raise RuntimeError("unexpected boom after sandbox")
+
+    def fake_scan(jid: str, **kwargs: Any) -> VulnScanResult:
+        scan_calls.append(jid)
+        get_ledger().upsert_vuln_report(
+            jid, summary="scanned", findings=[], status="ok", finalizer=True
+        )
+        return VulnScanResult(job_id=jid, status="ok", findings=[])
+
+    def fake_destroy(jid: str, **kwargs: Any) -> DestroyResult:
+        destroy_calls.append(jid)
+        return DestroyResult(confirmed=True, error=None)
+
+    monkeypatch.setattr("discover.discover_runtime_profile", fake_discover)
+    monkeypatch.setattr("install.provision_and_go_offline", boom_provision)
+    monkeypatch.setenv("INSTALL_ON_CLAIM", "true")
+    get_settings.cache_clear()
+    cfg = get_settings()
+    monkeypatch.setattr("finalize.run_vuln_scan", fake_scan)
+    monkeypatch.setattr("finalize.destroy_job_environment", fake_destroy)
+    monkeypatch.setattr(
+        "service.release_admission_slot",
+        lambda was_running=True, settings=None: admission_releases.append(was_running),
+    )
+
+    worker._run_claimed_job(job_id, cfg)
+
+    assert scan_calls == [job_id]
+    assert destroy_calls == [job_id]
+    assert admission_releases == [True]
+
+    job = get_ledger().get_job(job_id)
+    assert job is not None
+    assert job.status == "failed"
+    assert job.destroyed_at is not None
+    assert job.error and "unexpected boom" in job.error
+    receipt = get_ledger().get_receipt(job_id)
+    assert receipt is not None
+    assert receipt.get("lifecycle", {}).get("cleanup") == "destroyed"
+
+
+def test_unexpected_exception_preserves_cancel_ownership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    job_id = _seed_verifying_with_sandbox()
+    ledger = get_ledger()
+    ledger.update_job_fields(job_id, cancel_requested_at="2026-01-01T00:00:00Z")
+    finalize_calls: list[str] = []
+
+    def boom_discover(jid: str, **kwargs: Any) -> None:
+        raise RuntimeError("boom while cancel pending")
+
+    monkeypatch.setattr("discover.discover_runtime_profile", boom_discover)
+    monkeypatch.setattr(
+        "finalize.finalize_job",
+        lambda jid, **k: finalize_calls.append(jid),
+    )
+
+    worker._run_claimed_job(job_id, get_settings())
+
+    assert finalize_calls == []
+    job = ledger.get_job(job_id)
+    assert job is not None
+    assert job.status == "installing"
+    assert job.cancel_requested_at is not None

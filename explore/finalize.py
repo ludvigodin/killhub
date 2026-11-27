@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from active_report import summarize_active_checks, with_active_summary
+from activity import CANARY_ATTEMPT_CLASSIFICATION, OUTCOME_RANK
 from config import Settings, get_settings
 from harness import DestroyResult, destroy_job_environment
 from jobs import get_ledger
@@ -48,14 +49,34 @@ def _containment_claim(job_id: str, settings: Settings) -> dict[str, Any] | None
     return None
 
 
+def is_canary_attempt_finding(payload: dict[str, Any]) -> bool:
+    """Canary-bearing send finding, including events from workers that tagged it policy_bypass."""
+    return (
+        payload.get("classification") == CANARY_ATTEMPT_CLASSIFICATION
+        or payload.get("code") == "canary_exfiltration"
+    )
+
+
+def _stronger_outcome(current: str | None, payload: dict[str, Any]) -> str:
+    """Keep the strongest transmission outcome; missing evidence reads as ``unknown``."""
+    outcome = payload.get("transmission_outcome")
+    if outcome not in OUTCOME_RANK:
+        outcome = "unknown"
+    if current is None or OUTCOME_RANK[outcome] > OUTCOME_RANK[current]:
+        return str(outcome)
+    return current
+
+
 def evaluate_gates(
     job_id: str,
     *,
     settings: Settings,
 ) -> dict[str, Any]:
     """
-    D66 gate table — readiness evidence is never deleted.
-    Returns {terminal, reasons, hard_fail, readiness_passed}.
+    D66 gate table. Readiness evidence is never deleted.
+    Returns {terminal, reasons, hard_fail, readiness_passed}; hard fails also carry
+    ``isolation_bypass`` (confirmed boundary crossing) and, for a canary-bearing send,
+    ``canary_transmission``.
     """
     ledger = get_ledger(settings)
     job = ledger.get_job(job_id)
@@ -74,35 +95,46 @@ def evaluate_gates(
     readiness_passed = bool(readiness.get("passed"))
     verification = job.verification or {}
     reasons: list[str] = []
-    hard_fail = False
 
-    # Policy bypass (guest reached CP/management) — hard fail (D66).
+    # Two distinct hard-fail families (D66):
+    #   1. Confirmed isolation bypass: evidence the configured boundary was crossed
+    #      (guest reached control plane / management / sibling): ``policy_bypass`` and
+    #      ``containment_policy_bypass``.
+    #   2. Dangerous repository behavior: a canary-bearing send attempt seen in the
+    #      install trace. Still a hard fail, but it says nothing about isolation, so it
+    #      gets its own reason ``canary_exfiltration_attempt`` and outcome.
+    bypass_reasons: list[str] = []
+    canary_outcome: str | None = None
     for event in ledger.list_events(job_id):
         payload = event.payload or {}
-        if event.type == "finding" and payload.get("classification") == "policy_bypass":
-            hard_fail = True
-            reasons.append("policy_bypass")
-            break
+        if event.type == "finding":
+            if is_canary_attempt_finding(payload):
+                canary_outcome = _stronger_outcome(canary_outcome, payload)
+            elif payload.get("classification") == "policy_bypass":
+                bypass_reasons.append("policy_bypass")
         if event.type == "containment":
             dims = payload.get("dimensions") or {}
             for dim in dims.values() if isinstance(dims, dict) else []:
                 if isinstance(dim, dict) and dim.get("classification") == "policy_bypass":
-                    hard_fail = True
-                    reasons.append("containment_policy_bypass")
+                    bypass_reasons.append("containment_policy_bypass")
                     break
             if payload.get("classification") == "policy_bypass":
-                hard_fail = True
-                reasons.append("containment_policy_bypass")
-        if hard_fail:
-            break
-
-    if hard_fail:
-        return {
+                bypass_reasons.append("containment_policy_bypass")
+    reasons.extend(dict.fromkeys(bypass_reasons))
+    if canary_outcome is not None:
+        reasons.append(CANARY_ATTEMPT_CLASSIFICATION)
+    if reasons:
+        gates: dict[str, Any] = {
             "terminal": "failed",
             "reasons": reasons,
             "hard_fail": True,
             "readiness_passed": readiness_passed,
+            # Confirmed boundary crossing only; false for a canary attempt alone.
+            "isolation_bypass": bool(bypass_reasons),
         }
+        if canary_outcome is not None:
+            gates["canary_transmission"] = canary_outcome
+        return gates
 
     if not readiness_passed or verification.get("kind") == "setup_failed":
         reasons.append("readiness_not_passed")

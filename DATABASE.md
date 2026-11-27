@@ -297,6 +297,17 @@ Unchanged semantics: optional Inspector/SDK after readiness; must not invalidate
 
 **Invalid runtime profiles must not trigger provision/install.** Bootstrap create uses the trusted bootstrap profile only.
 
+#### Executable contract (D86)
+
+Every accepted field is executed or purely informational (`summary`, `runtime`, `os_image`, `source.ref`, `mcp.entrypoint`, `verification_target`, `original_failure`). Anything else (unknown fields at any level, image-based services, other `supervise` modes or probe types, `policy`) fails `validate_profile` with `profile_unsupported` before provision.
+
+- **`CommandSpec`**: exactly one of `argv`/`shell`; `cwd` (relative resolves against `workdir`; a failing `cd` fails the command); `env` string map exported before the command in install, launch, probes and MCP stdio (names starting `VULTR_`, `OPENCODE_`, `KILLHUB_`, `MSB_`, `KH_`, `LD_`, `DYLD_`, and `BASH_ENV`/`ENV`/`IFS`/`SHELLOPTS`/`PS4` are rejected); `timeout_seconds` (also the maximum lifetime of a supervised process invocation, via `timeout` when present).
+- **`services[]`**: `name`, `kind` (label), `command` (starts it), `ports`, `healthcheck` (single probe) required; `package` (installed in the install phase), `env`, `depends_on`, `optional`, `supervise`/`stop_signal`/`max_restarts`. Started at verify, before processes, in `depends_on` order. A service is up when every port accepts TCP (30 x 1s) and `healthcheck` passes. A failed required service fails verify (`service_failed`); a failed optional one is logged and its dependents are skipped. A required service cannot depend on an optional one.
+- **`processes[]`**: `name`, `command`, `supervise` required. `restart` re-runs after exit (1s apart, `max_restarts` default 3, then `gave_up` and verify fails); `oneshot` runs once (a clean exit 0 is fine). `stop_signal` (default `SIGTERM`, then `SIGKILL` after a 5s grace) is used for cleanup of the process tree. `ready_after_seconds` delays the first liveness check; `ready_probe` names a declared probe that must pass before the next process starts. `PORT` defaults to `ports[0]` (webapp/demo fall back to 5000).
+- **`run_commands`** are the app launch. One that no `processes[]` entry mirrors (same argv/shell, cwd, env) is started as an implied `oneshot` process `run-<i>`. For `streamable_http` MCP an unmirrored `mcp.launch_command` is launched as `mcp-launch`. For stdio MCP `run_commands` must equal `mcp.launch_command` and `processes`, `ports` and `probes` must be empty.
+- **Probes** (`probes`, or the legacy `healthcheck` alias, not both): `http` passes on a status in `accept` (default 200-399) and an optional `body_contains`; `tcp` passes when a connect to `host:port` succeeds; `command` passes when the exit code equals `expect_exit` (default 0) and optional `stdout_contains` matches, with stdout/stderr tails kept as evidence. `retries` (default 1) and `interval_seconds` (default 1) apply to all. Every declared probe must pass for `webapp`/`demo`; extra probes on `streamable_http` MCP gate after the handshake.
+- **Cleanup**: a failed verify attempt stops its services and processes (reverse order) before the next attempt. A passing stack stays up for stills and scans and is removed with the sandbox (D37).
+
 ---
 
 ## SandboxGeneration (D64)

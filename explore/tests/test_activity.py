@@ -14,9 +14,11 @@ from types import SimpleNamespace
 import pytest
 
 from activity import (
+    CANARY_ATTEMPT_CLASSIFICATION,
     canary_forms,
     collect_and_analyze,
     match_canaries,
+    overall_outcome,
     parse_trace,
     redact_queries,
     review_tool_descriptions,
@@ -146,6 +148,10 @@ def test_collect_emits_hard_fail_finding_and_persistence(cfg, monkeypatch, tmp_p
     assert not any(CANARY["env:KILLHUB_CANARY_TOKEN"] in json.dumps(e.payload) for e in events)
     gates = evaluate_gates(job.job_id, settings=cfg)
     assert gates["hard_fail"] is True and gates["terminal"] == "failed"
+    # Dangerous repository behavior, not a confirmed isolation bypass.
+    assert gates["reasons"] == [CANARY_ATTEMPT_CLASSIFICATION]
+    assert gates["isolation_bypass"] is False
+    assert gates["canary_transmission"] == "attempted"
     reset_ledger_for_tests()
 
 
@@ -183,3 +189,175 @@ def test_killhub_tooling_steps_are_not_blamed_for_network_tools() -> None:
     act = parse_trace(trace)
     assert [p["step"] for p in act.processes] == ["tool-0", "1"]
     assert act.connections == []  # port-0 source-selection connect dropped
+
+
+# --- transmission outcome classification ---------------------------------------------
+
+PLAIN = CANARY["env:KILLHUB_CANARY_TOKEN"]
+PEER = "203.0.113.9:443"
+FD = f"3<TCP:[10.0.0.2:40000->{PEER}]>"
+
+
+def _send(result: str, *, payload: str = PLAIN, fd: str = FD) -> str:
+    return f'10 sendto({fd}, "POST /x {payload}", 40, 0, NULL, 0) = {result}\n'
+
+
+def _recv(result: int, *, fd: str = FD) -> str:
+    return f'10 recvfrom({fd}, "HTTP/1.1 200 OK", 4096, 0, NULL, NULL) = {result}\n'
+
+
+def _outcome(trace: str) -> dict:
+    hits = [h for h in match_canaries(parse_trace(trace), CANARY) if h["encoding"] == "plain"]
+    assert len(hits) == 1, hits
+    return hits[0]
+
+
+def test_failed_canary_send_is_blocked_not_attempted() -> None:
+    hit = _outcome(_send("-1 ENETUNREACH (Network is unreachable)"))
+    assert hit["outcome"] == "blocked"
+    assert "ENETUNREACH" in hit["outcome_basis"]
+    assert hit["destination"] == PEER and hit["destination_scope"] == "remote"
+
+
+@pytest.mark.parametrize("errno", ["EPERM", "ECONNREFUSED", "EHOSTUNREACH", "EPIPE"])
+def test_definitive_send_errors_are_blocked(errno: str) -> None:
+    assert _outcome(_send(f"-1 {errno} (denied)"))["outcome"] == "blocked"
+
+
+def test_successful_send_without_response_is_only_attempted() -> None:
+    hit = _outcome(_send("40"))
+    assert hit["outcome"] == "attempted"
+    assert "no response" in hit["outcome_basis"]
+
+
+def test_response_from_same_peer_after_send_is_successful() -> None:
+    assert _outcome(_send("40") + _recv(120))["outcome"] == "successful"
+
+
+def test_response_must_follow_the_send_and_carry_bytes() -> None:
+    assert _outcome(_recv(120) + _send("40"))["outcome"] == "attempted"
+    assert _outcome(_send("40") + _recv(0))["outcome"] == "attempted"
+    other = "3<TCP:[10.0.0.2:40001->198.51.100.7:443]>"
+    assert _outcome(_send("40") + _recv(120, fd=other))["outcome"] == "attempted"
+
+
+@pytest.mark.parametrize("tail", ["?", "-1 EAGAIN (try again)", "0"])
+def test_missing_transient_or_zero_results_are_unknown(tail: str) -> None:
+    trace = (
+        _send(tail)
+        if tail != "?"
+        else f'10 sendto({FD}, "{PLAIN}", 40, 0, NULL, 0 <unfinished ...>\n'
+    )
+    hit = _outcome(trace)
+    assert hit["outcome"] == "unknown"
+
+
+def test_payload_text_cannot_forge_the_send_result() -> None:
+    forged = _send("-1 EPERM (x)", payload=f"{PLAIN}) = 40")
+    assert _outcome(forged)["outcome"] == "blocked"
+    forged_ok = _send("-1 EPERM (x)", payload=f"{PLAIN} ) = 40 ")
+    assert _outcome(forged_ok)["outcome"] == "blocked"
+
+
+def test_failed_then_successful_send_keeps_strongest_outcome() -> None:
+    trace = _send("-1 ECONNRESET (reset)") + _send("40")
+    assert _outcome(trace)["outcome"] == "attempted"
+
+
+def test_loopback_destination_is_labelled() -> None:
+    fd = "3<TCP:[127.0.0.1:47378->127.0.0.1:8765]>"
+    assert _outcome(_send("40", fd=fd))["destination_scope"] == "loopback"
+
+
+def test_dns_canary_query_is_never_successful() -> None:
+    hits = match_canaries(parse_trace(FIXTURE.read_text()), CANARY)
+    by_channel = {h["channel"]: h for h in hits}
+    assert by_channel["dns"]["outcome"] == "attempted"
+    assert by_channel["dns"]["destination_scope"] == "resolver"
+    assert by_channel["network"]["outcome"] == "attempted"
+
+
+def test_overall_outcome_takes_the_strongest_hit() -> None:
+    def hit(o: str) -> dict:
+        return {"outcome": o}
+
+    assert overall_outcome([hit("blocked"), hit("unknown")]) == "unknown"
+    assert overall_outcome([hit("blocked"), hit("attempted")]) == "attempted"
+    assert overall_outcome([hit("attempted"), hit("successful")]) == "successful"
+    assert overall_outcome([]) == "unknown"
+
+
+def _collect(cfg, monkeypatch, tmp_path, trace_text: str):
+    from finalize import evaluate_gates
+
+    job = create_job("https://github.com/example/leaky", settings=cfg)
+    trace = tmp_path / "install-activity.trace"
+    trace.write_text(trace_text)
+
+    def fake_exec(env, cmd, **kw):
+        text = cmd[-1]
+        if "cat /tmp/killhub/activity/status" in text:
+            return SimpleNamespace(stdout="traced 0 rc=0\n", exit_code=0)
+        return SimpleNamespace(stdout="", exit_code=0)
+
+    monkeypatch.setattr("harness.exec_command", fake_exec)
+    monkeypatch.setattr("harness.copy_out", lambda *a, **k: trace)
+    monkeypatch.setattr(
+        "canaries.load_canaries",
+        lambda job_id, settings=None: SimpleNamespace(
+            env={"KILLHUB_CANARY_TOKEN": PLAIN}, files={}
+        ),
+    )
+    summary = collect_and_analyze("kh-test", job_id=job.job_id, settings=cfg)
+    events = get_ledger(cfg).list_events(job.job_id)
+    finding = next(
+        e for e in events if e.type == "finding" and e.payload["code"] == "canary_exfiltration"
+    )
+    gates = evaluate_gates(job.job_id, settings=cfg)
+    return summary, finding, gates
+
+
+def test_blocked_canary_send_is_a_distinct_hard_fail_not_a_bypass(
+    cfg, monkeypatch, tmp_path
+) -> None:
+    summary, finding, gates = _collect(
+        cfg, monkeypatch, tmp_path, _send("-1 ENETUNREACH (Network is unreachable)")
+    )
+    payload = finding.payload
+    assert summary["canary_outcome"] == "blocked"
+    assert payload["classification"] == CANARY_ATTEMPT_CLASSIFICATION
+    assert payload["transmission_outcome"] == "blocked"
+    assert payload["severity"] == "high"
+    assert "every matching send failed" in finding.message
+    assert "delivered" not in finding.message.lower()
+    assert gates["terminal"] == "failed" and gates["hard_fail"] is True
+    assert gates["reasons"] == [CANARY_ATTEMPT_CLASSIFICATION]
+    assert gates["isolation_bypass"] is False
+    assert gates["canary_transmission"] == "blocked"
+    reset_ledger_for_tests()
+
+
+def test_confirmed_response_is_reported_separately_from_blocked(cfg, monkeypatch, tmp_path) -> None:
+    _, finding, gates = _collect(cfg, monkeypatch, tmp_path, _send("40") + _recv(120))
+    assert finding.payload["transmission_outcome"] == "successful"
+    assert finding.payload["severity"] == "critical"
+    assert finding.payload["classification"] == CANARY_ATTEMPT_CLASSIFICATION
+    assert "destination answered" in finding.message
+    # Even confirmed delivery is not an isolation-bypass claim.
+    assert gates["reasons"] == [CANARY_ATTEMPT_CLASSIFICATION]
+    assert gates["isolation_bypass"] is False
+    assert gates["canary_transmission"] == "successful"
+    reset_ledger_for_tests()
+
+
+def test_attempted_and_unknown_findings_use_their_own_wording(cfg, monkeypatch, tmp_path) -> None:
+    _, attempted, _ = _collect(cfg, monkeypatch, tmp_path, _send("40"))
+    assert attempted.payload["transmission_outcome"] == "attempted"
+    assert "not confirmed" in attempted.message
+    reset_ledger_for_tests()
+    unknown_trace = f'10 sendto({FD}, "{PLAIN}", 40, 0, NULL, 0 <unfinished ...>\n'
+    _, unknown, gates = _collect(cfg, monkeypatch, tmp_path, unknown_trace)
+    assert unknown.payload["transmission_outcome"] == "unknown"
+    assert "does not show whether" in unknown.message
+    assert gates["canary_transmission"] == "unknown"
+    reset_ledger_for_tests()

@@ -10,6 +10,7 @@ import pytest
 from canaries import generate_canaries, persist_canaries, scan_canaries
 from config import get_settings
 from containment import (
+    _dimension_proven,
     compute_claim,
     probe_host_access_denied,
     probe_timeout_enforcement,
@@ -72,7 +73,13 @@ def _seed_job() -> str:
 
 def test_compute_claim_requires_all_dimensions() -> None:
     dims = {
-        "timeout_enforcement": {"dimension": "timeout_enforcement", "ok": True},
+        "timeout_enforcement": {
+            "dimension": "timeout_enforcement",
+            "ok": True,
+            "timed_out": True,
+            "process_terminated": True,
+            "guest_alive": True,
+        },
         "host_access_denied": {
             "dimension": "host_access_denied",
             "ok": True,
@@ -91,27 +98,136 @@ def test_compute_claim_requires_all_dimensions() -> None:
     assert compute_claim(dims) == "incomplete"
 
 
-def test_timeout_enforcement_records_kill(monkeypatch: pytest.MonkeyPatch) -> None:
-    job_id = _seed_job()
+def _timeout_exec(*, loop_survives: bool, guest_ok: bool = True):
+    """Fake guest: client exec times out; the loop either dies or keeps running."""
     calls: list[str] = []
+    state = {"killed": False, "checks": 0}
 
     def _exec(environment_id: str, cmd: Any, **kwargs: Any) -> ExecResult:
         joined = " ".join(str(c) for c in cmd) if isinstance(cmd, (list, tuple)) else str(cmd)
         calls.append(joined)
-        if "while true" in joined:
+        if "while true" in joined and "killhub_probe_" not in joined:
             raise HarnessError("msb timed out: exec", code="msb_timeout")
+        if "killhub_probe_check" in joined:
+            state["checks"] += 1
+            if loop_survives and not state["killed"]:
+                return ExecResult("state:alive pids=4242 4243\n", "", 0)
+            return ExecResult("state:gone\n", "", 0)
+        if "killhub_probe_kill" in joined:
+            state["killed"] = True
+            return ExecResult("killed\n", "", 0)
+        if not guest_ok:
+            return ExecResult("", "", 1)
         return ExecResult("alive\n", "", 0)
 
+    return _exec, calls, state
+
+
+def test_timeout_enforcement_records_kill(monkeypatch: pytest.MonkeyPatch) -> None:
+    job_id = _seed_job()
+    _exec, calls, state = _timeout_exec(loop_survives=False)
     monkeypatch.setattr("containment.exec_command", _exec)
+    monkeypatch.setattr("containment._sleep", lambda s: None)
     evidence = probe_timeout_enforcement("env-contain", job_id=job_id, settings=get_settings())
     assert evidence["ok"] is True
     assert evidence["timed_out"] is True
+    # Process termination is recorded separately from guest liveness.
+    assert evidence["process_terminated"] is True
+    assert evidence["guest_alive"] is True
+    assert evidence["process_check"]["state"] == "gone"
+    assert evidence["process_check"]["residual_pids"] == []
+    assert evidence["process_check"]["cleanup_killed"] is False
+    assert (
+        evidence["process_check"]["guest_bound_s"] > evidence["process_check"]["client_timeout_s"]
+    )
     assert evidence["classification"] == "policy_denied"
     assert evidence["absorption"]["absorbed"] is True
+    assert evidence["absorption"]["process_terminated"] is True
     assert evidence["absorption"]["kind"] == "infinite_loop"
+    assert state["checks"] >= 1
+    assert any("killhub_probe_check" in c for c in calls)
+    assert _dimension_proven(evidence)
     events = get_ledger().list_events(job_id)
     assert any(e.type == "containment" for e in events)
     assert any("ABSORBED" in (e.message or "") for e in events)
+
+
+def test_client_timeout_with_surviving_guest_process_is_not_absorbed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Client times out and guest still answers, but the loop keeps running: not proven."""
+    job_id = _seed_job()
+    _exec, calls, state = _timeout_exec(loop_survives=True)
+    monkeypatch.setattr("containment.exec_command", _exec)
+    monkeypatch.setattr("containment._sleep", lambda s: None)
+    evidence = probe_timeout_enforcement("env-contain", job_id=job_id, settings=get_settings())
+    assert evidence["timed_out"] is True
+    assert evidence["guest_alive"] is True
+    assert evidence["process_terminated"] is False
+    assert evidence["process_check"]["state"] == "alive"
+    assert evidence["process_check"]["residual_pids"] == ["4242", "4243"]
+    # The probe cleans up after itself, but cleanup never counts as enforcement.
+    assert evidence["process_check"]["cleanup_killed"] is True
+    assert state["killed"] is True
+    assert evidence["ok"] is False
+    assert evidence["classification"] == "inconclusive"
+    assert evidence["absorption"]["absorbed"] is False
+    assert not _dimension_proven(evidence)
+    events = get_ledger().list_events(job_id)
+    assert not any("ABSORBED" in (e.message or "") for e in events)
+
+    dims = {
+        "timeout_enforcement": evidence,
+        "host_access_denied": {
+            "dimension": "host_access_denied",
+            "ok": True,
+            "classification": "policy_denied",
+        },
+        "sibling_access_denied": {
+            "dimension": "sibling_access_denied",
+            "ok": True,
+            "classification": "policy_denied",
+        },
+        "host_liveness": {"dimension": "host_liveness", "ok": True},
+    }
+    assert compute_claim(dims) == "incomplete"
+
+
+def test_unknown_process_state_is_not_absorbed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unverifiable termination (no pidfile) must not count as absorbed."""
+    job_id = _seed_job()
+
+    def _exec(environment_id: str, cmd: Any, **kwargs: Any) -> ExecResult:
+        joined = " ".join(str(c) for c in cmd) if isinstance(cmd, (list, tuple)) else str(cmd)
+        if "while true" in joined and "killhub_probe_" not in joined:
+            raise HarnessError("msb timed out: exec", code="msb_timeout")
+        if "killhub_probe_check" in joined:
+            return ExecResult("state:unknown reason=pidfile_missing\n", "", 0)
+        return ExecResult("alive\n", "", 0)
+
+    monkeypatch.setattr("containment.exec_command", _exec)
+    monkeypatch.setattr("containment._sleep", lambda s: None)
+    evidence = probe_timeout_enforcement("env-contain", job_id=job_id, settings=get_settings())
+    assert evidence["process_terminated"] is False
+    assert evidence["process_check"]["state"] == "unknown"
+    assert evidence["ok"] is False
+    assert evidence["absorption"]["absorbed"] is False
+
+
+def test_dimension_proven_requires_timeout_process_and_guest() -> None:
+    base = {
+        "dimension": "timeout_enforcement",
+        "ok": True,
+        "timed_out": True,
+        "process_terminated": True,
+        "guest_alive": True,
+    }
+    assert _dimension_proven(base)
+    for missing in ("timed_out", "process_terminated", "guest_alive"):
+        assert not _dimension_proven({**base, missing: False})
+        legacy = {k: v for k, v in base.items() if k != missing}
+        assert not _dimension_proven(legacy)
+    assert not _dimension_proven({**base, "ok": False})
 
 
 def test_canary_scan_flags_unexpected_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -151,6 +267,8 @@ def test_run_containment_matrix_proven_with_scorable_denies(
 
     def _exec(environment_id: str, cmd: Any, **kwargs: Any) -> ExecResult:
         joined = " ".join(str(c) for c in cmd) if isinstance(cmd, (list, tuple)) else str(cmd)
+        if "killhub_probe_check" in joined:
+            return ExecResult("state:gone\n", "", 0)
         if "while true" in joined:
             raise HarnessError("msb timed out: exec", code="msb_timeout")
         if "host_liveness_guest_ok" in joined or "alive" in joined:
@@ -212,6 +330,13 @@ def test_run_containment_matrix_proven_with_scorable_denies(
     # Guest-network probes stay inconclusive (no Plane-1 positive control) but must
     # not veto a solid CP/management deny matrix (D65 scorable-only scoring).
     assert result.claim == "proven"
+    # Proven only for the tested targets: unverified guest-network aliases stay attached.
+    assert result.claim_scope == "tested_targets_only"
+    assert set(result.unverified_targets) == {"host_internal", "host_gateway_ip"}
+    host_dim = result.dimensions["host_access_denied"]
+    assert set(host_dim["excluded_targets"]) == {"host_internal", "host_gateway_ip"}
+    assert "control_plane" in host_dim["tested_targets"]
+    assert host_dim["inconclusive_targets"] == []
     probes = result.dimensions["host_access_denied"]["probes"]
     guest_only = [p for p in probes if p["name"] in {"host_internal", "host_gateway_ip"}]
     assert len(guest_only) == 2
@@ -219,8 +344,11 @@ def test_run_containment_matrix_proven_with_scorable_denies(
         p["classification"] == "inconclusive" and p["checked_peer"] is None for p in guest_only
     )
     assert all(p.get("scorable") is False for p in guest_only)
+    assert all(p["status"] == "excluded" for p in guest_only)
+    assert all(p["status"] == "tested" for p in probes if p.get("scorable"))
     assert result.dimensions["host_access_denied"]["ok"] is True
     assert result.dimensions["timeout_enforcement"]["absorption"]["absorbed"] is True
+    assert result.dimensions["timeout_enforcement"]["process_terminated"] is True
     assert set(result.dimensions) == {
         "timeout_enforcement",
         "host_access_denied",
@@ -235,6 +363,8 @@ def test_run_containment_matrix_proven_with_scorable_denies(
     receipt = get_ledger().get_receipt(job_id)
     assert receipt is not None
     assert receipt["containment"]["claim"] == result.claim
+    assert receipt["containment"]["claim_scope"] == "tested_targets_only"
+    assert set(receipt["containment"]["unverified_targets"]) == {"host_internal", "host_gateway_ip"}
     events = get_ledger().list_events(job_id)
     assert any(e.type == "containment" for e in events)
     assert any("ABSORBED" in (e.message or "") for e in events)
@@ -282,6 +412,11 @@ def test_missing_control_plane_positive_control_prevents_proof(monkeypatch):
     classifications = {p["name"]: p["classification"] for p in result["probes"]}
     assert classifications["msb_host"] == "policy_denied"
     assert classifications["control_plane"] == "inconclusive"
+    statuses = {p["name"]: p["status"] for p in result["probes"]}
+    assert statuses["msb_host"] == "tested"
+    # Scorable (live positive control) but no conclusive guest result: inconclusive.
+    assert statuses["control_plane"] == "inconclusive"
+    assert "control_plane" in result["unverified_targets"]
 
 
 def test_gateway_control_never_dials_default_interface(monkeypatch):

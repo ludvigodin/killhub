@@ -2,8 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://killhub.local/schemas/environment_profile.v1.json",
   "title": "Killhub environment_profile v1",
+  "description": "Executable contract. Every accepted field changes execution or is informational (summary, runtime, os_image, source.ref, mcp.entrypoint, verification_target, original_failure). Anything else is rejected by explore/profile.py validate_profile before provision (ProfileError code profile_unsupported).",
   "type": "object",
   "required": ["schema_version", "intent"],
+  "additionalProperties": false,
   "properties": {
     "schema_version": { "const": "1" },
     "intent": {
@@ -27,22 +29,151 @@
     "runtime": { "type": "string" },
     "os_image": { "type": "string" },
     "oci_image": { "type": "string" },
-    "workdir": { "type": "string" },
-    "services": { "type": "array" },
-    "packages": { "type": "array" },
-    "install_commands": { "type": "array" },
-    "run_commands": { "type": "array" },
-    "processes": { "type": "array" },
-    "ports": { "type": "array" },
+    "workdir": { "type": "string", "minLength": 1 },
+    "services": { "type": "array", "items": { "$ref": "#/$defs/service" } },
+    "packages": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "install_commands": { "type": "array", "items": { "$ref": "#/$defs/command" } },
+    "run_commands": { "type": "array", "items": { "$ref": "#/$defs/command" } },
+    "processes": { "type": "array", "items": { "$ref": "#/$defs/process" } },
+    "ports": {
+      "type": "array",
+      "items": { "type": "integer", "minimum": 1, "maximum": 65535 }
+    },
     "summary": { "type": "string" },
     "verification_target": {
       "type": "string",
       "enum": ["original_application", "generated_demo"]
     },
-    "mcp": { "type": "object" },
-    "probes": { "type": "array" },
-    "healthcheck": { "type": "object" },
-    "policy": { "type": "object" }
+    "original_failure": { "type": "object" },
+    "mcp": { "$ref": "#/$defs/mcp" },
+    "probes": { "type": "array", "items": { "$ref": "#/$defs/probe" } },
+    "healthcheck": {
+      "description": "Legacy alias for probes (object or array). Set probes or healthcheck, not both.",
+      "oneOf": [
+        { "$ref": "#/$defs/probe" },
+        { "type": "array", "items": { "$ref": "#/$defs/probe" } }
+      ]
+    }
+  },
+  "$defs": {
+    "env": {
+      "description": "String map applied via export before the command. Names must not start with VULTR_, OPENCODE_, KILLHUB_, MSB_, KH_, LD_, DYLD_ and must not be BASH_ENV, ENV, IFS, SHELLOPTS, PS4.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+      "additionalProperties": { "type": "string" }
+    },
+    "command": {
+      "type": "object",
+      "required": ["timeout_seconds"],
+      "oneOf": [{ "required": ["argv"] }, { "required": ["shell"] }],
+      "additionalProperties": false,
+      "properties": {
+        "argv": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "shell": { "type": "string", "minLength": 1 },
+        "cwd": { "type": "string", "minLength": 1 },
+        "env": { "$ref": "#/$defs/env" },
+        "timeout_seconds": { "type": "number", "exclusiveMinimum": 0, "maximum": 86400 },
+        "killhub_tooling": { "type": "boolean" }
+      }
+    },
+    "probe": {
+      "description": "http: status in accept (default 200-399) and optional body_contains. tcp: connect succeeds. command: exit == expect_exit (default 0) and optional stdout_contains. Retried retries times, interval_seconds apart.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$" },
+        "type": { "type": "string", "enum": ["http", "tcp", "command"], "default": "http" },
+        "timeout_seconds": { "type": "number", "exclusiveMinimum": 0, "maximum": 3600 },
+        "retries": { "type": "integer", "minimum": 1, "maximum": 120 },
+        "interval_seconds": { "type": "number", "minimum": 0, "maximum": 60 },
+        "url": { "type": "string", "pattern": "^https?://" },
+        "accept": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "integer", "minimum": 100, "maximum": 599 }
+        },
+        "body_contains": { "type": "string", "minLength": 1 },
+        "host": { "type": "string" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "command": { "$ref": "#/$defs/command" },
+        "expect_exit": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "stdout_contains": { "type": "string", "minLength": 1 }
+      }
+    },
+    "process": {
+      "description": "Started in the guest at verify under supervise: restart re-runs after exit (1s apart, at most max_restarts, default 3); oneshot runs once. stop_signal then SIGKILL on cleanup after a failed verify attempt. ready_probe names a declared probe that must pass before the next process starts. Not supported for stdio MCP.",
+      "type": "object",
+      "required": ["name", "command", "supervise"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$" },
+        "command": { "$ref": "#/$defs/command" },
+        "supervise": { "type": "string", "enum": ["oneshot", "restart"] },
+        "stop_signal": {
+          "type": "string",
+          "enum": ["SIGTERM", "SIGINT", "SIGHUP", "SIGQUIT", "SIGKILL"],
+          "default": "SIGTERM"
+        },
+        "max_restarts": { "type": "integer", "minimum": 0, "maximum": 20 },
+        "ready_after_seconds": { "type": "number", "minimum": 0, "maximum": 600 },
+        "ready_probe": { "type": "string" }
+      }
+    },
+    "service": {
+      "description": "Guest-installed service: package is installed in the install phase, command is started before processes in depends_on order, every port must accept TCP and healthcheck must pass before dependents start. image-based services are not supported.",
+      "type": "object",
+      "required": ["name", "kind", "command", "ports", "healthcheck"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$" },
+        "kind": { "type": "string", "minLength": 1 },
+        "package": {
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          ]
+        },
+        "command": { "$ref": "#/$defs/command" },
+        "ports": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        },
+        "env": { "$ref": "#/$defs/env" },
+        "healthcheck": { "$ref": "#/$defs/probe" },
+        "depends_on": { "type": "array", "items": { "type": "string" } },
+        "optional": { "type": "boolean" },
+        "supervise": { "type": "string", "enum": ["oneshot", "restart"], "default": "restart" },
+        "stop_signal": {
+          "type": "string",
+          "enum": ["SIGTERM", "SIGINT", "SIGHUP", "SIGQUIT", "SIGKILL"]
+        },
+        "max_restarts": { "type": "integer", "minimum": 0, "maximum": 20 }
+      }
+    },
+    "mcp": {
+      "type": "object",
+      "required": ["transport", "launch_command", "readiness"],
+      "additionalProperties": false,
+      "properties": {
+        "transport": { "enum": ["stdio", "streamable_http"] },
+        "launch_command": { "$ref": "#/$defs/command" },
+        "cwd": { "type": "string" },
+        "entrypoint": { "type": "string" },
+        "url": { "type": "string", "pattern": "^https?://" },
+        "readiness": {
+          "type": "object",
+          "required": ["type"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "mcp_handshake" },
+            "transport": { "enum": ["stdio", "streamable_http"] },
+            "timeout_seconds": { "type": "number", "exclusiveMinimum": 0, "maximum": 3600 }
+          }
+        },
+        "security_assessment": { "type": "object" }
+      }
+    }
   },
   "allOf": [
     {
@@ -82,19 +213,14 @@
     },
     {
       "if": { "properties": { "intent": { "const": "git_mcp" } } },
+      "then": { "required": ["mcp"] }
+    },
+    {
+      "if": { "properties": { "intent": { "enum": ["webapp", "demo"] } } },
       "then": {
-        "required": ["mcp"],
-        "properties": {
-          "mcp": {
-            "type": "object",
-            "required": ["transport", "launch_command", "readiness"],
-            "properties": {
-              "transport": { "enum": ["stdio", "streamable_http"] }
-            }
-          }
-        }
+        "not": { "required": ["mcp"] },
+        "anyOf": [{ "required": ["probes"] }, { "required": ["healthcheck"] }]
       }
     }
-  ],
-  "additionalProperties": true
+  ]
 }

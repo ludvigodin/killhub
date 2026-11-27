@@ -11,7 +11,10 @@ run with public egress. This module
    - processes launched, flagging network tools,
    - the job's canary values in any outbound bytes or DNS name, in plain,
      base64, base32, hex and URL-encoded form → ``canary_exfiltration``
-     finding with ``classification=policy_bypass`` (hard-fail gate),
+     finding with ``classification=canary_exfiltration_attempt`` (hard-fail
+     gate for dangerous repository behavior, never an isolation-bypass claim)
+     and a measured ``transmission_outcome`` (blocked / attempted / successful
+     / unknown, see ``classify_transmission``),
    - writes to persistence locations (cron, ssh keys, ld.so.preload, rc files),
 4. reviews MCP tool descriptions for poisoning (hidden instructions,
    invisible Unicode) after the handshake.
@@ -45,6 +48,10 @@ GUEST_MARKER = f"{GUEST_ACTIVITY_DIR}/marker"
 GUEST_MCP_TOOLS = f"{GUEST_ACTIVITY_DIR}/mcp_tools.json"
 HELPER_ID = "activity_trace"
 
+# Classification / gate reason for a canary-bearing send (dangerous repository behavior).
+# Distinct from ``policy_bypass``, which means the configured boundary was crossed.
+CANARY_ATTEMPT_CLASSIFICATION = "canary_exfiltration_attempt"
+
 # Locations a package install has no business writing to.
 PERSISTENCE_PATHS = (
     "/etc/cron.d",
@@ -74,6 +81,9 @@ _FD_INODE = re.compile(r"<(?:TCP|UDP|TCPv6|UDPv6):\[(\d+)\]>")
 _SIN = re.compile(r'sin_port=htons\((\d+)\), sin_addr=inet_addr\("([^"]+)"\)')
 _SIN6 = re.compile(r'sin6_port=htons\((\d+)\).*?inet_pton\(AF_INET6, "([^"]+)"')
 _RESULT = re.compile(r"\)\s*=\s*(-?\d+)(?:\s+(E[A-Z0-9]+))?")
+# Syscall result anchored at the end of the line. Send payloads are repository
+# controlled, so text such as ") = 5" inside the bytes must never be read as the result.
+_END_RESULT = re.compile(r"\)\s*=\s*(-?\d+)(?:\s+(E[A-Z0-9]+))?(?:\s+\([^)]*\))?\s*$")
 _EXECVE = re.compile(r'execve\("([^"]+)", \[([^\]]*)\]')
 _PID = re.compile(r"^(\d+)\s+")
 
@@ -132,11 +142,30 @@ def prepare_guest(environment_id: str, *, job_id: str, settings: Settings | None
 
 
 @dataclass
+class Send:
+    """One traced send syscall carrying payload bytes."""
+
+    peer: str
+    data: bytes
+    seq: int  # position in the trace, to order sends against responses
+    result: int | None = None  # syscall return value; None = not recorded
+    errno: str | None = None  # e.g. "ENETUNREACH" when the call failed
+
+
+@dataclass
 class Activity:
     connections: list[dict[str, Any]] = field(default_factory=list)
     dns_queries: list[str] = field(default_factory=list)
     processes: list[dict[str, Any]] = field(default_factory=list)
-    payloads: list[tuple[str, bytes]] = field(default_factory=list)  # (peer, bytes)
+    sends: list[Send] = field(default_factory=list)
+    # DNS question -> every send result seen for it (resolver socket, not the authority).
+    dns_sends: dict[str, list[Send]] = field(default_factory=dict)
+    # (seq, peer) of every receive that returned bytes: a peer answered.
+    responses: list[tuple[int, str]] = field(default_factory=list)
+
+    @property
+    def payloads(self) -> list[tuple[str, bytes]]:
+        return [(s.peer, s.data) for s in self.sends]
 
 
 def _unescape(s: str) -> bytes:
@@ -192,6 +221,7 @@ def parse_trace(text: str) -> Activity:
     seen_conn: set[tuple[str, str]] = set()
     inodes: dict[str, str] = {}  # socket inode → peer recorded at connect()
     step = ""
+    seq = 0
     for raw in text.splitlines():
         if raw.startswith("### step "):
             step = raw[len("### step ") :].strip()
@@ -222,17 +252,31 @@ def parse_trace(text: str) -> Activity:
                     seen_conn.add(key)
                     act.connections.append({"peer": peer, "result": outcome})
             continue
+        if line.startswith(("recvfrom(", "recvmsg(", "recvmmsg(", "recv(")):
+            res = _END_RESULT.search(line)
+            peer = _peer(line, inodes)
+            if peer and res and int(res.group(1)) > 0:
+                act.responses.append((seq, peer))
+            seq += 1
+            continue
         if line.startswith(("sendto(", "sendmsg(", "sendmmsg(", "send(")):
             peer = _peer(line, inodes) or "?"
+            res = _END_RESULT.search(line)
+            result = int(res.group(1)) if res else None
+            errno = res.group(2) if res and result is not None and result < 0 else None
             for chunk in _QUOTED.findall(line):
                 data = _unescape(chunk)
                 if not data:
                     continue
-                act.payloads.append((peer, data))
+                send = Send(peer=peer, data=data, seq=seq, result=result, errno=errno)
+                act.sends.append(send)
                 if peer.endswith(":53"):
                     q = _dns_question(data)
-                    if q and q not in act.dns_queries:
-                        act.dns_queries.append(q)
+                    if q:
+                        if q not in act.dns_queries:
+                            act.dns_queries.append(q)
+                        act.dns_sends.setdefault(q, []).append(send)
+            seq += 1
     return act
 
 
@@ -280,14 +324,106 @@ def _find_form(form: bytes, hay: bytes) -> bool | None:
     return None
 
 
+# --- transmission outcome ---------------------------------------------------------------
+
+# Rank used when several sends map to one hit, or hits to one finding: the strongest
+# evidence wins. ``blocked`` is lowest: only when every matching send failed.
+OUTCOME_RANK = {"blocked": 0, "unknown": 1, "attempted": 2, "successful": 3}
+# Errors that mean "try again", not "the network refused": the outcome is not known.
+_TRANSIENT_ERRNOS = frozenset({"EAGAIN", "EWOULDBLOCK", "EINTR", "EINPROGRESS"})
+
+
+def _peer_host(peer: str) -> str:
+    if peer.startswith("["):
+        return peer[1:].split("]", 1)[0]
+    return peer.rsplit(":", 1)[0]
+
+
+def destination_scope(peer: str) -> str:
+    """``loopback`` stays inside the guest; everything else is ``remote``."""
+    host = _peer_host(peer)
+    if host in {"?", ""}:
+        return "unknown"
+    if host.startswith("127.") or host in {"::1", "localhost"}:
+        return "loopback"
+    return "remote"
+
+
+def classify_transmission(
+    sends: list[Send], responses: list[tuple[int, str]], *, channel: str
+) -> tuple[str, str]:
+    """Return ``(outcome, basis)`` for the sends that carried a canary.
+
+    - ``blocked``: every matching send syscall failed (refused, unreachable, denied).
+    - ``attempted``: a send handed bytes to the network stack. The guest-side trace
+      cannot see past that, so delivery is not claimed.
+    - ``successful``: bytes were sent and the same peer then returned bytes. DNS never
+      reaches this state: a resolver answer does not show the data reached anyone.
+    - ``unknown``: the trace has no usable result (interleaved or truncated syscall,
+      transient errno, zero bytes sent).
+
+    None of these outcomes asserts that the configured isolation boundary was crossed.
+    Install-phase egress is permitted by policy; boundary evidence comes only from the
+    containment matrix (host and sibling reachability).
+    """
+    if not sends:
+        return "unknown", "no send syscall was recorded for this match"
+    judged: list[tuple[str, str]] = []
+    for send in sends:
+        if send.result is None:
+            judged.append(("unknown", "send result missing from the trace"))
+        elif send.result < 0 and (send.errno is None or send.errno in _TRANSIENT_ERRNOS):
+            judged.append(("unknown", f"send returned a transient error ({send.errno})"))
+        elif send.result < 0:
+            judged.append(("blocked", f"send failed ({send.errno})"))
+        elif send.result == 0:
+            judged.append(("unknown", "send reported zero bytes or messages"))
+        elif channel == "dns":
+            judged.append(
+                ("attempted", "query sent to the resolver; an answer would not show delivery")
+            )
+        elif any(peer == send.peer and rseq > send.seq for rseq, peer in responses):
+            judged.append(("successful", "destination returned bytes after the send"))
+        else:
+            judged.append(("attempted", "bytes were sent; no response was traced"))
+    return max(judged, key=lambda j: OUTCOME_RANK[j[0]])
+
+
+def overall_outcome(hits: list[dict[str, Any]]) -> str:
+    """Strongest transmission outcome across hits (``unknown`` when there are none)."""
+    outcomes = [h.get("outcome") for h in hits if h.get("outcome") in OUTCOME_RANK]
+    return max(outcomes, key=lambda o: OUTCOME_RANK[o], default="unknown")
+
+
+CANARY_OUTCOME_TITLES = {
+    "successful": (
+        "Repository code sent a test secret over the network and the destination answered. "
+        "This is not evidence that the sandbox boundary was crossed"
+    ),
+    "attempted": (
+        "Repository code tried to send a test secret over the network. "
+        "Delivery was not confirmed, and this is not a sandbox boundary crossing"
+    ),
+    "blocked": (
+        "Repository code tried to send a test secret, but every matching send failed. "
+        "No delivery was observed"
+    ),
+    "unknown": (
+        "The install trace matched a test secret in outgoing bytes. "
+        "The trace does not show whether the send completed"
+    ),
+}
+
+
 def match_canaries(act: Activity, canaries: dict[str, str]) -> list[dict[str, Any]]:
     """Every (canary id, encoding, destination) seen leaving the guest.
 
     Matches the whole encoded value, or any CHUNK_LEN slice of it (flagged
     ``partial``) because DNS exfiltration splits data across labels/queries.
+    Each hit carries the measured transmission ``outcome`` (``classify_transmission``).
     """
     hits: list[dict[str, Any]] = []
-    seen: set[tuple[str, str, str]] = set()
+    index: dict[tuple[str, str, str], dict[str, Any]] = {}
     all_forms = {cid: canary_forms(v) for cid, v in canaries.items()}
 
     def redact(text: str) -> str:
@@ -300,8 +436,9 @@ def match_canaries(act: Activity, canaries: dict[str, str]) -> list[dict[str, An
                         out = re.sub(re.escape(piece), "<canary>", out, flags=re.I)
         return re.sub(r"(<canary>[0-9A-Za-z+/=_-]*)+", "<canary>", out)
 
-    def check(hay: bytes, channel: str, dest: str) -> None:
+    def check(hay: bytes, channel: str, dest: str, sends: list[Send]) -> None:
         low = hay.lower()
+        outcome, basis = classify_transmission(sends, act.responses, channel=channel)
         for cid, forms in all_forms.items():
             for enc, form in forms.items():
                 case_free = enc in {"base32", "hex"} or channel == "dns"
@@ -309,25 +446,33 @@ def match_canaries(act: Activity, canaries: dict[str, str]) -> list[dict[str, An
                 if found is None:
                     continue
                 key = (cid, enc, dest)
-                if key in seen:
+                prior = index.get(key)
+                if prior is not None:
+                    # Same hit seen again: keep the strongest measured outcome.
+                    if OUTCOME_RANK[outcome] > OUTCOME_RANK[prior["outcome"]]:
+                        prior["outcome"], prior["outcome_basis"] = outcome, basis
                     continue
-                seen.add(key)
-                hits.append(
-                    {
-                        "canary_id": cid,
-                        "encoding": enc,
-                        "channel": channel,
-                        "destination": dest,
-                        "partial": not found,
-                    }
-                )
+                hit = {
+                    "canary_id": cid,
+                    "encoding": enc,
+                    "channel": channel,
+                    "destination": dest,
+                    "partial": not found,
+                    "outcome": outcome,
+                    "outcome_basis": basis,
+                    "destination_scope": "resolver"
+                    if channel == "dns"
+                    else destination_scope(sends[0].peer if sends else "?"),
+                }
+                index[key] = hit
+                hits.append(hit)
 
-    for peer, data in act.payloads:
-        if peer.endswith(":53"):
+    for send in act.sends:
+        if send.peer.endswith(":53"):
             continue  # DNS handled below via decoded questions
-        check(data, "network", peer)
+        check(send.data, "network", send.peer, [send])
     for q in act.dns_queries:
-        check(q.encode(), "dns", redact(q))
+        check(q.encode(), "dns", redact(q), act.dns_sends.get(q, []))
     return hits
 
 
@@ -426,6 +571,7 @@ def collect_and_analyze(
         "destinations": destinations[:50],
         "dns_queries": redact_queries(act.dns_queries[:50], values),
         "canary_hits": hits,
+        "canary_outcome": overall_outcome(hits) if hits else None,
         "persistence_writes": persistence,
         "limits": [
             "guest-side trace: code that targets the tracer can evade it",
@@ -444,9 +590,10 @@ def collect_and_analyze(
     elif not text:
         message = "Install trace data unavailable."
     else:
+        outcome_note = f" ({summary['canary_outcome']})" if hits else ""
         message = (
             f"install activity: {len(act.processes)} processes, {len(destinations)} destinations, "
-            f"{len(act.dns_queries)} DNS queries, {len(hits)} canary hits "
+            f"{len(act.dns_queries)} DNS queries, {len(hits)} canary hits{outcome_note} "
             f"(coverage {summary['coverage']})"
         )
     ledger.append_event(
@@ -456,16 +603,23 @@ def collect_and_analyze(
         payload={"kind": "install_activity", **summary},
     )
     if hits:
+        outcome = overall_outcome(hits)
+        counts = {o: sum(1 for h in hits if h.get("outcome") == o) for o in OUTCOME_RANK}
         ledger.append_event(
             job_id,
             typ="finding",
-            message="The install trace matched a test secret in an outgoing network attempt",
+            message=CANARY_OUTCOME_TITLES[outcome],
             payload={
                 "source": "activity",
                 "code": "canary_exfiltration",
-                "severity": "critical",
-                # Hard-fail gate in finalize keys on policy_bypass (D58/D44).
-                "classification": "policy_bypass",
+                # Failed sends are still dangerous repository behavior, but less severe.
+                "severity": "high" if outcome == "blocked" else "critical",
+                # Dedicated hard-fail gate for the attempt (finalize.evaluate_gates).
+                # Deliberately not ``policy_bypass``: that is reserved for evidence that
+                # the configured boundary (host or sibling reachability) was crossed.
+                "classification": CANARY_ATTEMPT_CLASSIFICATION,
+                "transmission_outcome": outcome,
+                "outcome_counts": {k: v for k, v in counts.items() if v},
                 "hits": hits,
             },
         )

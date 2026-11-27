@@ -37,7 +37,7 @@ Frozen **before** implementing N1/E1. Not public. Base URL e.g. `http://127.0.0.
 |--------|------|---------|
 | `POST` | `/internal/jobs` | Create job `{ github_url }` → `{ job_id }` (admission applied here or in Next before proxy) |
 | `GET` | `/internal/jobs` | Recent job **summaries** newest-first (`?limit=` default 48 max 200, `?offset=` default 0, optional `?github_url=` exact filter) with `total` (D69, D77, D79) |
-| `GET` | `/internal/repos` | Distinct **`github_url` groups** newest activity first (`?limit=` / `?offset=`) with `total` for the home feed (D79) |
+| `GET` | `/internal/repos` | Distinct **`github_url` groups** newest activity first (`?limit=` / `?offset=`, optional `?q=` substring on `github_url` / `job_id`) with filtered `total` for the home/hubs feed (D79) |
 | `GET` | `/internal/jobs/{id}` | Full snapshot (same shape as public GET) |
 | `GET` | `/internal/jobs/{id}/events` | SSE (same event model as public) |
 | `GET` | `/internal/jobs/{id}/events/recent` | Last N durable events JSON (`?limit=` default 50 max 200) — D81 |
@@ -101,7 +101,7 @@ Job and repo feed cards expose the receipt’s `active_checks` with install trac
 
 ### `GET /api/repos`
 
-Repo-grouped feed for the home Entries grid (D79). One row per distinct canonical `github_url`, ordered by most recent run. Server-side pagination via `limit` + `offset`.
+Repo-grouped feed for the home Entries grid and Hubs page (D79). One row per distinct canonical `github_url`, ordered by most recent run. Server-side pagination via `limit` + `offset`. Optional free-text `q` filters on the server (not client-side).
 
 **Query**
 
@@ -109,6 +109,7 @@ Repo-grouped feed for the home Entries grid (D79). One row per distinct canonica
 |-------|---------|-----|---------|
 | `limit` | `48` | `200` | Page size |
 | `offset` | `0` | — | Groups to skip (newest activity first) |
+| `q` | — | `200` chars | Case-insensitive substring on `github_url` or any run `job_id` for that URL; empty/omitted = unfiltered |
 
 **Response `200`**
 
@@ -140,7 +141,7 @@ Repo-grouped feed for the home Entries grid (D79). One row per distinct canonica
 }
 ```
 
-`total` is `COUNT(DISTINCT github_url)`. `latest` uses the same summary shape as `GET /api/jobs`. UI links each card to `/repos/{host}/{…path}` (e.g. `/repos/github.com/org/repo`), which lists runs via `GET /api/jobs?github_url=…`. GitHub-only short path `/{owner}/{repo}` (D82) is a client-side create shortcut — not a new Jobs API — and redirects to `/jobs/{id}` after `POST /api/jobs`.
+`total` is `COUNT(DISTINCT github_url)` for the active filter (`q` when set). Matching by `job_id` still returns the full `run_count` for that repo. `latest` uses the same summary shape as `GET /api/jobs`. UI links each card to `/repos/{host}/{…path}` (e.g. `/repos/github.com/org/repo`), which lists runs via `GET /api/jobs?github_url=…`. GitHub-only short path `/{owner}/{repo}` (D82) is a client-side create shortcut — not a new Jobs API — and redirects to `/jobs/{id}` after `POST /api/jobs`.
 
 ---
 
@@ -461,5 +462,7 @@ Public HTTP remains unversioned under `/api/...` in v1. **Profile** schema is ve
 `GET /health` returns HTTP 503 if Explore is unconfigured, unavailable, or reports an unhealthy ledger or admission store. Explore also returns HTTP 503 on a failed dependency check.
 
 The vulnerability report summary includes checked and discovered pinned dependency entry counts when inputs yield packages. The terminal vulnerability-scan log also records `packages_checked` and `packages_discovered`. Budgets, unavailable inputs and failed lookups preserve partial coverage. Counts refer to entries extracted from copied files.
+
+SCA records for the same ecosystem, package and version are grouped before the report, events and receipt are written, using union-find over advisory IDs and aliases (reciprocal or transitive links both merge). Each vulnerability is one finding and counts once in severity totals. `detail.sources[]` keeps every advisory record (`osv_id`, `aliases`, `severity`, `title`, `advisory_url`, `lockfiles`, `finding_ids`); `detail.lockfiles` is the union of lockfile names. Severity policy is `max_known` (`detail.severity_policy`): the finding severity is the highest known source severity, `detail.severity_by_source` maps each advisory ID to its own severity, and `detail.severity_conflict` is true when known sources disagree. `unknown` sources never win over a known severity and do not by themselves raise the conflict flag.
 
 GitHub preflight warnings include `http_status` and `reason` (`rate_limited` or `access_denied`). When GitHub supplies numeric quota headers, events also include `rate_limit_remaining`, `rate_limit_reset` (Unix seconds), and `retry_after_seconds`. During a cooldown the worker reuses the quota warning across repositories sharing the same API and credential. These warnings remain available in report details.

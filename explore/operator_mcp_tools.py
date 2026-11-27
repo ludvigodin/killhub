@@ -267,8 +267,14 @@ class KillhubJobsClient:
             raise KillhubApiError("list_jobs: expected object response", body=data)
         return data
 
-    def list_repos(self, *, limit: int = 48, offset: int = 0) -> dict[str, Any]:
-        data = self._request("GET", "/api/repos", params={"limit": limit, "offset": offset})
+    def list_repos(
+        self, *, limit: int = 48, offset: int = 0, q: str | None = None
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        query = (q or "").strip()
+        if query:
+            params["q"] = query[:200]
+        data = self._request("GET", "/api/repos", params=params)
         if not isinstance(data, dict):
             raise KillhubApiError("list_repos: expected object response", body=data)
         return data
@@ -446,12 +452,20 @@ def tools_list() -> list[dict[str, Any]]:
         },
         {
             "name": "list_repos",
-            "description": "List distinct repos with their latest run (home feed grouping).",
+            "description": (
+                "List distinct repos with their latest run (home feed grouping). "
+                "Optional q filters by github_url or job_id substring."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 48},
                     "offset": {"type": "integer", "minimum": 0, "default": 0},
+                    "q": {
+                        "type": "string",
+                        "maxLength": 200,
+                        "description": "Optional substring match on github_url or job_id.",
+                    },
                 },
                 "additionalProperties": False,
             },
@@ -647,7 +661,9 @@ def call_tool(client: KillhubJobsClient, name: str, arguments: dict[str, Any]) -
     if name == "list_repos":
         limit = int(arguments.get("limit") or 48)
         offset = int(arguments.get("offset") or 0)
-        return client.list_repos(limit=limit, offset=offset)
+        raw_q = arguments.get("q")
+        q = str(raw_q).strip()[:200] if raw_q else None
+        return client.list_repos(limit=limit, offset=offset, q=q or None)
 
     if name == "list_fixtures":
         return client.fixture_catalog()

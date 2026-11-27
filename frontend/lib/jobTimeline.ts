@@ -78,11 +78,15 @@ function containmentHitDetail(
   const dims = asRecord(containment.dimensions);
   const timeout = asRecord(dims?.timeout_enforcement);
   const absorption = asRecord(timeout?.absorption);
-  if (absorption?.absorbed === true || timeout?.ok === true) {
-    return "∞ loop absorbed · guest still alive";
+  if (
+    absorption?.absorbed === true &&
+    timeout?.process_terminated === true &&
+    timeout?.guest_alive === true
+  ) {
+    return "∞ loop absorbed · process terminated · guest still alive";
   }
   if (timeout?.timed_out === true) {
-    return "loop timed out - check guest liveness";
+    return "loop timed out - termination not verified";
   }
   const claim = containment.claim;
   if (typeof claim === "string" && claim.length > 0) {
@@ -154,9 +158,13 @@ function stageDetails(
     execute: done.execute
       ? snapshot.readiness?.passed
         ? "readiness verified"
-        : snapshot.verification?.kind
-          ? `verify: ${snapshot.verification.kind}`
-          : snapshot.current_step || "executed"
+        : snapshot.verification?.kind === "original_application"
+          ? "original application verified"
+          : snapshot.verification?.kind === "setup_failed"
+            ? "setup failed"
+            : snapshot.verification?.kind === "generated_demo"
+              ? "fallback target verified"
+              : snapshot.current_step || "executed"
       : null,
     containment: done.containment
       ? containmentHitDetail(snapshot.receipt?.containment) ||

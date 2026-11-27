@@ -71,6 +71,9 @@ def summary_safety(
     bypass = isinstance(reasons, list) and any(
         r in {"policy_bypass", "containment_policy_bypass"} for r in reasons
     )
+    # Dangerous repository behavior (canary-bearing send): high risk, but not an
+    # isolation bypass. Same weight as a bypass for the stamp.
+    canary_attempt = isinstance(reasons, list) and "canary_exfiltration_attempt" in reasons
 
     verify = verification
     if not isinstance(verify, dict):
@@ -109,7 +112,7 @@ def summary_safety(
     if claim != "proven":
         gaps = True
 
-    if bypass or counts["critical"] or counts["high"]:
+    if bypass or canary_attempt or counts["critical"] or counts["high"]:
         return "high_risk"
     if (
         counts["medium"]

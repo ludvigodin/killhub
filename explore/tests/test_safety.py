@@ -86,6 +86,18 @@ def test_high_risk_from_policy_bypass() -> None:
     )
 
 
+def test_high_risk_from_canary_attempt_without_bypass() -> None:
+    assert (
+        summary_safety(
+            status="failed",
+            verification=None,
+            vuln_report=_ok_report(),
+            receipt=_receipt(reasons=["canary_exfiltration_attempt"]),
+        )
+        == "high_risk"
+    )
+
+
 def test_review_from_medium_finding() -> None:
     assert (
         summary_safety(

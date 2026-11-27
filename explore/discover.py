@@ -20,6 +20,7 @@ from profile import (
 )
 from typing import Any, Callable
 
+from agent import AgentError, EnvironmentAgent
 from config import Settings, get_settings
 from errors import HarnessError
 from fixtures import match_fixture
@@ -36,6 +37,7 @@ from harness import (
 )
 from heartbeat import with_heartbeat
 from jobs import get_ledger
+from plan_llm import TrustedFacts
 
 logger = logging.getLogger("killhub.discover")
 
@@ -279,6 +281,12 @@ if [ -f README.md ]; then head -n 60 README.md; elif [ -f README ]; then head -n
 echo '---MCP_FS---'
 if [ -d src/filesystem ]; then ls src/filesystem | head -n 40; fi
 if [ -f src/filesystem/package.json ]; then cat src/filesystem/package.json; fi
+echo '---MANIFESTS---'
+for f in Dockerfile docker-compose.yml docker-compose.yaml compose.yaml Makefile Procfile \\
+  go.mod Cargo.toml Gemfile composer.json pom.xml build.gradle .nvmrc .node-version \\
+  .python-version .tool-versions runtime.txt .env.example; do
+  if [ -f "$f" ]; then echo "=== $f ==="; head -n 40 "$f"; fi
+done
 """
     result = _exec(
         environment_id,
@@ -573,18 +581,8 @@ def infer_runtime_profile(
                     cwd=guest_workdir,
                 )
             ],
-            "processes": [
-                {
-                    "name": "mcp-filesystem",
-                    "command": _cmd(
-                        ["node", launch_bin, GUEST_REPO_ROOT],
-                        timeout=3600,
-                        cwd=guest_workdir,
-                    ),
-                    "supervise": "restart",
-                    "ready_after_seconds": 1,
-                }
-            ],
+            # stdio: the verify helper launches mcp.launch_command itself (no processes[]).
+            "processes": [],
             "ports": [],
             "summary": "MCP filesystem server from pinned checkout (stdio)",
             "verification_target": "original_application",
@@ -714,6 +712,86 @@ def load_prompt(name: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def adaptive_runtime_profile(
+    job_id: str,
+    *,
+    baseline: dict[str, Any],
+    inspect: dict[str, Any],
+    fixture: dict[str, Any] | None,
+    facts: TrustedFacts,
+    expires_at: str | None,
+    settings: Settings,
+) -> dict[str, Any]:
+    """Let the Environment Agent refine the heuristic plan from inspect evidence (D85).
+
+    The heuristic profile is always computed first and is the fallback:
+    - pinned M7 fixtures stay deterministic (D53), no inference;
+    - no key / over budget / disabled / bad or rejected reply keeps the baseline;
+    - an LLM ``demo`` never replaces a heuristic ``original_application`` plan
+      (a generated demo must not displace a real fit, D54).
+    The returned profile has passed ``validate_profile`` (plan_llm re-validates).
+    """
+
+    def _heuristic(reason: str) -> dict[str, Any]:
+        # Provenance lives in the ledger (the profile schema has no planner field).
+        _log(
+            job_id,
+            f"runtime profile from heuristic planner ({reason})",
+            settings=settings,
+            kind="plan_llm",
+            planner="heuristic",
+            reason=reason,
+        )
+        return baseline
+
+    if fixture is not None:
+        return _heuristic("pinned_fixture")
+    try:
+        agent = EnvironmentAgent(job_id, settings=settings)
+    except (AgentError, ValueError, OSError) as exc:
+        code = getattr(exc, "code", exc.__class__.__name__)
+        _span(
+            job_id,
+            "plan_llm_discover",
+            settings=settings,
+            status="skipped",
+            detail={"reason": code},
+        )
+        return _heuristic(str(code))
+    proposal = agent.propose_runtime_profile(
+        facts=facts,
+        inspect=inspect,
+        baseline=baseline,
+        expires_at=expires_at,
+    )
+    if proposal is None:
+        return _heuristic("llm_unavailable_or_rejected")
+    if (
+        proposal.profile.get("intent") == "demo"
+        and baseline.get("verification_target") == "original_application"
+    ):
+        _log(
+            job_id,
+            "LLM proposed demo over a heuristic original_application plan; keeping heuristic",
+            settings=settings,
+            kind="plan_llm",
+            kept="heuristic",
+        )
+        return _heuristic("llm_demo_rejected_for_original_fit")
+    _log(
+        job_id,
+        f"runtime profile from LLM planner: {proposal.rationale}"[:300],
+        settings=settings,
+        kind="plan_llm",
+        planner="llm",
+        model=proposal.model,
+        intent=proposal.profile.get("intent"),
+        rationale=proposal.rationale,
+        evidence=proposal.changes,
+    )
+    return proposal.profile
+
+
 def discover_runtime_profile(
     job_id: str,
     *,
@@ -736,10 +814,6 @@ def discover_runtime_profile(
     fixture = match_fixture(job.github_url)
     pin = str(fixture["commit"]) if fixture and fixture.get("commit") else None
     oci_image = (cfg.msb_default_image or "debian").strip()
-
-    # Trusted prompts are host-owned (never submitted-repo AGENTS.md).
-    _ = load_prompt("discover_environment")
-    _ = load_prompt("validate_environment_spec")
 
     boot = bootstrap_profile(
         github_url=job.github_url,
@@ -874,6 +948,21 @@ def discover_runtime_profile(
                 )
             raise
 
+        runtime = adaptive_runtime_profile(
+            job_id,
+            baseline=runtime,
+            inspect=inspect,
+            fixture=fixture,
+            facts=TrustedFacts(
+                github_url=job.github_url,
+                commit=resolved,
+                ref=str((fixture or {}).get("ref") or "HEAD"),
+                oci_image=str(runtime.get("oci_image") or oci_image),
+            ),
+            expires_at=job.expires_at,
+            settings=cfg,
+        )
+        # Always validate before persist/execute (D8); persist re-validates.
         validate_profile(runtime, phase="runtime")
         rev = persist_profile_revision(job_id, runtime, phase="runtime", settings=cfg)
         _span(

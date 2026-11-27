@@ -9,15 +9,24 @@ import logging
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
-from profile import GUEST_REPO_ROOT, assert_runtime_ready_for_provision
+from profile import (
+    GUEST_REPO_ROOT,
+    ProfileError,
+    assert_runtime_ready_for_provision,
+    command_spec_shell,
+    persist_profile_revision,
+    service_launch_order,
+)
 from typing import Any
 
+from agent import AgentError, EnvironmentAgent
 from config import Settings, get_settings
 from harness import MsbCli, copy_in, exec_command, wait_until_ready
 from heartbeat import with_heartbeat
 from jobs import get_ledger
 from net_policy import verify_phase_policy
 from paths import HELPER_CATALOG
+from plan_llm import TrustedFacts, deadline_exceeded
 
 logger = logging.getLogger("killhub.install")
 
@@ -44,6 +53,9 @@ class InstallResult:
     cp_probe: dict[str, Any] = field(default_factory=dict)
     offline_probe: dict[str, Any] = field(default_factory=dict)
     repair_attempts: int = 0
+    # Profile revision numbers persisted by LLM repair (empty when none).
+    plan_revisions: list[int] = field(default_factory=list)
+    profile: dict[str, Any] = field(default_factory=dict)
 
 
 class InstallError(Exception):
@@ -143,17 +155,14 @@ def _run_command_spec(
     default_cwd: str,
 ) -> StepResult:
     timeout = float(spec.get("timeout_seconds") or 120)
-    cwd = str(spec.get("cwd") or default_cwd)
     if spec.get("argv"):
-        argv = [str(x) for x in spec["argv"]]
-        # Run under sh so cwd applies portably.
-        cmd = ["sh", "-lc", f"cd {cwd} && exec " + " ".join(_shell_quote(a) for a in argv)]
-        label = " ".join(argv[:6])
+        label = " ".join(str(a) for a in spec["argv"][:6])
     elif spec.get("shell"):
-        cmd = ["sh", "-lc", f"cd {cwd} && {spec['shell']}"]
         label = str(spec["shell"])[:80]
     else:
         return StepResult(name="invalid", ok=False, detail="missing argv/shell")
+    # cwd (relative to the profile workdir) and spec.env are honored (P2).
+    cmd = ["sh", "-lc", command_spec_shell(spec, workdir=default_cwd)]
     result = exec_command(
         environment_id,
         cmd,
@@ -162,7 +171,8 @@ def _run_command_spec(
         timeout=timeout,
     )
     ok = result.exit_code == 0
-    detail = (result.stderr or result.stdout or "")[:400]
+    # Keep the tail: that is where install/build errors are (also feeds repair).
+    detail = (result.stderr or result.stdout or "")[-1200:]
     return StepResult(name=label, ok=ok, detail=detail, exit_code=result.exit_code)
 
 
@@ -436,10 +446,24 @@ def run_install_commands(
     """Attempt packages + install_commands — flag failures, never invent success (D29)."""
     steps: list[StepResult] = []
     workdir = str(profile.get("workdir") or GUEST_REPO_ROOT)
+    packages = list(profile.get("packages") or [])
+    for svc in service_launch_order(list(profile.get("services") or [])):
+        pkg = svc.get("package")
+        wanted = [pkg] if isinstance(pkg, str) else list(pkg or [])
+        if wanted:
+            _log(
+                job_id,
+                f"provisioning service {svc['name']} ({svc.get('kind')}): {', '.join(wanted)}",
+                settings=settings,
+                kind="service_provision",
+                service=svc["name"],
+                packages=wanted,
+            )
+        packages.extend(p for p in wanted if p not in packages)
     steps.extend(
         _attempt_packages(
             environment_id,
-            list(profile.get("packages") or []),
+            packages,
             job_id=job_id,
             settings=settings,
         )
@@ -623,6 +647,81 @@ def probe_offline_egress(
     return result
 
 
+def _repair_install_plan(
+    job_id: str,
+    profile: dict[str, Any],
+    steps: list[StepResult],
+    *,
+    attempt: int,
+    max_attempts: int,
+    settings: Settings,
+) -> tuple[dict[str, Any], int | None]:
+    """Ask the Environment Agent to revise the plan from real install failures (D85).
+
+    Returns (profile, revision). The profile is unchanged (revision None) when
+    inference is unavailable/over budget, the reply is rejected, or the model
+    judges the failure transient - the caller then retries the same plan, which
+    is the pre-adaptive behaviour. Revisions are validated, then persisted.
+    """
+    job = get_ledger(settings).get_job(job_id)
+    if job is None:
+        return profile, None
+    try:
+        agent = EnvironmentAgent(job_id, settings=settings)
+    except (AgentError, ValueError, OSError) as exc:
+        _log(
+            job_id,
+            f"install repair plan unavailable: {getattr(exc, 'code', exc.__class__.__name__)}",
+            settings=settings,
+            kind="plan_llm",
+        )
+        return profile, None
+    failed = [s for s in steps if not s.ok]
+    source = profile.get("source") or {}
+    facts = TrustedFacts(
+        github_url=str(source.get("url") or job.github_url),
+        commit=str(job.resolved_commit or source.get("commit") or ""),
+        ref=str(source.get("ref") or "HEAD"),
+        oci_image=str(profile.get("oci_image") or settings.msb_default_image or "debian"),
+    )
+    proposal = agent.revise_runtime_profile(
+        facts=facts,
+        profile=profile,
+        phase="install",
+        attempt=attempt,
+        max_attempts=max_attempts,
+        failures=[
+            {"name": s.name, "exit_code": s.exit_code, "output_tail": s.detail[-600:]}
+            for s in failed
+        ],
+        evidence="\n\n".join(f"$ {s.name}\n{s.detail}" for s in failed),
+        expires_at=job.expires_at,
+    )
+    if proposal is None or not proposal.changed:
+        return profile, None
+    try:
+        rev = persist_profile_revision(job_id, proposal.profile, phase="runtime", settings=settings)
+    except ProfileError as exc:  # sanitize already validated; belt and braces
+        _log(
+            job_id,
+            f"install repair revision rejected: {exc.message}",
+            settings=settings,
+            kind="plan_llm",
+        )
+        return profile, None
+    _log(
+        job_id,
+        f"install plan revised (profile revision {rev.revision}): {proposal.rationale}"[:300],
+        settings=settings,
+        kind="repair",
+        attempt=attempt,
+        revision=rev.revision,
+        changes=proposal.changes,
+        rationale=proposal.rationale,
+    )
+    return proposal.profile, rev.revision
+
+
 def provision_and_go_offline(
     job_id: str,
     *,
@@ -689,8 +788,16 @@ def provision_and_go_offline(
     steps: list[StepResult] = []
     failures: list[str] = []
     attempt = 0
+    plan_revisions: list[int] = []
     for attempt in range(1, max_attempts + 1):
         if attempt > 1:
+            # Job deadline is checked on every repair iteration (D41, D83).
+            fresh = ledger.get_job(job_id)
+            if fresh is not None and deadline_exceeded(fresh.expires_at):
+                raise InstallError(
+                    "job expires_at reached before install repair attempt",
+                    code="deadline_exceeded",
+                )
             _status(
                 job_id,
                 "repairing",
@@ -705,6 +812,16 @@ def provision_and_go_offline(
                 kind="repair",
                 attempt=attempt,
             )
+            profile, revision = _repair_install_plan(
+                job_id,
+                profile,
+                steps,
+                attempt=attempt,
+                max_attempts=max_attempts,
+                settings=cfg,
+            )
+            if revision is not None:
+                plan_revisions.append(revision)
         steps = run_install_commands(environment_id, profile, job_id=job_id, settings=cfg)
         failures = [s.name for s in steps if not s.ok]
         if not failures:
@@ -746,6 +863,7 @@ def provision_and_go_offline(
         kind="install",
         failures=failures,
         repair_attempts=attempt,
+        plan_revisions=plan_revisions,
         offline=offline_meta,
         offline_probe=offline_probe,
     )
@@ -760,4 +878,6 @@ def provision_and_go_offline(
         cp_probe=cp_probe,
         offline_probe=offline_probe,
         repair_attempts=attempt,
+        plan_revisions=plan_revisions,
+        profile=profile,
     )

@@ -112,6 +112,64 @@ export function readerSummary(report: JobSnapshot["vuln_report"]) {
 
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 
+const CANARY_ATTEMPT_REASON = "canary_exfiltration_attempt";
+const OUTCOME_RANK: Record<string, number> = {
+  blocked: 0,
+  unknown: 1,
+  attempted: 2,
+  successful: 3,
+};
+
+export type CanaryAttempt = {
+  outcome: "blocked" | "attempted" | "successful" | "unknown";
+  /** What the trace showed. Never claims delivery or isolation failure. */
+  summary: string;
+};
+
+const CANARY_SUMMARIES: Record<CanaryAttempt["outcome"], string> = {
+  successful:
+    "Repository code sent a test secret over the network and the destination answered.",
+  attempted:
+    "Repository code tried to send a test secret over the network. Delivery was not confirmed.",
+  blocked:
+    "Repository code tried to send a test secret, but every matching send failed.",
+  unknown:
+    "The install trace matched a test secret in outgoing bytes but does not show whether the send completed.",
+};
+
+function asOutcome(value: unknown): CanaryAttempt["outcome"] {
+  return typeof value === "string" && value in OUTCOME_RANK
+    ? (value as CanaryAttempt["outcome"])
+    : "unknown";
+}
+
+/**
+ * Canary-bearing send seen in the install trace (dangerous repository
+ * behavior). Distinct from an isolation bypass: the sandbox boundary is judged
+ * only by the containment matrix.
+ */
+export function canaryAttempt(job: JobSnapshot): CanaryAttempt | null {
+  const gates = job.receipt?.dossier?.gates;
+  const gated = gates?.reasons?.includes(CANARY_ATTEMPT_REASON) === true;
+  let outcome: CanaryAttempt["outcome"] | null = gated
+    ? asOutcome(gates?.canary_transmission)
+    : null;
+  if (!gated) {
+    // Not gated yet (live snapshot): read the finding itself.
+    for (const f of job.vuln_report?.findings ?? []) {
+      const detail =
+        typeof f.detail === "object" && f.detail !== null
+          ? (f.detail as Record<string, unknown>)
+          : null;
+      if (detail?.code !== "canary_exfiltration") continue;
+      const next = asOutcome(detail.transmission_outcome);
+      if (!outcome || OUTCOME_RANK[next] > OUTCOME_RANK[outcome])
+        outcome = next;
+    }
+  }
+  return outcome ? { outcome, summary: CANARY_SUMMARIES[outcome] } : null;
+}
+
 export function securityVerdict(job: JobSnapshot) {
   const report = job.vuln_report;
   const counts = countSeverities(report?.findings);
@@ -121,6 +179,7 @@ export function securityVerdict(job: JobSnapshot) {
     reasons.some(
       (r) => r === "policy_bypass" || r === "containment_policy_bypass",
     );
+  const attempt = canaryAttempt(job);
   const target = (job.verification ?? job.receipt?.verification)?.kind;
   const gaps: string[] = [];
   if (!report) gaps.push("No vulnerability report is available for this run.");
@@ -133,7 +192,7 @@ export function securityVerdict(job: JobSnapshot) {
   }
   if (target === "generated_demo")
     gaps.push(
-      "Killhub tested a generated demo. The original application still needs verification.",
+      "Killhub verified a fallback target. The original application still needs verification.",
     );
   else if (
     target !== "original_application" &&
@@ -155,15 +214,25 @@ export function securityVerdict(job: JobSnapshot) {
   if (job.receipt?.containment?.claim !== "proven")
     gaps.push("Sandbox isolation was not fully verified.");
 
-  if (bypass || counts.critical || counts.high)
+  if (bypass || attempt || counts.critical || counts.high) {
+    // Isolation wording only for a confirmed boundary crossing.
+    const reason = [
+      bypass ? "A sandbox isolation check recorded a policy bypass." : null,
+      attempt
+        ? `${attempt.summary} This is dangerous repository behavior, not by itself a sandbox escape.`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
     return {
       label: "High risk",
       color: "var(--danger)",
-      reason: bypass
-        ? "A sandbox isolation check recorded a policy bypass."
-        : "The scan reported a high or critical finding. Review it before running this code.",
+      reason:
+        reason ||
+        "The scan reported a high or critical finding. Review it before running this code.",
       gaps,
     };
+  }
   if (
     counts.medium ||
     counts.low ||

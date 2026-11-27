@@ -271,11 +271,16 @@ export async function listJobs(
 export async function listRepos(
   limit = 9,
   offset = 0,
+  q?: string,
 ): Promise<RepoListResponse> {
   const params = new URLSearchParams({
     limit: String(limit),
     offset: String(Math.max(0, offset)),
   });
+  const query = q?.trim().slice(0, 200);
+  if (query) {
+    params.set("q", query);
+  }
   const res = await fetch(`/api/repos?${params.toString()}`, {
     headers: { Accept: "application/json" },
     cache: "no-store",

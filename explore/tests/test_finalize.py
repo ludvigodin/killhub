@@ -88,6 +88,77 @@ def test_gates_complete_with_sca_findings_only() -> None:
     assert gates["terminal"] == "completed"
 
 
+def _canary_event(job_id: str, **payload: Any) -> None:
+    get_ledger().append_event(
+        job_id,
+        typ="finding",
+        message="canary",
+        payload={"source": "activity", "code": "canary_exfiltration", **payload},
+    )
+
+
+@pytest.mark.parametrize("outcome", ["blocked", "attempted", "successful", "unknown"])
+def test_canary_attempt_hard_fails_with_its_own_reason_for_every_outcome(outcome: str) -> None:
+    job_id = _seed(readiness_passed=True)
+    _canary_event(
+        job_id, classification="canary_exfiltration_attempt", transmission_outcome=outcome
+    )
+    gates = evaluate_gates(job_id, settings=get_settings())
+    assert gates["terminal"] == "failed" and gates["hard_fail"] is True
+    assert gates["reasons"] == ["canary_exfiltration_attempt"]
+    assert gates["isolation_bypass"] is False
+    assert gates["canary_transmission"] == outcome
+
+
+def test_canary_gate_keeps_strongest_outcome_across_findings() -> None:
+    job_id = _seed(readiness_passed=True)
+    _canary_event(
+        job_id, classification="canary_exfiltration_attempt", transmission_outcome="blocked"
+    )
+    _canary_event(
+        job_id, classification="canary_exfiltration_attempt", transmission_outcome="attempted"
+    )
+    assert evaluate_gates(job_id, settings=get_settings())["canary_transmission"] == "attempted"
+
+
+def test_legacy_canary_finding_is_not_read_as_an_isolation_bypass() -> None:
+    job_id = _seed(readiness_passed=True)
+    _canary_event(job_id, classification="policy_bypass")  # older worker wording
+    gates = evaluate_gates(job_id, settings=get_settings())
+    assert gates["reasons"] == ["canary_exfiltration_attempt"]
+    assert gates["isolation_bypass"] is False
+    assert gates["canary_transmission"] == "unknown"
+
+
+def test_confirmed_boundary_crossing_is_reported_alongside_a_canary_attempt() -> None:
+    job_id = _seed(readiness_passed=True)
+    _canary_event(
+        job_id, classification="canary_exfiltration_attempt", transmission_outcome="blocked"
+    )
+    get_ledger().append_event(
+        job_id,
+        typ="containment",
+        message="host probe reached control plane",
+        payload={"dimensions": {"host_access_denied": {"classification": "policy_bypass"}}},
+    )
+    gates = evaluate_gates(job_id, settings=get_settings())
+    assert gates["reasons"] == ["containment_policy_bypass", "canary_exfiltration_attempt"]
+    assert gates["isolation_bypass"] is True
+
+
+def test_generic_policy_bypass_finding_still_means_boundary_crossed() -> None:
+    job_id = _seed(readiness_passed=True)
+    get_ledger().append_event(
+        job_id,
+        typ="finding",
+        message="reached management endpoint",
+        payload={"source": "network", "classification": "policy_bypass"},
+    )
+    gates = evaluate_gates(job_id, settings=get_settings())
+    assert gates["reasons"] == ["policy_bypass"] and gates["isolation_bypass"] is True
+    assert "canary_transmission" not in gates
+
+
 def test_finalize_receipt_before_terminal_and_keeps_readiness(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -10,6 +10,14 @@
 
 **Try it live → [https://killhub.pro](https://killhub.pro)**
 
+**Video demo → [killhub.pro/killhub-demo.mp4](https://killhub.pro/killhub-demo.mp4)**
+
+<p align="center">
+  <video src="https://killhub.pro/killhub-demo.mp4" controls width="800" poster="docs/killhub-hero.gif">
+    <a href="https://killhub.pro/killhub-demo.mp4">Watch the Killhub demo</a>
+  </video>
+</p>
+
 Paste a public git URL — or for GitHub, open `killhub.pro/{owner}/{repo}`. Killhub’s agent **plans** how to bring the repo up, **executes** real install/launch work inside a disposable Vultr Microsandbox, returns **verifiable output** (readiness, stills, containment), then **destroys** the VM — leaving a durable receipt. An agent that only chats is a demo; an agent that executes safely is a product.
 
 Built on **Vultr** end-to-end — Cloud Compute control plane, [Serverless Inference](https://docs.vultr.com/products/serverless/inference/provisioning) for the agent, [Microsandbox](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute) microVMs for untrusted code.

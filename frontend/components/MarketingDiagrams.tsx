@@ -313,7 +313,7 @@ const EVIDENCE_CLASSES = [
   {
     label: "Readiness",
     detail:
-      "Starts the real app or MCP server and proves it answers – an HTTP probe or a live MCP handshake. Every result is labelled original, demo, or setup failed.",
+      "Starts the real app or MCP server and proves it answers - an HTTP probe or a live MCP handshake.",
   },
   {
     label: "Install activity",

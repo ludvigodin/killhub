@@ -8,8 +8,10 @@ from __future__ import annotations
 import logging
 import re
 import socket
+import time
 import urllib.error
 import urllib.request
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -32,6 +34,9 @@ from ledger.store import utc_now
 
 logger = logging.getLogger("killhub.containment")
 
+# Indirection so tests can run the termination poll loop without real sleeping.
+_sleep = time.sleep
+
 DIMENSIONS = (
     "timeout_enforcement",
     "host_access_denied",
@@ -49,6 +54,8 @@ class ContainmentResult:
     network_probes: list[dict[str, Any]] = field(default_factory=list)
     canary_scan: dict[str, Any] = field(default_factory=dict)
     install_cp_probe: dict[str, Any] | None = None
+    unverified_targets: list[str] = field(default_factory=list)
+    claim_scope: str = "incomplete"
 
 
 class ContainmentError(Exception):
@@ -224,60 +231,223 @@ def _collect_install_cp_probe(job_id: str, settings: Settings) -> dict[str, Any]
     return None
 
 
+TIMEOUT_PROBE_SESSION = "containment_timeout"
+# Guest-side hard bound for the busy-loop. Must exceed the client exec timeout so a
+# client timeout alone is never the only thing that could stop the loop.
+TIMEOUT_PROBE_CLIENT_TIMEOUT = 3.0
+TIMEOUT_PROBE_GUEST_BOUND = 8
+TIMEOUT_PROBE_POLLS = 14
+TIMEOUT_PROBE_POLL_INTERVAL = 1.0
+
+# Loop launcher. Runs in its own session/process group when `setsid` exists, records
+# "<pid> <pgid>" in a pidfile, spawns a descendant busy-loop, and arms a guest-side
+# watchdog that SIGKILLs the group after the bound. Process-gone is verified separately.
+_TIMEOUT_LOOP_INNER = (
+    "s=$(cat /proc/$$/stat); r=${s##*) }; set -- $r; pg=$3; "
+    'echo "$$ $pg" > "$KILLHUB_PIDFILE"; '
+    'if [ "$pg" = "$$" ]; then ( sleep "$KILLHUB_BOUND"; kill -KILL -- "-$pg" ) & '
+    'else ( sleep "$KILLHUB_BOUND"; kill -KILL "$$" ) & fi; '
+    "( while true; do :; done ) & "
+    "while true; do :; done"
+)
+
+# Scans /proc for live (non-zombie) processes in the recorded process group or carrying
+# the probe token in their environment (descendants that left the group).
+# Prints `state:gone`, `state:alive pids=...`, or `state:unknown reason=...`.
+_TIMEOUT_CHECK_SCRIPT = (
+    'pidfile="$1"; tok="$2"; me=$$; '
+    '[ -r "$pidfile" ] || { echo "state:unknown reason=pidfile_missing"; exit 0; }; '
+    'read -r lpid lpg < "$pidfile"; '
+    'case "$lpg" in ""|*[!0-9]*) echo "state:unknown reason=pidfile_invalid"; exit 0;; esac; '
+    'found=""; '
+    "for d in /proc/[0-9]*; do "
+    'p=${d#/proc/}; [ "$p" = "$me" ] && continue; '
+    's=$(cat "$d/stat" 2>/dev/null) || continue; '
+    "r=${s##*) }; set -- $r; st=$1; pgrp=$3; "
+    '[ "$st" = Z ] && continue; '
+    'if [ "$p" = "$lpid" ] || { [ "$lpg" = "$lpid" ] && [ "$pgrp" = "$lpg" ]; }; then '
+    'found="$found $p"; continue; fi; '
+    'if tr "\\0" "\\n" < "$d/environ" 2>/dev/null | grep -qx "KILLHUB_PROBE_TOKEN=$tok"; then '
+    'found="$found $p"; fi; '
+    "done; "
+    'if [ -z "$found" ]; then echo "state:gone"; '
+    'else echo "state:alive pids=${found# }"; fi'
+)
+
+_TIMEOUT_KILL_SCRIPT = (
+    'pidfile="$1"; tok="$2"; me=$$; '
+    '[ -r "$pidfile" ] && read -r lpid lpg < "$pidfile"; '
+    'if [ -n "$lpg" ] && [ "$lpg" = "$lpid" ]; then kill -KILL -- "-$lpg" 2>/dev/null; '
+    'elif [ -n "$lpid" ]; then kill -KILL "$lpid" 2>/dev/null; fi; '
+    "for d in /proc/[0-9]*; do "
+    'p=${d#/proc/}; [ "$p" = "$me" ] && continue; '
+    'if tr "\\0" "\\n" < "$d/environ" 2>/dev/null | grep -qx "KILLHUB_PROBE_TOKEN=$tok"; then '
+    'kill -KILL "$p" 2>/dev/null; fi; '
+    "done; echo killed"
+)
+
+
+def _probe_pidfile(token: str) -> str:
+    return f"/tmp/killhub/timeout_probe.{token}.pid"
+
+
+def _check_timeout_loop(
+    environment_id: str, token: str, *, job_id: str, settings: Settings
+) -> tuple[str, list[str], str | None]:
+    """Return (state, residual_pids, reason). state: gone | alive | unknown."""
+    try:
+        res = exec_command(
+            environment_id,
+            [
+                "sh",
+                "-c",
+                _TIMEOUT_CHECK_SCRIPT,
+                "killhub_probe_check",
+                _probe_pidfile(token),
+                token,
+            ],
+            job_id=job_id,
+            settings=settings,
+            timeout=20,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return "unknown", [], f"check_failed:{exc.__class__.__name__}"
+    out = (res.stdout or "").strip().splitlines()
+    line = out[-1].strip() if out else ""
+    if res.exit_code != 0 or not line.startswith("state:"):
+        return "unknown", [], "check_unparsed"
+    if line == "state:gone":
+        return "gone", [], None
+    if line.startswith("state:alive"):
+        pids = line.partition("pids=")[2].split()
+        return "alive", pids, None
+    return "unknown", [], line.partition("reason=")[2] or "check_unknown"
+
+
 def probe_timeout_enforcement(
     environment_id: str,
     *,
     job_id: str,
     settings: Settings,
 ) -> dict[str, Any]:
-    """Adversarial busy-loop absorbed by exec timeout (D58)."""
-    session = "containment_timeout"
-    # Short timeout — harness must kill the guest command.
+    """Adversarial busy-loop absorbed by timeout, with verified process termination (D58).
+
+    A client-side (CLI/SSH) timeout alone is never absorption. The loop runs in a tracked
+    process group with a guest-side bound, and absorption requires timed_out AND the loop
+    plus descendants confirmed gone AND the guest still responding.
+    """
+    session = TIMEOUT_PROBE_SESSION
+    token = uuid.uuid4().hex[:16]
+    pidfile = _probe_pidfile(token)
+    launch_script = (
+        "mkdir -p /tmp/killhub; "
+        f"export KILLHUB_PROBE_SESSION={_shell_quote(session)} "
+        f"KILLHUB_PROBE_TOKEN={_shell_quote(token)} "
+        f"KILLHUB_PIDFILE={_shell_quote(pidfile)} "
+        f"KILLHUB_BOUND={TIMEOUT_PROBE_GUEST_BOUND}; "
+        "if command -v setsid >/dev/null 2>&1; then "
+        f"exec setsid sh -c {_shell_quote(_TIMEOUT_LOOP_INNER)}; "
+        f"else exec sh -c {_shell_quote(_TIMEOUT_LOOP_INNER)}; fi"
+    )
+    # Short client timeout; the guest bound outlives it, so only real enforcement
+    # (exec kill or guest bound) can make the process disappear.
     try:
         result = exec_command(
             environment_id,
-            [
-                "sh",
-                "-lc",
-                f"export KILLHUB_PROBE_SESSION={_shell_quote(session)}; while true; do :; done",
-            ],
+            ["sh", "-c", launch_script],
             job_id=job_id,
             settings=settings,
-            timeout=3.0,
+            timeout=TIMEOUT_PROBE_CLIENT_TIMEOUT,
         )
         timed_out = False
         exit_code = result.exit_code
         detail = (result.stderr or result.stdout or "")[:200]
-    except Exception as exc:  # noqa: BLE001 — timeout surfaces as HarnessError
+    except Exception as exc:  # noqa: BLE001 - timeout surfaces as HarnessError
         timed_out = "timed out" in str(exc).lower() or "timeout" in str(exc).lower()
         exit_code = None
         detail = str(exc)[:200]
 
-    # Guest must still be reachable after the kill.
-    alive = exec_command(
-        environment_id,
-        ["sh", "-lc", "echo alive"],
-        job_id=job_id,
-        settings=settings,
-        timeout=30,
-    )
-    guest_alive = alive.exit_code == 0 and "alive" in (alive.stdout or "")
-    ok = timed_out and guest_alive
+    # Confirm the loop and descendants are gone. Poll up to the guest bound plus grace.
+    started = time.monotonic()
+    state, residual, reason = "unknown", [], None
+    polls = 0
+    for _ in range(TIMEOUT_PROBE_POLLS):
+        polls += 1
+        state, residual, reason = _check_timeout_loop(
+            environment_id, token, job_id=job_id, settings=settings
+        )
+        if state != "alive":
+            break
+        _sleep(TIMEOUT_PROBE_POLL_INTERVAL)
+    terminated_after_s = round(time.monotonic() - started, 2)
+    process_terminated = state == "gone"
+    cleanup_killed = False
+    if state == "alive":
+        # Not enforced by exec timeout or guest bound: clean up the probe, never count it.
+        try:
+            exec_command(
+                environment_id,
+                ["sh", "-c", _TIMEOUT_KILL_SCRIPT, "killhub_probe_kill", pidfile, token],
+                job_id=job_id,
+                settings=settings,
+                timeout=20,
+            )
+            cleanup_killed = True
+        except Exception:  # noqa: BLE001
+            logger.exception("timeout probe cleanup kill failed for %s", job_id)
+
+    # Guest responsiveness is a separate observation from process termination.
+    try:
+        alive = exec_command(
+            environment_id,
+            ["sh", "-lc", "echo alive"],
+            job_id=job_id,
+            settings=settings,
+            timeout=30,
+        )
+        guest_alive = alive.exit_code == 0 and "alive" in (alive.stdout or "")
+    except Exception:  # noqa: BLE001
+        guest_alive = False
+
+    ok = timed_out and process_terminated and guest_alive
+    if ok:
+        summary = (
+            "Adversarial busy-loop absorbed: timed out, loop and descendants "
+            "confirmed gone, guest alive"
+        )
+    elif timed_out and not process_terminated:
+        summary = (
+            "Client timed out but the guest loop was not confirmed terminated "
+            f"({reason or 'process still running'}); not absorbed"
+        )
+    else:
+        summary = (
+            "Busy-loop was not cleanly absorbed "
+            "(timeout, process termination, or guest liveness failed)"
+        )
     absorption = {
         "kind": "infinite_loop",
         "command": "while true; do :; done",
         "absorbed": ok,
-        "summary": (
-            "Adversarial busy-loop absorbed by exec timeout; guest still alive"
-            if ok
-            else "Busy-loop was not cleanly absorbed (timeout or guest liveness failed)"
-        ),
+        "process_terminated": process_terminated,
+        "summary": summary,
     }
     evidence = {
         "dimension": "timeout_enforcement",
         "ok": ok,
         "timed_out": timed_out,
+        "process_terminated": process_terminated,
         "guest_alive": guest_alive,
+        "process_check": {
+            "state": state,
+            "reason": reason,
+            "residual_pids": residual,
+            "polls": polls,
+            "observed_s": terminated_after_s,
+            "guest_bound_s": TIMEOUT_PROBE_GUEST_BOUND,
+            "client_timeout_s": TIMEOUT_PROBE_CLIENT_TIMEOUT,
+            "cleanup_killed": cleanup_killed,
+        },
         "exit_code": exit_code,
         "detail": detail,
         "probe_session": session,
@@ -287,7 +457,7 @@ def probe_timeout_enforcement(
     _containment_event(
         job_id,
         (
-            "ABSORBED ∞ loop — sandbox timeout killed busy-loop; guest alive"
+            "ABSORBED ∞ loop: loop terminated (verified), guest alive"
             if ok
             else f"timeout_enforcement → {'ok' if ok else 'incomplete'}"
         ),
@@ -297,7 +467,7 @@ def probe_timeout_enforcement(
     _log(
         job_id,
         (
-            "containment ABSORBED infinite_loop → guest alive"
+            "containment ABSORBED infinite_loop → process gone, guest alive"
             if ok
             else f"containment timeout_enforcement → {evidence['classification']}"
         ),
@@ -306,6 +476,20 @@ def probe_timeout_enforcement(
         **evidence,
     )
     return evidence
+
+
+# Guest-network aliases cannot get a Plane-1 positive control (D65), so they are
+# excluded from scoring by design rather than merely inconclusive.
+_EXCLUDED_BY_DESIGN = frozenset({"host_internal", "host_gateway_ip"})
+
+
+def _probe_status(probe: dict[str, Any]) -> str:
+    """tested: conclusive result; excluded: not scorable by design; else inconclusive."""
+    if probe.get("classification") in {"policy_denied", "policy_bypass"}:
+        return "tested"
+    if not probe.get("host_ok") and probe.get("name") in _EXCLUDED_BY_DESIGN:
+        return "excluded"
+    return "inconclusive"
 
 
 def probe_host_access_denied(
@@ -447,11 +631,15 @@ def probe_host_access_denied(
     install_ok = bool(install_cp and install_cp.get("classification") == "policy_denied")
     # Guest-network aliases (host_internal / gateway) cannot get a Plane-1 positive
     # control without dialling an unrelated host (D65). Record them, but only score
-    # probes that had a live host positive control — otherwise claim stays forever
+    # probes that had a live host positive control - otherwise claim stays forever
     # incomplete even when CP + management denials are solid.
     scorable = [p for p in probes if p.get("host_ok")]
     for probe in probes:
         probe["scorable"] = bool(probe.get("host_ok"))
+        probe["status"] = _probe_status(probe)
+    tested_targets = [p["name"] for p in probes if p["status"] == "tested"]
+    excluded_targets = [p["name"] for p in probes if p["status"] == "excluded"]
+    inconclusive_targets = [p["name"] for p in probes if p["status"] == "inconclusive"]
     cp_probe = next((p for p in probes if p["name"] == "control_plane"), None)
     # Proven host deny needs verify-phase policy_denied on every scorable probe
     # AND install-phase CP deny so offline mode cannot masquerade as isolation.
@@ -477,6 +665,11 @@ def probe_host_access_denied(
         "classification": classification,
         "probes": probes,
         "scorable_count": len(scorable),
+        "tested_targets": tested_targets,
+        "excluded_targets": excluded_targets,
+        "inconclusive_targets": inconclusive_targets,
+        # Everything not conclusively tested: the claim must stay scoped to the rest.
+        "unverified_targets": [*excluded_targets, *inconclusive_targets],
         "install_cp_probe": install_cp,
         "probe_session": session,
     }
@@ -549,7 +742,7 @@ def probe_sibling_access_denied(
         )
         wait_until_ready(sibling_name, settings=cfg, cli=msb, timeout_seconds=90)
 
-        # Bare MSB_DEFAULT_IMAGE has no python/wget — install minimal serve tooling
+        # Bare MSB_DEFAULT_IMAGE has no python/wget - install minimal serve tooling
         # while sibling still has create-time public egress (D65 positive control).
         tools = exec_command(
             sibling_name,
@@ -607,7 +800,7 @@ def probe_sibling_access_denied(
         evidence["sibling_ip"] = sibling_ip
         evidence["sibling_start_exit"] = start.exit_code
 
-        # Positive control: sibling serves locally (retry — server needs a beat).
+        # Positive control: sibling serves locally (retry - server needs a beat).
         if sibling_ip is None:
             evidence.update(ok=False, classification="inconclusive", reason="no_sibling_ip")
             return evidence
@@ -786,7 +979,7 @@ def probe_host_liveness(
         "checks": checks,
         "probe_session": session,
     }
-    # host_liveness success is not a "deny" — remap claim language for clarity.
+    # host_liveness success is not a "deny" - remap claim language for clarity.
     if ok:
         evidence["classification"] = "healthy"
     _containment_event(
@@ -811,7 +1004,14 @@ def _dimension_proven(dim: dict[str, Any]) -> bool:
     if name == "host_liveness":
         return bool(dim.get("ok"))
     if name == "timeout_enforcement":
-        return bool(dim.get("ok"))
+        # A client timeout alone proves nothing: the loop must be confirmed gone
+        # and the guest must still respond (observed separately).
+        return (
+            dim.get("ok") is True
+            and dim.get("timed_out") is True
+            and dim.get("process_terminated") is True
+            and dim.get("guest_alive") is True
+        )
     # Deny dimensions require policy_denied specifically (D65).
     return dim.get("classification") == "policy_denied" and bool(dim.get("ok"))
 
@@ -823,6 +1023,24 @@ def compute_claim(dimensions: dict[str, dict[str, Any]]) -> str:
         if not dim or not _dimension_proven(dim):
             return "incomplete"
     return "proven"
+
+
+def collect_unverified_targets(dimensions: dict[str, Any]) -> list[str]:
+    """Targets excluded or inconclusive in the matrix; a proven claim does not cover them."""
+    host = dimensions.get("host_access_denied") or {}
+    targets = list(host.get("unverified_targets") or [])
+    for probe in host.get("probes") or []:
+        name = probe.get("name")
+        if probe.get("status") in {"excluded", "inconclusive"} and name not in targets:
+            targets.append(name)
+    return [t for t in targets if isinstance(t, str)]
+
+
+def claim_scope(claim: str, unverified_targets: list[str]) -> str:
+    """Scope of a claim: incomplete | tested_targets_only | full."""
+    if claim != "proven":
+        return "incomplete"
+    return "tested_targets_only" if unverified_targets else "full"
 
 
 def run_containment_probes(
@@ -926,8 +1144,12 @@ def run_containment_probes(
     if canary.get("status") in {"error", "tooling_missing"}:
         claim = "incomplete"
 
+    unverified_targets = collect_unverified_targets(dimensions)
+    scope = claim_scope(claim, unverified_targets)
     payload = {
         "claim": claim,
+        "claim_scope": scope,
+        "unverified_targets": unverified_targets,
         "at": utc_now(),
         "dimensions": dimensions,
         "network_probes": network_probes,
@@ -944,7 +1166,8 @@ def run_containment_probes(
     ledger.append_event(
         job_id,
         typ="containment",
-        message=f"containment claim={claim}",
+        message=f"containment claim={claim}"
+        + (" (tested targets only)" if scope == "tested_targets_only" else ""),
         payload=payload,
     )
     _log(
@@ -953,10 +1176,12 @@ def run_containment_probes(
         settings=cfg,
         kind="containment_probe",
         claim=claim,
+        claim_scope=scope,
+        unverified_targets=unverified_targets,
         dimensions={k: v.get("classification") or v.get("ok") for k, v in dimensions.items()},
     )
 
-    # Persist on receipt (outlives sandbox) — does not terminal-complete the job.
+    # Persist on receipt (outlives sandbox) - does not terminal-complete the job.
     existing = None
     try:
         existing = ledger.get_receipt(job_id)
@@ -973,7 +1198,7 @@ def run_containment_probes(
         },
     )
 
-    # Stay in verifying/scanning — never completed (D37). Hard bypass may fail job (D66).
+    # Stay in verifying/scanning - never completed (D37). Hard bypass may fail job (D66).
     bypass = any(
         dimensions[d].get("classification") == "policy_bypass"
         for d in ("host_access_denied", "sibling_access_denied")
@@ -995,7 +1220,8 @@ def run_containment_probes(
         ledger.update_job_fields(
             job_id,
             status="verifying",
-            current_step=f"containment claim={claim}",
+            current_step=f"containment claim={claim}"
+            + (" (tested targets only)" if scope == "tested_targets_only" else ""),
             progress=95,
         )
 
@@ -1007,6 +1233,8 @@ def run_containment_probes(
         network_probes=network_probes,
         canary_scan=canary,
         install_cp_probe=install_cp,
+        unverified_targets=unverified_targets,
+        claim_scope=scope,
     )
 
 
@@ -1038,6 +1266,8 @@ def network_probe(
     return {
         "status": "ok",
         "claim": result.claim,
+        "claim_scope": result.claim_scope,
+        "unverified_targets": result.unverified_targets,
         "phase": phase,
         "dimensions": list(result.dimensions.keys()),
         "environment_id": environment_id,

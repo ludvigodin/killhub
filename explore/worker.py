@@ -1,4 +1,4 @@
-"""Background worker — claims pending jobs; optional bootstrap → finalize."""
+"""Background worker - claims pending jobs; optional bootstrap → finalize."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ async def worker_loop(settings: Settings | None = None) -> None:
                 await asyncio.to_thread(_run_claimed_job, claimed.job_id, cfg)
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001 — keep loop alive
+        except Exception:  # noqa: BLE001 - keep loop alive
             logger.exception("worker iteration failed")
         await asyncio.sleep(poll)
 
@@ -106,6 +106,11 @@ def _run_claimed_job(job_id: str, settings: Settings) -> None:
                     continue
                 _fail_claimed_job(job_id, exc, ledger=ledger, settings=settings)
                 return
+            except Exception as exc:  # noqa: BLE001 - unexpected pipeline faults still finalize
+                # Preserve cancel ownership: _fail_claimed_job returns early when
+                # cancel_requested_at is set. Do not heal on unknown exceptions.
+                _fail_claimed_job(job_id, exc, ledger=ledger, settings=settings)
+                return
 
 
 def _run_pipeline_once(job_id: str, settings: Settings, *, pipeline: bool) -> None:
@@ -153,7 +158,7 @@ def _run_pipeline_once(job_id: str, settings: Settings, *, pipeline: bool) -> No
 
                 try:
                     review_mcp_tools(job_id, settings=settings)
-                except Exception:  # noqa: BLE001 — review is additive evidence only
+                except Exception:  # noqa: BLE001 - review is additive evidence only
                     logger.exception("MCP tool review failed for %s", job_id)
         if verify_passed and (settings.screenshots_on_claim or settings.finalize_on_claim):
             maybe_capture_after_verify(job_id, settings=settings)
@@ -211,19 +216,63 @@ def _fail_claimed_job(job_id: str, exc: Exception, *, ledger: Ledger, settings: 
                 return
             except Exception:  # noqa: BLE001
                 logger.exception("finalize after failure also failed for %s", job_id)
-        # Fallback: receipt + terminal status event + status atomically (D61).
+        # Fallback when finalize is off or itself crashed: still attempt destroy
+        # before terminal status so live sandboxes are not orphaned (D37, D57).
+        from ledger.store import utc_now
+        from models import CleanupState
+
+        destroy_confirmed = True
+        destroy_error: str | None = None
+        if job.sandbox_id:
+            destroy_confirmed = False
+            try:
+                from harness import destroy_job_environment
+
+                destroy_result = destroy_job_environment(
+                    job_id,
+                    reason="worker_fallback",
+                    settings=settings,
+                    finalizer=True,
+                )
+                destroy_confirmed = bool(destroy_result.confirmed)
+                destroy_error = destroy_result.error
+            except Exception as destroy_exc:  # noqa: BLE001
+                destroy_error = str(destroy_exc)
+                logger.exception("fallback destroy failed for %s", job_id)
+        now = utc_now()
+        cleanup_status = "destroyed" if destroy_confirmed else "destroy_failed"
+        # destroyed_at only after confirmed removal of a live sandbox (D57).
+        destroyed_at = now if (destroy_confirmed and job.sandbox_id) else None
         ledger.finalize_job(
             job_id,
             status="failed",
             receipt={
                 "verification": job.verification
                 or {"kind": "setup_failed", "original_failure": {"summary": message}},
-                "dossier": {"outcome": "failed", "code": code, "phase": "worker_pipeline"},
+                "dossier": {
+                    "outcome": "failed",
+                    "code": code,
+                    "phase": "worker_pipeline",
+                    "cleanup": {"status": cleanup_status, "error": destroy_error},
+                },
+                "lifecycle": {
+                    "destroyed_at": destroyed_at,
+                    "cleanup": cleanup_status,
+                    "destroy_error": destroy_error,
+                    "confirmed": destroy_confirmed,
+                },
             },
             event_payload={"reason": code},
             current_step="pipeline failed",
             error=message,
             progress=100,
+            destroyed_at=destroyed_at,
+            cleanup=CleanupState(
+                status=cleanup_status,  # type: ignore[arg-type]
+                attempts=max(job.cleanup.attempts, 1),
+                last_error=destroy_error,
+                updated_at=now,
+            ),
         )
         try:
             from service import release_admission_slot

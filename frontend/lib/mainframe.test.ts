@@ -24,6 +24,14 @@ test("route events and distinguish danger evidence from operational waits and ex
       telemetry: { source: "canary", code: "canary_unexpected_hit" },
     },
     { type: "containment", telemetry: { classification: "policy_bypass" } },
+    {
+      type: "finding",
+      telemetry: {
+        source: "activity",
+        classification: "canary_exfiltration_attempt",
+        severity: "critical",
+      },
+    },
     { type: "status", telemetry: { status: "completed" } },
   ];
   const items = mapEvents(
@@ -31,7 +39,7 @@ test("route events and distinguish danger evidence from operational waits and ex
   );
   assert.deepEqual(
     items.map((i) => i.station),
-    [2, 2, 4, 4, 3, 4, 4, 5],
+    [2, 2, 4, 4, 3, 4, 4, 3, 5],
   );
   assert.deepEqual(
     items.map((i) => i.alert),
@@ -43,6 +51,7 @@ test("route events and distinguish danger evidence from operational waits and ex
       "High-severity finding",
       "Unexpected canary exposure",
       "Containment policy bypass",
+      "Canary send attempt",
       null,
     ],
   );

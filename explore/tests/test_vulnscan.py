@@ -469,3 +469,172 @@ def test_control_fixture_review_prioritizes_scan_over_metadata_warning(monkeypat
     )
     assert "GitHub" not in report["summary"]
     assert any(f["id"] == "github_api_limited" for f in report["findings"])
+
+
+def _raw_sca(osv_id, aliases, severity, *, package="authlib@1.7.2", lockfile="a.lock", eco="PyPI"):
+    return {
+        "id": f"sca-{osv_id}-{lockfile}",
+        "severity": severity,
+        "package": package,
+        "title": f"{osv_id} description",
+        "advisory_url": f"https://osv.dev/vulnerability/{osv_id}",
+        "source": "sca",
+        "detail": {
+            "osv_id": osv_id,
+            "ecosystem": eco,
+            "lockfile": lockfile,
+            "aliases": aliases,
+        },
+    }
+
+
+def test_reciprocal_aliases_group_once_with_max_severity_and_conflict() -> None:
+    from vulnscan import group_sca_findings
+
+    ghsa = _raw_sca("GHSA-7vr2-2fgp-9w7p", ["PYSEC-2026-4355", "CVE-2026-1"], "high")
+    pysec = _raw_sca("PYSEC-2026-4355", ["GHSA-7vr2-2fgp-9w7p", "CVE-2026-1"], "critical")
+    for order in ([ghsa, pysec], [pysec, ghsa]):
+        grouped = group_sca_findings([dict(f) for f in order])
+        assert len(grouped) == 1
+        finding = grouped[0]
+        detail = finding["detail"]
+        assert finding["severity"] == "critical"
+        assert detail["osv_id"] == "GHSA-7vr2-2fgp-9w7p"
+        assert detail["severity_conflict"] is True
+        assert detail["severity_policy"] == "max_known"
+        assert detail["severity_by_source"] == {
+            "GHSA-7vr2-2fgp-9w7p": "high",
+            "PYSEC-2026-4355": "critical",
+        }
+        assert {s["osv_id"] for s in detail["sources"]} == set(detail["severity_by_source"])
+        assert set(detail["aliases"]) == {"PYSEC-2026-4355", "CVE-2026-1"}
+        assert all(s["advisory_url"] for s in detail["sources"])
+
+
+def test_one_sided_and_transitive_aliases_group_but_distinct_ids_do_not() -> None:
+    from vulnscan import group_sca_findings
+
+    a = _raw_sca("GHSA-a", [], "high")
+    b = _raw_sca("PYSEC-b", ["CVE-1"], "high")
+    c = _raw_sca("OSV-c", ["CVE-1", "GHSA-a"], "high")
+    other = _raw_sca("GHSA-other", [], "low")
+    grouped = group_sca_findings([a, other, b, c])
+    assert len(grouped) == 2
+    assert grouped[0]["detail"]["severity_conflict"] is False
+    assert {s["osv_id"] for s in grouped[0]["detail"]["sources"]} == {"GHSA-a", "PYSEC-b", "OSV-c"}
+    assert grouped[1]["detail"]["osv_id"] == "GHSA-other"
+
+
+def test_aliases_do_not_cross_package_versions_or_ecosystems() -> None:
+    from vulnscan import group_sca_findings
+
+    base = _raw_sca("GHSA-x", ["CVE-9"], "high")
+    other_version = _raw_sca("PYSEC-x", ["CVE-9"], "high", package="authlib@1.7.3")
+    other_eco = _raw_sca("GHSA-x", ["CVE-9"], "high", eco="npm")
+    assert len(group_sca_findings([base, other_version, other_eco])) == 3
+
+
+def test_pypi_names_normalize_and_unknown_severity_is_not_a_conflict() -> None:
+    from vulnscan import group_sca_findings
+
+    a = _raw_sca("GHSA-x", ["CVE-9"], "unknown", package="Foo_Bar@1")
+    b = _raw_sca("PYSEC-x", ["CVE-9"], "medium", package="foo-bar@1")
+    (finding,) = group_sca_findings([a, b])
+    assert finding["severity"] == "medium"
+    assert finding["detail"]["severity_conflict"] is False
+    assert finding["detail"]["severity_by_source"]["GHSA-x"] == "unknown"
+    (all_unknown,) = group_sca_findings(
+        [_raw_sca("GHSA-y", ["CVE-8"], "unknown"), _raw_sca("PYSEC-y", ["CVE-8"], "unknown")]
+    )
+    assert all_unknown["severity"] == "unknown"
+
+
+def test_non_sca_findings_pass_through_unchanged() -> None:
+    from vulnscan import group_sca_findings
+
+    other = {"id": "net-1", "source": "network", "severity": "info", "detail": {}}
+    sca = _raw_sca("GHSA-x", [], "low")
+    out = group_sca_findings([other, sca])
+    assert out[0] is other and len(out) == 2
+
+
+def test_duplicate_package_across_lockfiles_with_aliases_counts_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "00-requirements.txt").write_text("authlib==1.7.2\n")
+    (tmp_path / "01-uv.lock").write_text(
+        '[[package]]\nname = "authlib"\nversion = "1.7.2"\nsource = { registry = "x" }\n'
+    )
+    paths = [tmp_path / "00-requirements.txt", tmp_path / "01-uv.lock"]
+
+    def fake_batch(ecosystem, packages, **kwargs):
+        out = []
+        for name, version in packages:
+            for osv_id, aliases, sev in (
+                ("GHSA-7vr2-2fgp-9w7p", ["CVE-2026-1"], "high"),
+                ("PYSEC-2026-4355", ["CVE-2026-1"], "critical"),
+            ):
+                out.append(
+                    {
+                        "package": name,
+                        "version": version,
+                        "ecosystem": ecosystem,
+                        "osv_id": osv_id,
+                        "summary": f"{osv_id} summary",
+                        "aliases": aliases,
+                        "severity": sev,
+                        "advisory_url": f"https://osv.dev/vulnerability/{osv_id}",
+                    }
+                )
+        return out
+
+    monkeypatch.setattr("vulnscan.query_osv_batch", fake_batch)
+    findings, status, checked, discovered = sca_findings_from_lockfiles(paths)
+    assert status == "ok" and checked == discovered == 2
+    assert len(findings) == 1
+    detail = findings[0]["detail"]
+    assert findings[0]["severity"] == "critical"
+    assert detail["lockfiles"] == ["00-requirements.txt", "01-uv.lock"]
+    for source in detail["sources"]:
+        assert source["lockfiles"] == ["00-requirements.txt", "01-uv.lock"]
+        assert len(source["finding_ids"]) == 2
+
+
+def test_report_and_severity_totals_count_grouped_finding_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from safety import _severity_counts
+
+    job = create_job("https://github.com/example/fixture")
+    ledger = get_ledger()
+    ledger.update_job_fields(job.job_id, sandbox_id="fixture")
+    lock = tmp_path / "requirements.txt"
+    lock.write_text("authlib==1.7.2\n")
+    monkeypatch.setattr("vulnscan.copy_lockfiles_to_artifacts", lambda *a, **kw: ([lock], False))
+    monkeypatch.setattr(
+        "vulnscan.query_osv_batch",
+        lambda eco, pkgs, **kw: [
+            {
+                "package": "authlib",
+                "version": "1.7.2",
+                "ecosystem": "PyPI",
+                "osv_id": osv_id,
+                "summary": "Authlib flaw",
+                "aliases": [other],
+                "severity": sev,
+                "advisory_url": None,
+            }
+            for osv_id, other, sev in (
+                ("GHSA-7vr2-2fgp-9w7p", "PYSEC-2026-4355", "high"),
+                ("PYSEC-2026-4355", "GHSA-7vr2-2fgp-9w7p", "critical"),
+            )
+        ],
+    )
+    run_vuln_scan(job.job_id)
+    report = ledger.get_vuln_report(job.job_id)
+    sca = [f for f in report["findings"] if f["source"] == "sca"]
+    assert len(sca) == 1
+    counts = _severity_counts(report["findings"])
+    assert counts["critical"] == 1 and counts["high"] == 0
+    events = [e for e in ledger.list_events(job.job_id) if e.type == "finding"]
+    assert len([e for e in events if e.payload.get("source") == "sca"]) == 1

@@ -257,41 +257,104 @@ class Ledger:
         ).fetchall()
         return [self._row_to_job(r) for r in rows]
 
-    def count_repos(self) -> int:
-        """Distinct canonical github_url values in the ledger (D79)."""
-        row = self._conn.execute("SELECT COUNT(DISTINCT github_url) AS n FROM jobs").fetchone()
+    @staticmethod
+    def _repo_search_pattern(q: str | None) -> str | None:
+        """Normalize free-text repo search; escape LIKE wildcards. Empty → None."""
+        if q is None:
+            return None
+        trimmed = q.strip()
+        if not trimmed:
+            return None
+        capped = trimmed[:200]
+        escaped = capped.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        return f"%{escaped.lower()}%"
+
+    def count_repos(self, *, q: str | None = None) -> int:
+        """Distinct canonical github_url values in the ledger (D79).
+
+        Optional ``q`` filters to URLs that match ``github_url`` or any ``job_id``
+        substring (case-insensitive).
+        """
+        pattern = self._repo_search_pattern(q)
+        if pattern is None:
+            row = self._conn.execute("SELECT COUNT(DISTINCT github_url) AS n FROM jobs").fetchone()
+        else:
+            row = self._conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM (
+                    SELECT DISTINCT github_url FROM jobs
+                    WHERE LOWER(github_url) LIKE ? ESCAPE '\\'
+                       OR LOWER(job_id) LIKE ? ESCAPE '\\'
+                )
+                """,
+                (pattern, pattern),
+            ).fetchone()
         if row is None:
             return 0
         return int(row["n"])
 
-    def list_recent_repos(self, *, limit: int = 48, offset: int = 0) -> list[tuple[Job, int]]:
+    def list_recent_repos(
+        self, *, limit: int = 48, offset: int = 0, q: str | None = None
+    ) -> list[tuple[Job, int]]:
         """One latest job per github_url, newest activity first (D79).
+
+        Optional ``q`` keeps only repos whose ``github_url`` or any run ``job_id``
+        matches (case-insensitive substring). ``run_count`` stays the full run
+        count for that URL.
 
         Returns ``(latest_job, run_count)`` tuples.
         """
         capped = max(1, min(int(limit), 200))
         skip = max(0, int(offset))
         tie = self._jobs_tie_break_col()
+        pattern = self._repo_search_pattern(q)
         # Window over partition: rn=1 is the newest run; run_count is all runs.
         # Explicitly project the tie-break col — SELECT * omits SQLite rowid /
         # Postgres ctid, so the outer ORDER BY would fail without it.
-        sql = f"""
-            WITH ranked AS (
-                SELECT jobs.*,
-                    jobs.{tie} AS _tie,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY github_url
-                        ORDER BY created_at DESC, {tie} DESC
-                    ) AS rn,
-                    COUNT(*) OVER (PARTITION BY github_url) AS run_count
-                FROM jobs
-            )
-            SELECT * FROM ranked
-            WHERE rn = 1
-            ORDER BY created_at DESC, _tie DESC
-            LIMIT ? OFFSET ?
-        """
-        rows = self._conn.execute(sql, (capped, skip)).fetchall()
+        # When filtering, match URLs first so run_count is not shrunk to hits.
+        if pattern is None:
+            sql = f"""
+                WITH ranked AS (
+                    SELECT jobs.*,
+                        jobs.{tie} AS _tie,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY github_url
+                            ORDER BY created_at DESC, {tie} DESC
+                        ) AS rn,
+                        COUNT(*) OVER (PARTITION BY github_url) AS run_count
+                    FROM jobs
+                )
+                SELECT * FROM ranked
+                WHERE rn = 1
+                ORDER BY created_at DESC, _tie DESC
+                LIMIT ? OFFSET ?
+            """
+            params: tuple[Any, ...] = (capped, skip)
+        else:
+            sql = f"""
+                WITH matched AS (
+                    SELECT DISTINCT github_url FROM jobs
+                    WHERE LOWER(github_url) LIKE ? ESCAPE '\\'
+                       OR LOWER(job_id) LIKE ? ESCAPE '\\'
+                ),
+                ranked AS (
+                    SELECT jobs.*,
+                        jobs.{tie} AS _tie,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY jobs.github_url
+                            ORDER BY created_at DESC, {tie} DESC
+                        ) AS rn,
+                        COUNT(*) OVER (PARTITION BY jobs.github_url) AS run_count
+                    FROM jobs
+                    INNER JOIN matched ON matched.github_url = jobs.github_url
+                )
+                SELECT * FROM ranked
+                WHERE rn = 1
+                ORDER BY created_at DESC, _tie DESC
+                LIMIT ? OFFSET ?
+            """
+            params = (pattern, pattern, capped, skip)
+        rows = self._conn.execute(sql, params).fetchall()
         out: list[tuple[Job, int]] = []
         for row in rows:
             out.append((self._row_to_job(row), int(row["run_count"])))

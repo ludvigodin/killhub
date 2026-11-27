@@ -262,6 +262,7 @@ def test_generated_demo_keeps_original_failure(monkeypatch: pytest.MonkeyPatch) 
                     "cwd": "/tmp/killhub/repo",
                     "timeout_seconds": 60,
                 },
+                "supervise": "restart",
                 "ready_after_seconds": 0,
             }
         ],

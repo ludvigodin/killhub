@@ -55,6 +55,14 @@ function formatUsage(usage: JobSnapshot["inference_usage"]): string | null {
   return parts.length ? parts.join(" · ") : null;
 }
 
+function verificationLabel(kind: string | undefined): string {
+  if (!kind) return "-";
+  if (kind === "original_application") return "original application";
+  if (kind === "generated_demo") return "fallback target";
+  if (kind === "setup_failed") return "setup failed";
+  return kind;
+}
+
 function failureCallout(
   kind: string | undefined,
   originalFailure: unknown,
@@ -163,12 +171,12 @@ export function EnvStatus({ snapshot }: EnvStatusProps) {
           </dd>
         </div>
         <div>
-          <dt className="text-(--muted)">Verification kind</dt>
+          <dt className="text-(--muted)">Verification</dt>
           <dd className="font-medium">
-            {kind || "-"}
+            {verificationLabel(kind)}
             {kind === "generated_demo" ? (
               <span className="mt-1 block text-xs font-normal text-(--muted)">
-                Generated demo - does not prove the original application works.
+                Does not prove the original application works.
               </span>
             ) : null}
             {kind === "setup_failed" ? (

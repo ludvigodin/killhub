@@ -379,16 +379,23 @@ def list_repos_page(
     *,
     limit: int = 48,
     offset: int = 0,
+    q: str | None = None,
     settings: Settings | None = None,
 ) -> dict[str, Any]:
-    """Paginated repo groups: one latest job + run_count per github_url (D79)."""
+    """Paginated repo groups: one latest job + run_count per github_url (D79).
+
+    Optional ``q`` filters by github_url / job_id substring (server-side).
+    """
     cfg = settings or get_settings()
     capped_limit = max(1, min(int(limit), 200))
     capped_offset = max(0, int(offset))
+    query = (q or "").strip()[:200] or None
     ledger = get_ledger(cfg)
-    total = ledger.count_repos()
+    total = ledger.count_repos(q=query)
     repos: list[dict[str, Any]] = []
-    for job, run_count in ledger.list_recent_repos(limit=capped_limit, offset=capped_offset):
+    for job, run_count in ledger.list_recent_repos(
+        limit=capped_limit, offset=capped_offset, q=query
+    ):
         repos.append(
             {
                 "github_url": job.github_url,

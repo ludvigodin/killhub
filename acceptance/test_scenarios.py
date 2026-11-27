@@ -81,7 +81,10 @@ def test_no_false_positive_security_findings(scenario_run, sc: Scenario) -> None
 def test_canary_exfiltration_hard_fails_the_job(scenario_run) -> None:
     snap = scenario_run.results["leaky_install"]
     assert snap["status"] == "failed"
-    assert "policy_bypass" in str(snap.get("error") or ""), snap.get("error")
+    error = str(snap.get("error") or "")
+    assert "canary_exfiltration_attempt" in error, error
+    # A send attempt is dangerous repository behavior, not a confirmed isolation bypass.
+    assert "policy_bypass" not in error, error
     exfil = [f for f in findings(snap) if finding_code(f) == "canary_exfiltration"]
     assert exfil, findings(snap)
     assert (exfil[0].get("severity") or "").lower() == "critical"

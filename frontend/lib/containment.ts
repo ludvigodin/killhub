@@ -16,6 +16,8 @@ type ContainmentProbe = {
   name: string;
   verdict: AxisVerdict;
   classification: string | null;
+  /** tested | excluded | inconclusive (absent on older receipts). */
+  status: string | null;
   detail: string | null;
 };
 
@@ -37,6 +39,8 @@ export type ContainmentView = {
     unexpected: boolean;
   } | null;
   unverifiedHostTargets: string[];
+  /** incomplete | tested_targets_only | full (absent on older receipts). */
+  claimScope: string | null;
   passed: number;
   total: number;
 };
@@ -54,7 +58,8 @@ const AXIS_META: Record<
 > = {
   timeout_enforcement: {
     label: "∞ loop absorption",
-    blurb: "Adversarial busy-loop killed by sandbox timeout; guest still alive",
+    blurb:
+      "Adversarial busy-loop confirmed terminated after timeout; guest still alive",
   },
   host_access_denied: {
     label: "Host access denied",
@@ -99,7 +104,25 @@ function dimensionVerdict(
   if (!dim) return "missing";
   const classification = str(dim.classification);
 
-  if (id === "host_liveness" || id === "timeout_enforcement") {
+  if (id === "timeout_enforcement") {
+    // A client timeout alone is not proof: the loop must be confirmed gone.
+    // Receipts without process_terminated predate that evidence.
+    if (
+      dim.ok === true &&
+      dim.timed_out === true &&
+      dim.process_terminated === true &&
+      dim.guest_alive === true
+    ) {
+      return "pass";
+    }
+    if (dim.ok === true || dim.timed_out === true) return "inconclusive";
+    if (classification === "inconclusive" || classification === "infra_error") {
+      return "inconclusive";
+    }
+    return "fail";
+  }
+
+  if (id === "host_liveness") {
     if (dim.ok === true) return "pass";
     if (classification === "inconclusive" || classification === "infra_error") {
       return "inconclusive";
@@ -132,6 +155,8 @@ function dimensionDetail(
     if (summary) return summary;
     const parts: string[] = [];
     if (dim.timed_out === true) parts.push("loop timed out");
+    if (dim.process_terminated === true) parts.push("process terminated");
+    else if (dim.timed_out === true) parts.push("termination unverified");
     if (dim.guest_alive === true) parts.push("guest alive");
     if (parts.length) return parts.join(" · ");
   }
@@ -167,9 +192,33 @@ function parseProbes(dim: Record<string, unknown>): ContainmentProbe[] {
         name,
         verdict: probeVerdict(p),
         classification,
+        status: str(p.status),
         detail: bits || classification,
       };
     });
+}
+
+function unverifiedTargets(
+  containment: Record<string, unknown>,
+  axes: ContainmentAxis[],
+): string[] {
+  const explicit = Array.isArray(containment.unverified_targets)
+    ? containment.unverified_targets.filter(
+        (t): t is string => typeof t === "string",
+      )
+    : null;
+  if (explicit) return explicit;
+  return (
+    axes
+      .find((axis) => axis.id === "host_access_denied")
+      ?.probes.filter(
+        (probe) =>
+          probe.status === "excluded" ||
+          probe.status === "inconclusive" ||
+          (probe.status == null && probe.verdict === "inconclusive"),
+      )
+      .map((probe) => probe.name) ?? []
+  );
 }
 
 export function parseContainment(
@@ -205,27 +254,31 @@ export function parseContainment(
 
   const timeoutDim = asRecord(dims.timeout_enforcement);
   const absorptionRaw = asRecord(timeoutDim?.absorption);
+  const terminated = timeoutDim?.process_terminated === true;
   let absorption: AbsorptionMoment | null = null;
   if (absorptionRaw) {
+    // Never show absorbed without verified process termination.
+    const absorbed =
+      absorptionRaw.absorbed === true &&
+      terminated &&
+      timeoutDim?.guest_alive === true;
     absorption = {
-      absorbed: absorptionRaw.absorbed === true,
+      absorbed,
       kind: str(absorptionRaw.kind) || "infinite_loop",
       command: str(absorptionRaw.command),
-      summary:
-        str(absorptionRaw.summary) ||
-        (absorptionRaw.absorbed === true
-          ? "Adversarial busy-loop absorbed by exec timeout; guest still alive"
-          : "Busy-loop was not cleanly absorbed"),
+      summary: absorbed
+        ? str(absorptionRaw.summary) ||
+          "Busy-loop terminated (verified); guest still alive"
+        : terminated || absorptionRaw.absorbed !== true
+          ? str(absorptionRaw.summary) || "Busy-loop was not cleanly absorbed"
+          : "Busy-loop timed out but termination was not verified",
     };
-  } else if (timeoutDim?.ok === true || timeoutDim?.timed_out === true) {
+  } else if (timeoutDim?.timed_out === true) {
     absorption = {
-      absorbed: timeoutDim.ok === true,
+      absorbed: false,
       kind: "infinite_loop",
       command: "while true; do :; done",
-      summary:
-        timeoutDim.ok === true
-          ? "Adversarial busy-loop absorbed by exec timeout; guest still alive"
-          : "Busy-loop timed out without confirmed guest liveness",
+      summary: "Busy-loop timed out but termination was not verified",
     };
   }
 
@@ -238,11 +291,8 @@ export function parseContainment(
     axes,
     absorption,
     canary,
-    unverifiedHostTargets:
-      axes
-        .find((axis) => axis.id === "host_access_denied")
-        ?.probes.filter((probe) => probe.verdict === "inconclusive")
-        .map((probe) => probe.name) ?? [],
+    unverifiedHostTargets: unverifiedTargets(containment, axes),
+    claimScope: str(containment.claim_scope),
     passed,
     total: AXIS_ORDER.length,
   };
@@ -265,6 +315,7 @@ export const VERDICT_TONE: Record<
 export function claimTone(
   claim: string | null,
   unverifiedTargets: number,
+  claimScope: string | null = null,
 ): {
   bg: string;
   fg: string;
@@ -274,7 +325,10 @@ export function claimTone(
     return {
       bg: "var(--ok-soft)",
       fg: "var(--ok)",
-      label: unverifiedTargets ? "proven for tested targets" : "proven",
+      label:
+        unverifiedTargets || claimScope === "tested_targets_only"
+          ? "proven for tested targets"
+          : "proven",
     };
   }
   if (claim === "incomplete") {

@@ -41,6 +41,8 @@ function alertReason(event: ProgressLogEntry): string | null {
   const p = event.telemetry ?? {};
   if (event.type !== "finding" && event.type !== "containment") return null;
   if (p.classification === "policy_bypass") return "Containment policy bypass";
+  if (p.classification === "canary_exfiltration_attempt")
+    return "Canary send attempt";
   if (p.code === "canary_unexpected_hit") return "Unexpected canary exposure";
   const finding =
     p.finding && typeof p.finding === "object"
