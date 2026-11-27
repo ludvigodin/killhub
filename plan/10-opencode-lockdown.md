@@ -13,18 +13,18 @@
 
 ## Vultr tooling (required)
 
-- [ ] Configure OpenCode provider against **`https://api.vultrinference.com/v1`** only (D25)
-- [ ] Prove with a real inference call (or fail closed if `VULTR_INFERENCE_*` missing) — do not stub a fake provider
-- [ ] If using Microsandbox MCP in trusted config for debug, keep it D38-gated; harness still owns job sandboxes via `msb` (D23)
+- [x] Configure OpenCode provider against **`https://api.vultrinference.com/v1`** only (D25)
+- [x] Prove with a real inference call (or fail closed if `VULTR_INFERENCE_*` missing) — do not stub a fake provider
+- [x] If using Microsandbox MCP in trusted config for debug, keep it D38-gated; harness still owns job sandboxes via `msb` (D23)
 
 ## Do
 
-- [ ] Ship host-owned trusted OpenCode system/managed config
-- [ ] Deny host `shell`, arbitrary providers/plugins; allow only Vultr-compatible provider
-- [ ] Expose only job-scoped harness tools (even if stubs)
-- [ ] Fail closed if inference base URL is not Vultr Serverless Inference
-- [ ] Treat submitted-repo `AGENTS.md` / `.opencode` as untrusted input
-- [ ] Persist `inference_model` + usage toward budgets
+- [x] Ship host-owned trusted OpenCode system/managed config
+- [x] Deny host `shell`, arbitrary providers/plugins; allow only Vultr-compatible provider
+- [x] Expose only job-scoped harness tools (even if stubs)
+- [x] Fail closed if inference base URL is not Vultr Serverless Inference
+- [x] Treat submitted-repo `AGENTS.md` / `.opencode` as untrusted input
+- [x] Persist `inference_model` + usage toward budgets
 
 ## Do not
 

@@ -121,9 +121,9 @@ Versioned executable schema (`schema_version: "1"`) — see [DATABASE.md](DATABA
 ### E2 — Plan loop (steps −1–3) + OpenCode lockdown
 
 - [x] Plane-1 **pre-flight** before bootstrap create when hard-fail applies (D45); emit `log.kind=preflight` / `finding.source=preflight`
-- [ ] Ship **trusted OpenCode system/managed config** (D38): deny host `shell` / arbitrary tools/providers/plugins; allow only Vultr inference + job-scoped harness tools; never load submitted-repo `.opencode` / `AGENTS.md` as authority
-- [ ] Wire OpenCode → **Vultr Serverless Inference** (D25); fail closed if not Vultr
-- [ ] Persist `inference_model` + usage toward budgets
+- [x] Ship **trusted OpenCode system/managed config** (D38): deny host `shell` / arbitrary tools/providers/plugins; allow only Vultr inference + job-scoped harness tools; never load submitted-repo `.opencode` / `AGENTS.md` as authority
+- [x] Wire OpenCode → **Vultr Serverless Inference** (D25); fail closed if not Vultr
+- [x] Persist `inference_model` + usage toward budgets
 - [ ] Bootstrap create via harness before inspect (D36); plant canaries (D44)
 - [ ] `discover.py`: inspect → infer → validate (inspect via sandbox clone/copy/exec — not privileged host exec of untrusted install); persist **`resolved_commit`** (D62)
 - [ ] On runtime `oci_image` ≠ bootstrap: `replace_environment` (log `sandbox_replace`); re-clone **same SHA**; inherit `expires_at`; still one live VM (D64)

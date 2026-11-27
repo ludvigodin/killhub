@@ -33,7 +33,7 @@ Plane detail (when a step says “see plane doc”):
 | [x] | [07-msb-exec-copy](07-msb-exec-copy.md) | Exec + copy in/out (T1) |
 | [x] | [08-net-policy-canaries](08-net-policy-canaries.md) | Network policy + canaries on create (D39, D44) |
 | [x] | [09-preflight](09-preflight.md) | Plane-1 pre-flight before create (D45) |
-| [ ] | [10-opencode-lockdown](10-opencode-lockdown.md) | Trusted OpenCode + Vultr inference only (D38, D25) |
+| [x] | [10-opencode-lockdown](10-opencode-lockdown.md) | Trusted OpenCode + Vultr inference only (D38, D25) |
 | [ ] | [10b-pin-fixtures](10b-pin-fixtures.md) | Pin M7 fixture commit SHAs before discover (D53) |
 | [ ] | [11-bootstrap-discover](11-bootstrap-discover.md) | Bootstrap sandbox + discover runtime profile (D36) |
 | [ ] | [12-image-replace](12-image-replace.md) | Same-job image replace (still one VM) |

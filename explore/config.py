@@ -34,11 +34,6 @@ class Settings(BaseSettings):
     # OpenCode (trusted config only — D38; empty → explore/opencode/opencode.json)
     opencode_config: str = Field(default="", alias="OPENCODE_CONFIG")
     opencode_model: str = Field(default="", alias="OPENCODE_MODEL")
-    # Optional hard reject for missing inference credentials at agent start.
-    inference_require_key: bool = Field(
-        default=True,
-        alias="INFERENCE_REQUIRE_KEY",
-    )
 
     # Microsandbox harness defaults (D36, D59)
     msb_host: str = Field(default="", alias="MSB_HOST")

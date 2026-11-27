@@ -83,7 +83,7 @@ def refuse_repo_config_authority(path: Path | str) -> None:
     p = Path(path)
     parts_lower = {part.lower() for part in p.parts}
     name = p.name.lower()
-    if name in _UNTRUSTED_CONFIG_NAMES or ".opencode" in parts_lower:
+    if ".opencode" in parts_lower or name in _UNTRUSTED_REPO_DOC_NAMES:
         raise AgentError(
             f"submitted-repo path cannot be OpenCode authority: {p}",
             code="untrusted_repo_input",
@@ -215,9 +215,7 @@ def validate_trusted_config(
     # Permissions layer (also deny shell).
     perms = data.get("permissions") or []
     if not any(
-        isinstance(p, dict)
-        and p.get("action") == "shell"
-        and p.get("effect") == "deny"
+        isinstance(p, dict) and p.get("action") == "shell" and p.get("effect") == "deny"
         for p in perms
     ):
         raise AgentError(
@@ -225,7 +223,8 @@ def validate_trusted_config(
             code="opencode_invalid",
         )
 
-    mcp = ((data.get("mcp") or {}).get("servers") or {}) if isinstance(data.get("mcp"), dict) else {}
+    mcp_block = data.get("mcp") if isinstance(data.get("mcp"), dict) else {}
+    mcp = (mcp_block or {}).get("servers") or {}
     unexpected = set(mcp) - {"killhub-harness"}
     if unexpected:
         raise AgentError(
@@ -354,8 +353,7 @@ def record_inference_usage(
     prev = job.inference_usage if isinstance(job.inference_usage, dict) else {}
     usage = {
         "prompt_tokens": int(prev.get("prompt_tokens") or 0) + result.prompt_tokens,
-        "completion_tokens": int(prev.get("completion_tokens") or 0)
-        + result.completion_tokens,
+        "completion_tokens": int(prev.get("completion_tokens") or 0) + result.completion_tokens,
         "total_tokens": int(prev.get("total_tokens") or 0) + result.total_tokens,
         "calls": int(prev.get("calls") or 0) + 1,
         "budget_tokens": cfg.inference_budget_tokens_per_job,
