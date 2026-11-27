@@ -91,7 +91,8 @@ def wrap_command_spec(spec: dict[str, Any], step_id: int) -> dict[str, Any]:
         return spec
     helper = f"/opt/killhub/helpers/{HELPER_ID}.sh"
     wrapped = {k: v for k, v in spec.items() if k not in {"argv", "shell"}}
-    wrapped["shell"] = f"sh {helper} {int(step_id)} {shlex.quote(inner)}"
+    label = f"tool-{int(step_id)}" if spec.get("killhub_tooling") else str(int(step_id))
+    wrapped["shell"] = f"sh {helper} {label} {shlex.quote(inner)}"
     return wrapped
 
 
@@ -190,7 +191,11 @@ def parse_trace(text: str) -> Activity:
     act = Activity()
     seen_conn: set[tuple[str, str]] = set()
     inodes: dict[str, str] = {}  # socket inode → peer recorded at connect()
+    step = ""
     for raw in text.splitlines():
+        if raw.startswith("### step "):
+            step = raw[len("### step ") :].strip()
+            continue
         line = _PID.sub("", raw.strip(), count=1)
         if line.startswith("execve("):
             m = _EXECVE.search(line)
@@ -199,7 +204,7 @@ def parse_trace(text: str) -> Activity:
                 argv = [
                     _unescape(a).decode("utf-8", "replace") for a in _QUOTED.findall(m.group(2))
                 ]
-                act.processes.append({"exe": m.group(1), "argv": argv[:6]})
+                act.processes.append({"exe": m.group(1), "argv": argv[:6], "step": step})
             continue
         if line.startswith("connect("):
             peer = _peer(line)
@@ -207,7 +212,8 @@ def parse_trace(text: str) -> Activity:
             ino = _FD_INODE.search(line)
             if ino and peer:
                 inodes[ino.group(1)] = peer
-            if peer and not peer.startswith("/"):
+            # Port 0: glibc's UDP connect() for source-address selection, no traffic.
+            if peer and not peer.startswith("/") and not peer.endswith(":0"):
                 outcome = "ok" if res and res.group(1) == "0" else (res.group(2) if res else "?")
                 if outcome == "EINPROGRESS":
                     outcome = "in_progress"
@@ -403,7 +409,11 @@ def collect_and_analyze(
     hits = match_canaries(act, values) if values else []
     persistence = _persistence_changes(environment_id, job_id=job_id, settings=cfg)
     net_tools = sorted(
-        {Path(p["exe"]).name for p in act.processes if Path(p["exe"]).name in NETWORK_TOOLS}
+        {
+            Path(p["exe"]).name
+            for p in act.processes
+            if Path(p["exe"]).name in NETWORK_TOOLS and not p.get("step", "").startswith("tool-")
+        }
     )
     destinations = sorted({c["peer"] for c in act.connections})
 

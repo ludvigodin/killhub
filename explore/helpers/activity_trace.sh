@@ -25,6 +25,7 @@ fi
 raw="$dir/raw.$id"
 strace -f -qq -s 4096 -yy -o "$raw" -e trace=execve,connect,%network sh -c "$cmd"
 rc=$?
+echo "### step $id" >> "$dir/trace.log"
 grep -E 'execve\(|connect\(|send(to|msg|mmsg)?\(' "$raw" >> "$dir/trace.log" 2>/dev/null || true
 rm -f "$raw"
 echo "traced $id rc=$rc" >> "$dir/status"

@@ -407,7 +407,8 @@ def _python_mcp_profile(
         "services": [],
         "packages": ["ca-certificates", "curl", "python3"],
         "install_commands": [
-            {"shell": install_uv, "cwd": root, "timeout_seconds": 300},
+            # Killhub-added tooling: traced, but not attributed to the repo.
+            {"shell": install_uv, "cwd": root, "timeout_seconds": 300, "killhub_tooling": True},
             deps,
         ],
         "run_commands": [launch],

@@ -165,3 +165,21 @@ def test_untraced_install_reports_no_coverage(cfg, monkeypatch, tmp_path) -> Non
     assert summary["coverage"] == "none"
     assert summary["untraced_steps"] == ["0"]
     reset_ledger_for_tests()
+
+
+def test_killhub_tooling_steps_are_not_blamed_for_network_tools() -> None:
+    spec = wrap_command_spec(
+        {"shell": "curl -LsSf https://astral.sh/uv/install.sh | sh", "killhub_tooling": True}, 0
+    )
+    assert " tool-0 " in spec["shell"]
+    trace = (
+        "### step tool-0\n"
+        '10 execve("/usr/bin/curl", ["curl", "-LsSf"], 0x1 /* 3 vars */) = 0\n'
+        "10 connect(3<UDP:[77]>, {sa_family=AF_INET, sin_port=htons(0), "
+        'sin_addr=inet_addr("151.101.0.223")}, 16) = 0\n'
+        "### step 1\n"
+        '11 execve("/usr/bin/wget", ["wget", "x"], 0x1 /* 3 vars */) = 0\n'
+    )
+    act = parse_trace(trace)
+    assert [p["step"] for p in act.processes] == ["tool-0", "1"]
+    assert act.connections == []  # port-0 source-selection connect dropped
