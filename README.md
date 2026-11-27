@@ -6,21 +6,15 @@
 
 # Killhub
 
-**Plan → sandboxed execution → verifiable output → destroy.**
+**Pull. Penetrate. Destroy.**
 
-**Try it live → [https://killhub.pro](https://killhub.pro)**
+Try an unfamiliar public repository in a disposable sandbox on Vultr. See whether the original app runs, what it does during setup, and which risks deserve a closer look.
 
-**Video demo → [killhub.pro/killhub-demo.mp4](https://killhub.pro/killhub-demo.mp4)**
+**[Watch the 27-second demo](https://killhub.pro/killhub-demo.mp4)** · **[Open a completed report](https://killhub.pro/jobs/542860c6-396b-4bf9-84bf-d3e8d9d89fb8)** · [Run your own repository](https://killhub.pro)
 
-<p align="center">
-  <video src="https://killhub.pro/killhub-demo.mp4" controls width="800" poster="docs/killhub-hero.gif">
-    <a href="https://killhub.pro/killhub-demo.mp4">Watch the Killhub demo</a>
-  </video>
-</p>
+The example follows Heroku’s Node.js app. Killhub started the original app and captured a screenshot. A test loop hit its timeout inside the sandbox, the guest responded afterward, and the worker confirmed the VM was destroyed.
 
-Paste a public git URL — or for GitHub, open `killhub.pro/{owner}/{repo}`. Killhub’s agent **plans** how to bring the repo up, **executes** real install/launch work inside a disposable Vultr Microsandbox, returns **verifiable output** (readiness, stills, containment), then **destroys** the VM — leaving a durable receipt. An agent that only chats is a demo; an agent that executes safely is a product.
-
-Built on **Vultr** end-to-end — Cloud Compute control plane, [Serverless Inference](https://docs.vultr.com/products/serverless/inference/provisioning) for the agent, [Microsandbox](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute) microVMs for untrusted code.
+The worker uses repository evidence and fixture rules to choose an executable environment profile. Microsandbox runs that plan on a Vultr VM. Vultr Serverless Inference explains scan findings, while recorded checks determine whether the app ran and cleanup succeeded. [Architecture diagram](docs/hackathon/architecture.png)
 
 ---
 

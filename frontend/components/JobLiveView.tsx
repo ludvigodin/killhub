@@ -10,8 +10,8 @@ import {
   listScreenshots,
   type ScreenshotMeta,
 } from "@/lib/api";
-import { canaryAttempt, snapshotSafety } from "@/lib/findings";
-import { ownerRepoFromGithubUrl, repoPathFromGithubUrl } from "@/lib/github";
+import { canaryAttempt } from "@/lib/findings";
+import { ownerRepoFromGitUrl, repoPathFromGitUrl } from "@/lib/git";
 import { formatQueueLine, isInQueue } from "@/lib/queue";
 import { resolveScreenshotSrc } from "@/lib/screenshots";
 import { formatJobWhen, isJobStalled } from "@/lib/time";
@@ -29,7 +29,6 @@ import {
   ProgressLog,
   type ProgressLogEntry,
 } from "./ProgressLog";
-import { ResultStamp } from "./ResultStamp";
 import { type ScreenshotItem, ScreenshotTimeline } from "./ScreenshotTimeline";
 import { SectionHeader } from "./SectionHeader";
 import {
@@ -49,8 +48,8 @@ function jobBreadcrumbs(
 ): BreadcrumbItem[] {
   const items: BreadcrumbItem[] = [{ label: "Hubs", href: "/hubs" }];
   if (githubUrl) {
-    const repo = ownerRepoFromGithubUrl(githubUrl);
-    const path = repoPathFromGithubUrl(githubUrl);
+    const repo = ownerRepoFromGitUrl(githubUrl);
+    const path = repoPathFromGitUrl(githubUrl);
     if (repo && path) {
       items.push({ label: repo, href: path, title: githubUrl });
     }
@@ -511,7 +510,6 @@ export function JobLiveView({
     snapshot.receipt.dossier.code.trim().length > 0
       ? snapshot.receipt.dossier.code.trim()
       : null;
-  const safety = snapshot ? snapshotSafety(snapshot) : null;
   const errorItems: { message: string; code?: string }[] = [];
   if (jobError) {
     errorItems.push({ message: jobError, code: dossierCode || "job_error" });
@@ -549,9 +547,9 @@ export function JobLiveView({
     </div>
   );
 
-  const githubUrl = snapshot?.github_url;
+  const githubUrl = snapshot?.git_url;
   const repoTitle = githubUrl
-    ? (ownerRepoFromGithubUrl(githubUrl) ?? null)
+    ? (ownerRepoFromGitUrl(githubUrl) ?? null)
     : null;
   const started = snapshot?.created_at
     ? formatJobWhen(snapshot.created_at)
@@ -562,6 +560,8 @@ export function JobLiveView({
 
   const showFindings = Boolean(snapshot && (snapshot.vuln_report || terminal));
   const navItems: SectionNavItem[] = [];
+  if (terminal && snapshot)
+    navItems.push({ id: "section-findings", label: "Run summary" });
   if (errorItems.length > 0) {
     navItems.push({ id: "section-errors", label: "Errors" });
   }
@@ -577,7 +577,7 @@ export function JobLiveView({
   if (containment) {
     navItems.push({ id: "section-containment", label: "Containment" });
   }
-  if (showFindings) {
+  if (showFindings && !terminal) {
     navItems.push({ id: "section-findings", label: "Findings" });
   }
   navItems.push({ id: "section-activity", label: "Activity" });
@@ -592,6 +592,7 @@ export function JobLiveView({
 
   const sections = (
     <div className="flex flex-col gap-8">
+      {terminal && snapshot && <FindingsSummary snapshot={snapshot} finished />}
       {errorItems.length > 0 ? (
         <section
           id="section-errors"
@@ -626,11 +627,7 @@ export function JobLiveView({
               title="Job status"
               meta={
                 <div className="flex flex-wrap items-center justify-end gap-3">
-                  {safety ? (
-                    <ResultStamp safety={safety} />
-                  ) : (
-                    <StatusBadge status={snapshot.status} />
-                  )}
+                  <StatusBadge status={snapshot.status} />
                   {cancelling ? (
                     <span className="type-mono inline-flex items-center gap-1.5 tracking-wide text-(--warn)">
                       <span className="job-live-dot" aria-hidden />
@@ -660,7 +657,7 @@ export function JobLiveView({
                   snapshot.current_step ||
                   (terminal ? "Finished." : "Waiting for next step…")}
               </p>
-              {stepsCompleted.length > 0 ? (
+              {!terminal && stepsCompleted.length > 0 ? (
                 <p className="type-mono text-(--muted)">
                   steps {stepsCompleted.join(" → ")}
                 </p>
@@ -684,11 +681,10 @@ export function JobLiveView({
                   ) : null}
                 </p>
               ) : null}
-              <ProgressBar
-                progress={snapshot.progress}
-                active={!terminal && !stalled}
-              />
-              <p className="type-mono text-(--muted)">
+              {!terminal ? (
+                <ProgressBar progress={snapshot.progress} active={!stalled} />
+              ) : null}
+              <p className="type-mono text-(--muted)" hidden={terminal}>
                 cursor {snapshot.event_cursor ?? "-"}
                 {snapshot.inference_model
                   ? ` · model ${snapshot.inference_model}`
@@ -719,7 +715,7 @@ export function JobLiveView({
         />
       ) : null}
 
-      {showFindings && snapshot ? (
+      {showFindings && !terminal && snapshot ? (
         <FindingsSummary snapshot={snapshot} />
       ) : null}
 

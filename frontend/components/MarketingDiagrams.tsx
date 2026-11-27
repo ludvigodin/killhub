@@ -366,7 +366,7 @@ const RECOVERY = [
 const DONE_EVIDENCE = [
   {
     label: "Readiness",
-    detail: "Probes with honest outcome labels",
+    detail: "Proof the app answers – or an honest “couldn’t run”",
   },
   {
     label: "Stills",

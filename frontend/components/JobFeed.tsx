@@ -93,6 +93,17 @@ export function JobFeed() {
           Git URL. We bring the sandbox and clean up afterward.
         </p>
         <BatchUrlForm onCreated={onCreated} />
+        <div className="mt-5 flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm">
+          <a className="underline underline-offset-4" href="/killhub-demo.mp4">
+            Watch the 27-second demo
+          </a>
+          <Link
+            className="underline underline-offset-4"
+            href="/jobs/542860c6-396b-4bf9-84bf-d3e8d9d89fb8"
+          >
+            Open a completed report
+          </Link>
+        </div>
       </header>
 
       <section aria-label="Job feed" className="flex flex-col gap-3">

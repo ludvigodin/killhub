@@ -1,4 +1,5 @@
 import type { JobSnapshot } from "@/lib/api";
+import { parseContainment } from "@/lib/containment";
 import {
   countSeverities,
   readerSummary,
@@ -12,13 +13,43 @@ import { ActiveCheckSummary } from "./ActiveCheckSummary";
 import { SectionHeader } from "./SectionHeader";
 import { SECTION_SCROLL_MT } from "./SectionNav";
 
-export function FindingsSummary({ snapshot }: { snapshot: JobSnapshot }) {
+export function FindingsSummary({
+  snapshot,
+  finished = false,
+}: {
+  snapshot: JobSnapshot;
+  finished?: boolean;
+}) {
   const report = snapshot.vuln_report;
   const verdict = securityVerdict(snapshot);
   const counts = countSeverities(report?.findings);
   const summary = readerSummary(report);
   const statusTone = report ? reportStatusTone(report.status) : null;
 
+  const kind = (snapshot.verification ?? snapshot.receipt?.verification)?.kind;
+  const verified = snapshot.readiness?.passed === true;
+  let outcome = "The original app could not be verified.";
+  if (verified && kind === "original_application")
+    outcome = "The original app ran.";
+  else if (verified && kind === "generated_demo")
+    outcome =
+      "A generated demo ran. The original app still needs verification.";
+  else if (snapshot.status === "cancelled")
+    outcome = "The run was cancelled before the original app was verified.";
+  const isolation = parseContainment(snapshot.receipt?.containment);
+  const sandbox = [
+    snapshot.screenshot_ids?.length ? "Killhub captured a screenshot." : "",
+    isolation?.absorption?.absorbed
+      ? "The sandbox stopped a runaway loop."
+      : "",
+    snapshot.destroyed_at
+      ? "Killhub confirmed the sandbox was destroyed."
+      : snapshot.sandbox_id
+        ? "Sandbox removal is unconfirmed."
+        : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
     <section
       id="section-findings"
@@ -27,18 +58,21 @@ export function FindingsSummary({ snapshot }: { snapshot: JobSnapshot }) {
     >
       <SectionHeader
         className="mb-3"
-        eyebrow="Security assessment"
-        title="Findings"
+        eyebrow={finished ? "Run summary" : "Security assessment"}
+        title={finished ? outcome : "Findings"}
         meta={
-          statusTone ? (
+          !finished && statusTone ? (
             <p className="type-mono" style={{ color: statusTone.fg }}>
-              report {statusTone.label}
+              Scan status: {statusTone.label}
             </p>
           ) : null
         }
       />
 
       <div className="space-y-3 border border-(--line) bg-(--paper-deep)/60 px-4 py-4">
+        {finished && sandbox && (
+          <p className="text-sm leading-relaxed">{sandbox}</p>
+        )}
         <p
           className="type-display text-base font-medium tracking-tight"
           style={{ color: verdict.color }}
