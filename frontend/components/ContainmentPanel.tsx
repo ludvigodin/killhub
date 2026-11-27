@@ -10,6 +10,8 @@ import {
   parseContainment,
   VERDICT_TONE,
 } from "@/lib/containment";
+import { SectionHeader } from "./SectionHeader";
+import { SECTION_SCROLL_MT } from "./SectionNav";
 
 type ContainmentPanelProps = {
   containment: Record<string, unknown> | null | undefined;
@@ -21,7 +23,7 @@ function VerdictChip({ verdict }: { verdict: AxisVerdict }) {
   const tone = VERDICT_TONE[verdict];
   return (
     <span
-      className="inline-flex shrink-0 items-center rounded-md px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide"
+      className="inline-flex shrink-0 items-center rounded-md px-2 py-0.5 type-eyebrow"
       style={{ background: tone.bg, color: tone.fg }}
     >
       {tone.label}
@@ -41,15 +43,14 @@ function AbsorptionBanner({ moment }: { moment: AbsorptionMoment }) {
       }}
     >
       <p
-        className="font-mono text-[10px] uppercase tracking-[0.18em]"
+        className="type-eyebrow tracking-[0.18em]"
         style={{ color: ok ? "var(--ok)" : "var(--warn)" }}
       >
         Containment moment
       </p>
       <p
-        className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl"
+        className="type-display mt-2 text-xl font-semibold tracking-tight sm:text-2xl"
         style={{
-          fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
           color: ok ? "var(--ok)" : "var(--warn)",
         }}
       >
@@ -100,28 +101,21 @@ function AxisRow({ axis }: { axis: ContainmentAxis }) {
         </span>
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p
-              className="text-sm font-semibold tracking-tight"
-              style={{
-                fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-              }}
-            >
+            <p className="type-display text-sm font-semibold tracking-tight">
               {axis.label}
             </p>
             <VerdictChip verdict={axis.verdict} />
           </div>
           <p className="text-xs text-(--muted)">{axis.blurb}</p>
           {axis.detail ? (
-            <p className="font-mono text-[11px] text-(--muted)">
-              {axis.detail}
-            </p>
+            <p className="type-mono text-(--muted)">{axis.detail}</p>
           ) : null}
           {hasProbes ? (
             <button
               type="button"
               aria-expanded={open}
               onClick={() => setOpen((v) => !v)}
-              className="mt-1 font-mono text-[11px] text-(--accent) underline-offset-2 hover:underline"
+              className="mt-1 type-mono text-(--accent) underline-offset-2 hover:underline"
             >
               {open ? "Hide" : "Show"} {axis.probes.length} probe
               {axis.probes.length === 1 ? "" : "s"}
@@ -140,7 +134,7 @@ function AxisRow({ axis }: { axis: ContainmentAxis }) {
               <div className="min-w-0 flex-1">
                 <p className="font-medium">{probe.name}</p>
                 {probe.detail ? (
-                  <p className="mt-0.5 break-all font-mono text-[11px] text-(--muted)">
+                  <p className="mt-0.5 break-all type-mono text-(--muted)">
                     {probe.detail}
                   </p>
                 ) : null}
@@ -165,31 +159,21 @@ function UnverifiedHostTargets({ view }: { view: ContainmentView }) {
 function ClaimHeader({ view }: { view: ContainmentView }) {
   const tone = claimTone(view.claim);
   return (
-    <div className="flex flex-wrap items-end justify-between gap-3 border-b border-(--line) px-3 py-4 sm:px-4">
-      <div>
-        <p className="text-xs uppercase tracking-[0.14em] text-(--muted)">
-          Containment matrix
-        </p>
-        <h2
-          className="mt-1 text-lg font-semibold tracking-tight sm:text-xl"
-          style={{
-            fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-          }}
-        >
-          Isolation evidence
-        </h2>
-        <p className="mt-1 text-xs text-(--muted) sm:text-sm">
-          {view.passed}/{view.total} axes proven
-          {view.at ? ` · ${view.at}` : ""}
-        </p>
-        <UnverifiedHostTargets view={view} />
-      </div>
-      <span
-        className="inline-flex items-center rounded-md px-2.5 py-1 font-mono text-xs uppercase tracking-wide"
-        style={{ background: tone.bg, color: tone.fg }}
-      >
-        claim · {tone.label}
-      </span>
+    <div className="border-b border-(--line) px-3 py-4 sm:px-4">
+      <SectionHeader
+        eyebrow="Containment matrix"
+        title="Isolation evidence"
+        description={`${view.passed}/${view.total} axes proven${view.at ? ` · ${view.at}` : ""}`}
+        meta={
+          <span
+            className="inline-flex items-center rounded-md px-2.5 py-1 font-mono text-xs uppercase tracking-wide"
+            style={{ background: tone.bg, color: tone.fg }}
+          >
+            claim · {tone.label}
+          </span>
+        }
+      />
+      <UnverifiedHostTargets view={view} />
     </div>
   );
 }
@@ -202,12 +186,14 @@ export function ContainmentPanel({
   if (!view) {
     return (
       <section
+        id="section-containment"
         aria-label="Containment evidence"
-        className="border border-(--line) bg-(--paper-deep)/55 px-4 py-4"
+        className={`border border-(--line) bg-(--paper-deep)/55 px-4 py-4 ${SECTION_SCROLL_MT}`}
       >
-        <p className="text-sm uppercase tracking-wide text-(--muted)">
-          Containment
-        </p>
+        <SectionHeader
+          eyebrow="Containment matrix"
+          title="Isolation evidence"
+        />
         <p className="mt-2 text-sm text-(--muted)">
           No containment matrix on this receipt yet.
         </p>
@@ -241,7 +227,7 @@ export function ContainmentPanel({
             {view.axes.map((axis) => (
               <li key={axis.id}>
                 <span
-                  className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 font-mono text-[10px] uppercase"
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 type-eyebrow"
                   style={{
                     background: VERDICT_TONE[axis.verdict].bg,
                     color: VERDICT_TONE[axis.verdict].fg,
@@ -266,8 +252,9 @@ export function ContainmentPanel({
 
   return (
     <section
+      id="section-containment"
       aria-label="Containment evidence"
-      className="overflow-hidden border border-(--line) bg-(--paper-deep)/55"
+      className={`overflow-hidden border border-(--line) bg-(--paper-deep)/55 ${SECTION_SCROLL_MT}`}
     >
       {view.absorption ? <AbsorptionBanner moment={view.absorption} /> : null}
       <ClaimHeader view={view} />
@@ -282,7 +269,7 @@ export function ContainmentPanel({
             Canary scan
           </p>
           <span
-            className="rounded-md px-2 py-0.5 font-mono text-[10px] uppercase"
+            className="rounded-md px-2 py-0.5 type-eyebrow"
             style={{
               background: view.canary.unexpected
                 ? "var(--danger-soft)"
@@ -295,7 +282,7 @@ export function ContainmentPanel({
               : "clean"}
           </span>
           {view.canary.status ? (
-            <span className="font-mono text-[11px] text-(--muted)">
+            <span className="type-mono text-(--muted)">
               {view.canary.status}
             </span>
           ) : null}

@@ -42,7 +42,9 @@ def test_list_jobs_newest_first(client: TestClient, auth_header: dict[str, str])
         "created_at",
         "screenshot_id",
         "screenshot_url",
+        "safety",
     }
+    assert row["safety"] is None
 
 
 def test_list_jobs_limit(client: TestClient, auth_header: dict[str, str]) -> None:

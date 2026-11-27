@@ -17,10 +17,10 @@ const inFlight = new Map<string, Promise<string>>();
 
 function admissionHint(code?: string, status?: number): string | null {
   if (code === "rate_limited" || status === 429) {
-    return "Rate limited — wait a moment, then retry.";
+    return "Rate limited - wait a moment, then retry.";
   }
   if (code === "queue_full" || status === 503) {
-    return "Queue is full — try again when active jobs finish.";
+    return "Queue is full - try again when active jobs finish.";
   }
   if (code === "inference_budget") {
     return "Inference budget exhausted for this demo window.";
@@ -98,12 +98,7 @@ export function DeepLinkStart({ owner, repo }: DeepLinkStartProps) {
       >
         ← Killhub
       </Link>
-      <h1
-        className="mb-2 text-3xl font-semibold tracking-tight sm:text-4xl"
-        style={{ fontFamily: "var(--font-display), ui-sans-serif, sans-serif" }}
-      >
-        {label}
-      </h1>
+      <h1 className="type-page-title mb-2">{label}</h1>
       {error ? (
         <>
           <ErrorBanner message={error.message} code={error.code} />

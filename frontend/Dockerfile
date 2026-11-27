@@ -1,4 +1,4 @@
-# Plane 1 Next.js edge — local compose / demo image
+# Plane 1 Next.js edge - local compose / demo image
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@11.20.0 --activate

@@ -109,7 +109,7 @@ async function getRedis(): Promise<RedisLike | null> {
     return null;
   }
   try {
-    // Optional dependency — only required when ADMISSION_STORE=valkey.
+    // Optional dependency - only required when ADMISSION_STORE=valkey.
     const mod = await import("redis");
     const client = mod.createClient({ url }) as RedisLike;
     client.on("error", () => {

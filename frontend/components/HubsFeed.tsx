@@ -64,30 +64,16 @@ export function HubsFeed() {
       <SiteNav />
 
       <header className="pb-8 pt-4 sm:pt-6">
-        <h1
-          className="mb-2 text-3xl font-semibold tracking-tight sm:text-4xl"
-          style={{
-            fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-          }}
-        >
-          Hubs
-        </h1>
-        <p className="max-w-2xl text-base leading-relaxed text-(--muted) sm:text-lg">
-          Every repo Killhub has planned, sandboxed, and verified — latest run
+        <h1 className="type-page-title mb-2">Hubs</h1>
+        <p className="max-w-2xl text-base leading-relaxed text-(--muted)">
+          Every repo Killhub has planned, sandboxed, and verified - latest run
           first.
         </p>
       </header>
 
       <section aria-label="All hubs" className="flex flex-col gap-3">
         <div className="flex items-baseline justify-between gap-3">
-          <h2
-            className="text-lg font-semibold tracking-tight"
-            style={{
-              fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-            }}
-          >
-            All tests
-          </h2>
+          <h2 className="type-section-title">All tests</h2>
           <p className="text-sm text-(--muted)">
             {loading
               ? "Loading…"
@@ -101,14 +87,7 @@ export function HubsFeed() {
 
         {!loading && repos.length === 0 ? (
           <div className="rounded-lg border border-dashed border-(--line) bg-(--paper-deep)/50 px-6 py-16 text-center">
-            <p
-              className="mb-2 text-xl font-semibold tracking-tight"
-              style={{
-                fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-              }}
-            >
-              No hubs yet
-            </p>
+            <p className="type-section-title mb-2">No hubs yet</p>
             <p className="mx-auto max-w-md text-(--muted)">
               Paste a public git URL on the home feed to start a run. Hubs
               appear here as jobs complete their plan → execute → destroy loop.

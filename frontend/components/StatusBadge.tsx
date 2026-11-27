@@ -1,6 +1,6 @@
 const TONE: Record<string, { bg: string; fg: string; label?: string }> = {
-  pending: { bg: "var(--paper-deep)", fg: "var(--muted)" },
-  queued: { bg: "var(--paper-deep)", fg: "var(--muted)" },
+  pending: { bg: "var(--paper-deep)", fg: "var(--muted)", label: "In queue" },
+  queued: { bg: "var(--paper-deep)", fg: "var(--muted)", label: "In queue" },
   analyzing: { bg: "var(--accent-soft)", fg: "var(--accent)" },
   planning: { bg: "var(--accent-soft)", fg: "var(--accent)" },
   provisioning: { bg: "var(--accent-soft)", fg: "var(--accent)" },

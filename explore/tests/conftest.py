@@ -25,6 +25,12 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     monkeypatch.setenv("ENV_TTL_SECONDS", "3600")
     monkeypatch.setenv("REAPER_ENABLED", "false")
     monkeypatch.setenv("MSB_AUTO_CREATE", "false")
+    monkeypatch.setenv("DISCOVER_ON_CLAIM", "false")
+    monkeypatch.setenv("INSTALL_ON_CLAIM", "false")
+    monkeypatch.setenv("VERIFY_ON_CLAIM", "false")
+    monkeypatch.setenv("SCREENSHOTS_ON_CLAIM", "false")
+    monkeypatch.setenv("CONTAINMENT_ON_CLAIM", "false")
+    monkeypatch.setenv("FINALIZE_ON_CLAIM", "false")
     monkeypatch.setenv("ADMISSION_STORE", "memory")
     # Preflight has dedicated tests; default suite stays offline-stable.
     monkeypatch.setenv("PREFLIGHT_ENABLED", "false")

@@ -4,7 +4,7 @@
 
 **Try it live → [https://killhub.pro](https://killhub.pro)**
 
-Paste a public git URL. Killhub’s agent **plans** how to bring the repo up, **executes** real install/launch work inside a disposable Vultr Microsandbox, returns **verifiable output** (readiness, stills, containment), then **destroys** the VM — leaving a durable receipt. An agent that only chats is a demo; an agent that executes safely is a product.
+Paste a public git URL — or for GitHub, open `killhub.pro/{owner}/{repo}`. Killhub’s agent **plans** how to bring the repo up, **executes** real install/launch work inside a disposable Vultr Microsandbox, returns **verifiable output** (readiness, stills, containment), then **destroys** the VM — leaving a durable receipt. An agent that only chats is a demo; an agent that executes safely is a product.
 
 Built on **Vultr** end-to-end — Cloud Compute control plane, [Serverless Inference](https://docs.vultr.com/products/serverless/inference/provisioning) for the agent, [Microsandbox](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute) microVMs for untrusted code.
 
@@ -13,7 +13,10 @@ Built on **Vultr** end-to-end — Cloud Compute control plane, [Serverless Infer
 ## Try Killhub
 
 1. Open **[killhub.pro](https://killhub.pro)**
-2. Paste a **public** git HTTPS URL (`github.com`, `gitlab.com`, `bitbucket.org`, or `codeberg.org`)
+2. Start a scan either way:
+   - Paste a **public** git HTTPS URL (`github.com`, `gitlab.com`, `bitbucket.org`, or `codeberg.org`), or
+   - For GitHub, open a short path: `https://killhub.pro/{owner}/{repo}`  
+     Example: [killhub.pro/heroku/node-js-getting-started](https://killhub.pro/heroku/node-js-getting-started) → scans `https://github.com/heroku/node-js-getting-started`
 3. Watch the Pattern A loop: plan → sandboxed execution → verifiable output → destroy
 
 Public demo is anonymous and admission-limited (rate / concurrency / queue). Prefer small getting-started or MCP repos for a first run.

@@ -6,7 +6,7 @@ type KillhubLogoProps = {
    * so this no longer renders a separate text label.
    */
   withWordmark?: boolean;
-  /** @deprecated Unused — wordmark is baked into the logo asset. */
+  /** @deprecated Unused - wordmark is baked into the logo asset. */
   wordmarkClassName?: string;
   className?: string;
 };

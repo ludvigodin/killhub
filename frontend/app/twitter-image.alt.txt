@@ -1,0 +1,1 @@
+Killhub homepage on a laptop: plan, sandboxed execution, verifiable output, destroy.

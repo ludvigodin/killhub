@@ -14,12 +14,12 @@ const PIPELINE = [
   {
     label: "Prove",
     short: "Evidence",
-    detail: "Readiness · stills · containment — honest outcome labels",
+    detail: "Readiness · isolation · cited advisories · optional stills",
   },
   {
     label: "Destroy",
     short: "Receipt",
-    detail: "Confirmed removal — dossier outlives the VM",
+    detail: "Confirmed removal - dossier outlives the VM",
     terminal: true,
   },
 ] as const;
@@ -40,12 +40,7 @@ function Section({
       className="marketing-section border-t border-(--line) pt-14"
       style={{ animationDelay: `${delay}ms` }}
     >
-      <h2
-        className="mb-2 text-2xl font-semibold tracking-tight sm:text-3xl"
-        style={{
-          fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-        }}
-      >
+      <h2 className="type-display mb-2 text-2xl font-semibold tracking-tight sm:text-3xl">
         {title}
       </h2>
       <p className="mb-8 max-w-2xl text-base leading-relaxed text-(--muted)">
@@ -63,17 +58,8 @@ function ProblemFork() {
       aria-label="Where to run a stranger’s repo"
     >
       <div className="problem-fork-source">
-        <p className="font-mono text-[11px] uppercase tracking-wider text-(--muted)">
-          Input
-        </p>
-        <p
-          className="text-lg font-semibold tracking-tight sm:text-xl"
-          style={{
-            fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-          }}
-        >
-          Public git repo
-        </p>
+        <p className="type-eyebrow text-(--muted)">Input</p>
+        <p className="type-section-title">Public git repo</p>
         <p className="text-sm text-(--muted)">
           Ask Killhub to bring it up. Execution must not touch your host.
         </p>
@@ -94,7 +80,7 @@ function ProblemFork() {
         <li>
           <Outcome
             title="Your laptop"
-            detail="Chat that describes work — or unsafe local runs"
+            detail="Chat that describes work - or unsafe local runs"
             tone="bad"
           />
         </li>
@@ -138,9 +124,7 @@ function Outcome({
       <div className="mb-3 flex items-center justify-between gap-3">
         <span
           className={
-            isGood
-              ? "font-mono text-[11px] uppercase tracking-wider text-(--ok)"
-              : "font-mono text-[11px] uppercase tracking-wider text-(--danger)"
+            isGood ? "type-eyebrow text-(--ok)" : "type-eyebrow text-(--danger)"
           }
         >
           {isGood ? "Preferred" : "Avoid"}
@@ -159,12 +143,9 @@ function Outcome({
       <p
         className={
           isGood
-            ? "mb-1.5 text-base font-semibold tracking-tight text-(--ink)"
-            : "mb-1.5 text-base font-semibold tracking-tight text-(--muted)"
+            ? "type-display mb-1.5 text-base font-semibold tracking-tight text-(--ink)"
+            : "type-display mb-1.5 text-base font-semibold tracking-tight text-(--muted)"
         }
-        style={{
-          fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-        }}
       >
         {title}
       </p>
@@ -196,12 +177,10 @@ function Pipeline() {
               ) : null}
               <div className="pattern-loop-card">
                 <div className="pattern-loop-card-top">
-                  <p className="font-mono text-[11px] tabular-nums text-(--accent)">
+                  <p className="type-mono tabular-nums text-(--accent)">
                     {String(i + 1).padStart(2, "0")}
                   </p>
-                  <p className="font-mono text-[11px] uppercase tracking-wider text-(--muted)">
-                    {step.short}
-                  </p>
+                  <p className="type-eyebrow text-(--muted)">{step.short}</p>
                 </div>
                 <p
                   className="mb-1.5 text-base font-semibold tracking-tight text-(--ink)"
@@ -222,7 +201,7 @@ function Pipeline() {
       </ol>
       <figcaption className="pattern-loop-caption">
         <span className="pattern-loop-caption-line" aria-hidden />
-        <span className="font-mono text-[11px] uppercase tracking-wider text-(--muted)">
+        <span className="type-eyebrow text-(--muted)">
           One public URL in · real evidence out · VM gone
         </span>
         <span className="pattern-loop-caption-line" aria-hidden />
@@ -240,21 +219,14 @@ function TwoPlanes() {
       <div className="two-planes-stage">
         <article className="two-planes-node two-planes-node-control">
           <header className="two-planes-node-head">
-            <p className="font-mono text-[11px] uppercase tracking-wider text-(--accent)">
+            <p className="type-eyebrow text-(--accent)">
               Plane 1 · plan & verify
             </p>
             <span className="two-planes-tag two-planes-tag-host">
               Trusted host
             </span>
           </header>
-          <p
-            className="mb-3 text-lg font-semibold tracking-tight sm:text-xl"
-            style={{
-              fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-            }}
-          >
-            Control plane
-          </p>
+          <p className="mb-3 type-section-title">Control plane</p>
           <ul className="two-planes-list m-0 list-none space-y-2 p-0 text-sm leading-snug text-(--muted)">
             <li>
               <span className="two-planes-dot" aria-hidden />
@@ -268,7 +240,7 @@ function TwoPlanes() {
             </li>
             <li>
               <span className="two-planes-dot" aria-hidden />
-              <span>Secrets stay here — never injected into the sandbox</span>
+              <span>Secrets stay here - never injected into the sandbox</span>
             </li>
           </ul>
         </article>
@@ -279,13 +251,11 @@ function TwoPlanes() {
             <span className="two-planes-flow two-planes-flow-back" />
           </div>
           <div className="two-planes-bridge-label">
-            <p className="font-mono text-[11px] uppercase tracking-wider text-(--accent)">
-              msb
-            </p>
-            <p className="text-[11px] leading-tight text-(--muted)">
+            <p className="type-eyebrow text-(--accent)">msb</p>
+            <p className="text-xs leading-tight text-(--muted)">
               create · exec · destroy
             </p>
-            <p className="mt-1 text-[11px] leading-tight text-(--muted)">
+            <p className="mt-1 text-xs leading-tight text-(--muted)">
               evidence returns
             </p>
           </div>
@@ -293,28 +263,21 @@ function TwoPlanes() {
 
         <article className="two-planes-node two-planes-node-sandbox">
           <header className="two-planes-node-head">
-            <p className="font-mono text-[11px] uppercase tracking-wider text-(--accent)">
+            <p className="type-eyebrow text-(--accent)">
               Plane 2 · sandboxed execution
             </p>
             <span className="two-planes-tag two-planes-tag-ephemeral">
               Ephemeral
             </span>
           </header>
-          <p
-            className="mb-3 text-lg font-semibold tracking-tight sm:text-xl"
-            style={{
-              fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-            }}
-          >
-            Disposable microVM
-          </p>
+          <p className="mb-3 type-section-title">Disposable microVM</p>
           <ul className="two-planes-list m-0 list-none space-y-2 p-0 text-sm leading-snug text-(--muted)">
             <li>
               <span
                 className="two-planes-dot two-planes-dot-accent"
                 aria-hidden
               />
-              <span>Real clone · install · launch — not described</span>
+              <span>Real clone · install · launch - not described</span>
             </li>
             <li>
               <span
@@ -336,8 +299,8 @@ function TwoPlanes() {
 
       <figcaption className="two-planes-boundary">
         <span className="two-planes-boundary-line" aria-hidden />
-        <span className="font-mono text-[11px] uppercase tracking-wider text-(--muted)">
-          Trust boundary — untrusted code never runs as a privileged host
+        <span className="type-eyebrow text-(--muted)">
+          Trust boundary - untrusted code never runs as a privileged host
           process
         </span>
         <span className="two-planes-boundary-line" aria-hidden />
@@ -345,6 +308,34 @@ function TwoPlanes() {
     </figure>
   );
 }
+
+const EVIDENCE_CLASSES = [
+  {
+    label: "Readiness",
+    detail:
+      "HTTP or MCP handshake proves the target answers - labeled original_application, generated_demo, or setup_failed.",
+  },
+  {
+    label: "Network / containment",
+    detail:
+      "Guest cannot call Plane 1 or sibling sandboxes; hostile loops time out; planted canaries are watched.",
+  },
+  {
+    label: "Dependency SCA",
+    detail:
+      "Known advisories from lockfiles, cite-checked on Plane 1 - separate from intentional-app findings.",
+  },
+  {
+    label: "Optional MCP assessment",
+    detail:
+      "Bounded surface check only when the profile plans it - not a generic exploit suite.",
+  },
+  {
+    label: "Optional stills",
+    detail:
+      "Screenshot trail when HTTP verify captures; stills never gate job completion.",
+  },
+] as const;
 
 const DONE_EVIDENCE = [
   {
@@ -358,6 +349,10 @@ const DONE_EVIDENCE = [
   {
     label: "Containment",
     detail: "∞ loop absorbed, then destroy",
+  },
+  {
+    label: "Cited advisories",
+    detail: "Lockfile SCA summarized with citations",
   },
 ] as const;
 
@@ -376,6 +371,51 @@ const DONE_EXCLUSIONS = [
   },
 ] as const;
 
+function EvidenceClasses() {
+  return (
+    <figure
+      className="evidence-ledger m-0"
+      aria-label="Evidence classes Killhub collects"
+    >
+      <div className="evidence-ledger-sheet">
+        <header className="evidence-ledger-head">
+          <div>
+            <p className="type-eyebrow text-(--accent)">Job evidence</p>
+            <p className="mt-1 type-section-title">What Killhub tests</p>
+          </div>
+          <p className="evidence-ledger-stamp">Five classes</p>
+        </header>
+
+        <ol className="evidence-ledger-list m-0 list-none p-0">
+          {EVIDENCE_CLASSES.map((item, i) => (
+            <li key={item.label} className="evidence-ledger-row">
+              <span className="evidence-ledger-index type-mono tabular-nums text-(--accent)">
+                {String(i + 1).padStart(2, "0")}
+              </span>
+              <span>
+                <span className="block text-sm font-semibold tracking-tight text-(--ink)">
+                  {item.label}
+                </span>
+                <span className="block text-sm leading-snug text-(--muted)">
+                  {item.detail}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ol>
+
+        <footer className="evidence-ledger-foot">
+          <p className="type-eyebrow text-(--danger)">Not a pentest suite</p>
+          <p className="mt-1 text-sm leading-snug text-(--muted)">
+            Killhub does not weaponize CVEs or run generic app/web exploit
+            packs. Containment proves isolation - it is not CVE hunting.
+          </p>
+        </footer>
+      </div>
+    </figure>
+  );
+}
+
 function SecurityScope() {
   return (
     <figure
@@ -385,26 +425,15 @@ function SecurityScope() {
       <div className="done-dossier-sheet">
         <header className="done-dossier-head">
           <div>
-            <p className="font-mono text-[11px] uppercase tracking-wider text-(--accent)">
-              Durable receipt
-            </p>
-            <p
-              className="mt-1 text-lg font-semibold tracking-tight sm:text-xl"
-              style={{
-                fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-              }}
-            >
-              Evidence outlives the VM
-            </p>
+            <p className="type-eyebrow text-(--accent)">Durable receipt</p>
+            <p className="mt-1 type-section-title">Evidence outlives the VM</p>
           </div>
           <p className="done-dossier-stamp">Destroyed</p>
         </header>
 
         <div className="done-dossier-columns">
           <div className="done-dossier-column">
-            <p className="mb-3 font-mono text-[11px] uppercase tracking-wider text-(--ok)">
-              Counts as done
-            </p>
+            <p className="mb-3 type-eyebrow text-(--ok)">Counts as done</p>
             <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
               {DONE_EVIDENCE.map((item) => (
                 <li key={item.label} className="done-dossier-row">
@@ -430,9 +459,7 @@ function SecurityScope() {
           <div className="done-dossier-rule" aria-hidden />
 
           <div className="done-dossier-column">
-            <p className="mb-3 font-mono text-[11px] uppercase tracking-wider text-(--danger)">
-              Does not count
-            </p>
+            <p className="mb-3 type-eyebrow text-(--danger)">Does not count</p>
             <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
               {DONE_EXCLUSIONS.map((item) => (
                 <li key={item.label} className="done-dossier-row">
@@ -465,7 +492,7 @@ export function MarketingDiagrams() {
     <div className="flex flex-col gap-4 pb-8 pt-6">
       <Section
         title="Why sandbox"
-        support="An agent that only chats is a demo. An agent that executes safely — then destroys the environment — is a product."
+        support="An agent that only chats is a demo. An agent that executes safely - then destroys the environment - is a product."
         delay={40}
       >
         <ProblemFork />
@@ -479,15 +506,22 @@ export function MarketingDiagrams() {
       </Section>
       <Section
         title="Two planes"
-        support="Control plane plans and verifies. Plane 2 executes. Hard boundary — untrusted code never runs as a privileged host process."
+        support="Control plane plans and verifies. Plane 2 executes. Hard boundary - untrusted code never runs as a privileged host process."
         delay={120}
       >
         <TwoPlanes />
       </Section>
       <Section
-        title="What “done” looks like"
-        support="Judges and operators see executed results: readiness, stills, containment absorption, and a durable receipt after destroy."
+        title="Evidence Killhub collects"
+        support="Five probe classes on every job path that reaches prove - plus an explicit line on what Killhub does not run."
         delay={160}
+      >
+        <EvidenceClasses />
+      </Section>
+      <Section
+        title="What “done” looks like"
+        support="Judges and operators see executed results: readiness, stills, containment absorption, cited advisories, and a durable receipt after destroy."
+        delay={200}
       >
         <SecurityScope />
       </Section>

@@ -150,7 +150,9 @@ erDiagram
 
 `pending` \| `destroying` \| `destroyed` \| `destroy_failed`
 
-`queued` is optional when admission queues a job (D40).
+`queued` is set on create when running jobs already fill `MAX_CONCURRENT_JOBS` (D40); otherwise jobs start as `pending`. Both are claimable (FIFO by `created_at`).
+
+**Computed (API only, not ledger columns):** when `status` is `pending` or `queued`, public/list snapshots may include `queue_position` (1-based FIFO place among waiting jobs) and `expected_wait_seconds` (soft ETA from recent terminal durations, fallback `ESTIMATED_JOB_SECONDS`). Both are `null` once the job leaves the queue.
 
 ---
 
@@ -404,7 +406,8 @@ schemas/
 | Trigger | Action |
 |---------|--------|
 | Job reaching finalizer for `completed` / `failed` / `cancelled` | Enter `cleanup.status=destroying`; confirm remove of **current** generation; then generation + job `destroyed` + `destroyed_at` — or `destroy_failed` with error (D57, D61) |
-| Absolute `expires_at` / host reaper | Same confirm-only semantics |
+| Absolute `expires_at` / host reaper | Same confirm-only semantics; Plane-1 also **terminalizes** the job (`dossier.code=expires_at`) if still non-terminal (D81) |
+| `JOB_TIMEOUT_SECONDS` / `JOB_STALL_SECONDS` | Plane-1 reaper fails non-terminal jobs (`job_timeout` / `job_stalled`) with receipt before/alongside destroy (D81) |
 | Image replace | Prior generation destroyed/replaced; job-level `destroyed_at` unchanged while replacement live (D64) |
 | Orphan reaper | Stop/remove sandboxes with no live job/generation reference |
 

@@ -87,18 +87,12 @@ export function ConnectMcpPanel({ open, onClose }: ConnectMcpPanelProps) {
       >
         <div className="flex items-start justify-between gap-4 border-b border-(--line) px-5 py-4">
           <div className="min-w-0">
-            <h2
-              id={titleId}
-              className="text-lg font-semibold tracking-tight text-(--ink)"
-              style={{
-                fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-              }}
-            >
+            <h2 id={titleId} className="type-section-title text-(--ink)">
               Connect MCP
             </h2>
             <p className="mt-1 text-sm leading-snug text-(--muted)">
               Point Cursor or Claude at Killhub’s public MCP endpoint. Same Jobs
-              API and admission caps as the UI — secrets stay on the control
+              API and admission caps as the UI - secrets stay on the control
               plane.
             </p>
           </div>
@@ -115,19 +109,15 @@ export function ConnectMcpPanel({ open, onClose }: ConnectMcpPanelProps) {
 
         <div className="space-y-3 px-5 py-4">
           <div>
-            <p className="mb-1.5 font-mono text-[11px] uppercase tracking-wider text-(--muted)">
-              Endpoint
-            </p>
-            <p className="truncate rounded-md border border-(--line) bg-(--paper) px-3 py-2 font-mono text-xs text-(--accent)">
+            <p className="type-eyebrow mb-1.5 text-(--muted)">Endpoint</p>
+            <p className="type-mono truncate rounded-md border border-(--line) bg-(--paper) px-3 py-2 text-(--accent)">
               {endpoint}
             </p>
           </div>
 
           <div>
-            <p className="mb-1.5 font-mono text-[11px] uppercase tracking-wider text-(--muted)">
-              Config snippet
-            </p>
-            <pre className="overflow-x-auto rounded-md border border-(--line) bg-(--paper) px-3 py-2.5 font-mono text-[12px] leading-5 whitespace-pre text-(--ink)">
+            <p className="type-eyebrow mb-1.5 text-(--muted)">Config snippet</p>
+            <pre className="type-mono overflow-x-auto rounded-md border border-(--line) bg-(--paper) px-3 py-2.5 leading-5 whitespace-pre text-(--ink)">
               {config}
             </pre>
           </div>

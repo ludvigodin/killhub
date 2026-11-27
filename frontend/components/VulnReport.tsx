@@ -8,6 +8,7 @@ import {
   SEVERITY_TONE,
   type SeverityLevel,
 } from "@/lib/findings";
+import { SectionHeader } from "./SectionHeader";
 
 type VulnReportProps = {
   report: VulnReportData | null | undefined;
@@ -65,12 +66,10 @@ function severityTone(raw: string | undefined): { bg: string; fg: string } {
 export function VulnReport({ report }: VulnReportProps) {
   if (!report) {
     return (
-      <section aria-label="Vulnerability report">
-        <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
-          Vulnerability report
-        </p>
+      <section aria-label="Vulnerability report" className="space-y-3">
+        <SectionHeader size="sm" eyebrow="Scan" title="Vulnerability report" />
         <p className="text-sm text-(--muted)">
-          Scan not available yet — report appears after finalize.
+          Scan not available yet - report appears after finalize.
         </p>
       </section>
     );
@@ -92,15 +91,12 @@ export function VulnReport({ report }: VulnReportProps) {
       aria-label="Vulnerability report"
       className="min-w-0 space-y-4 wrap-anywhere"
     >
-      <div>
-        <p className="mb-1 text-sm uppercase tracking-wide text-(--muted)">
-          Vulnerability report
-        </p>
-        <p className="text-xs text-(--muted)">
-          Default report is scan-based (SCA / advisories). This is not a generic
-          app pentest. Findings do not erase readiness evidence.
-        </p>
-      </div>
+      <SectionHeader
+        size="sm"
+        eyebrow="Scan"
+        title="Vulnerability report"
+        description="Default report is scan-based (SCA / advisories). This is not a generic app pentest. Findings do not erase readiness evidence."
+      />
 
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
         <p>

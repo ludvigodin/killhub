@@ -15,14 +15,17 @@ const PAGE_SIZE = 12;
 export function JobFeed() {
   const [repos, setRepos] = useState<RepoSummary[]>([]);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
   const reposRef = useRef(repos);
   reposRef.current = repos;
 
-  const from = total === 0 ? 0 : 1;
-  const to = Math.min(repos.length, total);
+  const offset = page * PAGE_SIZE;
+  const from = total === 0 ? 0 : offset + 1;
+  const to = Math.min(offset + repos.length, total);
+  const maxPage = Math.max(0, Math.ceil(total / PAGE_SIZE) - 1);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reloadToken refreshes after batch create
   useEffect(() => {
@@ -30,11 +33,15 @@ export function JobFeed() {
 
     async function load() {
       try {
-        const next = await listRepos(PAGE_SIZE, 0);
+        const next = await listRepos(PAGE_SIZE, offset);
         if (cancelled) return;
         setRepos(next.repos);
         setTotal(next.total);
         setError(null);
+        const nextMax = Math.max(0, Math.ceil(next.total / PAGE_SIZE) - 1);
+        if (page > nextMax) {
+          setPage(nextMax);
+        }
       } catch (err) {
         if (cancelled) return;
         const e = err as Error;
@@ -56,10 +63,11 @@ export function JobFeed() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [reloadToken]);
+  }, [reloadToken, page, offset]);
 
   function onCreated(results: BatchResult[]) {
     if (results.some((r) => r.ok)) {
+      setPage(0);
       setReloadToken((n) => n + 1);
     }
   }
@@ -72,26 +80,19 @@ export function JobFeed() {
         <div className="mb-6 flex justify-center">
           <KillhubLogo size={64} />
         </div>
-        <h1 className="mx-auto mb-3 max-w-2xl text-xl font-medium tracking-tight text-(--ink) sm:text-2xl">
+        <h1 className="type-display mx-auto mb-3 max-w-2xl text-2xl font-semibold tracking-tight text-(--ink) sm:text-3xl">
           Plan → sandboxed execution → verifiable output → destroy
         </h1>
-        <p className="mx-auto mb-8 max-w-xl text-base leading-relaxed text-(--muted) sm:text-lg">
+        <p className="mx-auto mb-8 max-w-xl text-base leading-relaxed text-(--muted)">
           Paste a public git URL. The agent plans, runs real work in a
-          Microsandbox, returns evidence — then destroys the VM.
+          Microsandbox, returns evidence - then destroys the VM.
         </p>
         <BatchUrlForm onCreated={onCreated} />
       </header>
 
       <section aria-label="Job feed" className="flex flex-col gap-3">
         <div className="flex items-baseline justify-between gap-3">
-          <h2
-            className="text-lg font-semibold tracking-tight"
-            style={{
-              fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-            }}
-          >
-            Recent
-          </h2>
+          <h2 className="type-section-title">Recent</h2>
           <p className="text-sm text-(--muted)">
             {loading
               ? "Loading…"
@@ -105,16 +106,9 @@ export function JobFeed() {
 
         {!loading && repos.length === 0 ? (
           <div className="rounded-lg border border-dashed border-(--line) bg-(--paper-deep)/50 px-6 py-16 text-center">
-            <p
-              className="mb-2 text-xl font-semibold tracking-tight"
-              style={{
-                fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-              }}
-            >
-              No runs yet
-            </p>
+            <p className="type-section-title mb-2">No runs yet</p>
             <p className="mx-auto max-w-md text-(--muted)">
-              Paste a public git URL above — or connect MCP — and watch each job
+              Paste a public git URL above - or connect MCP - and watch each job
               plan, execute in a sandbox, prove output, then destroy.
             </p>
           </div>
@@ -136,7 +130,30 @@ export function JobFeed() {
                 );
               })}
             </div>
-            <div className="mt-3 flex justify-center">
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
+              {total > PAGE_SIZE ? (
+                <>
+                  <button
+                    type="button"
+                    className="rounded-md border border-(--line) bg-(--paper-deep) px-4 py-1.5 text-sm text-(--ink) transition hover:border-(--accent) disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={loading || page <= 0}
+                    onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  >
+                    Previous
+                  </button>
+                  <p className="text-sm tabular-nums text-(--muted)">
+                    Page {page + 1} of {maxPage + 1}
+                  </p>
+                  <button
+                    type="button"
+                    className="rounded-md border border-(--line) bg-(--paper-deep) px-4 py-1.5 text-sm text-(--ink) transition hover:border-(--accent) disabled:cursor-not-allowed disabled:opacity-40"
+                    disabled={loading || page >= maxPage}
+                    onClick={() => setPage((p) => Math.min(maxPage, p + 1))}
+                  >
+                    Next
+                  </button>
+                </>
+              ) : null}
               <Link
                 href="/hubs"
                 className="rounded-md border border-(--line) bg-(--paper-deep) px-4 py-1.5 text-sm text-(--ink) no-underline transition hover:border-(--accent)"

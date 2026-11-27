@@ -14,6 +14,7 @@ from typing import Any
 
 from config import Settings, get_settings
 from harness import MsbCli, copy_in, exec_command, wait_until_ready
+from heartbeat import with_heartbeat
 from jobs import get_ledger
 from net_policy import verify_phase_policy
 from paths import HELPER_CATALOG
@@ -123,8 +124,13 @@ def _status(
     ledger.append_event(
         job_id,
         typ="status",
-        message=status,
-        payload={"status": status, "step": step},
+        message=step,
+        payload={
+            "status": status,
+            "step": step,
+            "current_step": step,
+            "progress": progress,
+        },
     )
 
 
@@ -324,24 +330,29 @@ def preinstall_assessment_tooling(
         timeout=60,
     )
     # Best-effort: install wget/curl for probes if missing (install egress still open).
-    exec_command(
-        environment_id,
-        [
-            "sh",
-            "-lc",
-            "if command -v wget >/dev/null 2>&1 || command -v curl >/dev/null 2>&1; then "
-            "exit 0; "
-            "elif command -v apt-get >/dev/null 2>&1; then "
-            "export DEBIAN_FRONTEND=noninteractive; "
-            "apt-get update -qq && "
-            "apt-get install -y -qq python3 wget curl ca-certificates; "
-            "elif command -v apk >/dev/null 2>&1; then "
-            "apk add --no-cache python3 wget curl ca-certificates; "
-            "else exit 0; fi",
-        ],
-        job_id=job_id,
+    with_heartbeat(
+        job_id,
         settings=settings,
-        timeout=300,
+        label="installing probe packages",
+        fn=lambda: exec_command(
+            environment_id,
+            [
+                "sh",
+                "-lc",
+                "if command -v wget >/dev/null 2>&1 || command -v curl >/dev/null 2>&1; then "
+                "exit 0; "
+                "elif command -v apt-get >/dev/null 2>&1; then "
+                "export DEBIAN_FRONTEND=noninteractive; "
+                "apt-get update -qq && "
+                "apt-get install -y -qq python3 wget curl ca-certificates; "
+                "elif command -v apk >/dev/null 2>&1; then "
+                "apk add --no-cache python3 wget curl ca-certificates; "
+                "else exit 0; fi",
+            ],
+            job_id=job_id,
+            settings=settings,
+            timeout=300,
+        ),
     )
     probe = exec_command(
         environment_id,
@@ -496,7 +507,14 @@ def transition_to_verify_offline(
     )
     # Best-effort cleanup of prior group.
     msb.snapshot_remove_group(group)
-    msb.snapshot_create(group, sandbox=environment_id, checkpoint="post-install", full=True)
+    with_heartbeat(
+        job_id,
+        settings=cfg,
+        label="creating install snapshot",
+        fn=lambda: msb.snapshot_create(
+            group, sandbox=environment_id, checkpoint="post-install", full=True
+        ),
+    )
     # Remove install-phase VM before restore (never two concurrent).
     stop = msb.stop(environment_id, force=False)
     remove = msb.remove(environment_id, force=True)
@@ -505,8 +523,13 @@ def transition_to_verify_offline(
             f"failed to remove sandbox before offline restore: {remove.stderr[:200]}",
             code="offline_remove_failed",
         )
-    msb.snapshot_restore_offline(group, name=environment_id)
-    wait_until_ready(environment_id, settings=cfg, cli=msb)
+    with_heartbeat(
+        job_id,
+        settings=cfg,
+        label="restoring offline snapshot",
+        fn=lambda: msb.snapshot_restore_offline(group, name=environment_id),
+    )
+    wait_until_ready(environment_id, settings=cfg, cli=msb, job_id=job_id)
     # Update phase label for operators.
     msb.run(
         ["modify", environment_id, "--label", f"killhub.net_phase={policy.phase}"],

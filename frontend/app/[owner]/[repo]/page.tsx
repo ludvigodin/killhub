@@ -1,7 +1,13 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { DeepLinkStart } from "@/components/DeepLinkStart";
 import { githubUrlFromOwnerRepo } from "@/lib/github";
+import { noindexRobots } from "@/lib/seo";
+
+export const metadata: Metadata = {
+  robots: noindexRobots,
+};
 
 async function DeepLinkShell({
   params,

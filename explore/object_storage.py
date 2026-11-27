@@ -75,48 +75,52 @@ def normalize_storage_backend(raw: str | None) -> str:
         return BACKEND_S3
     if value in {"", BACKEND_FILESYSTEM, "fs", "local"}:
         return BACKEND_FILESYSTEM
-    # Path-like values are filesystem (legacy SCREENSHOT_STORAGE=./storage/...)
-    if "/" in value or value.startswith("."):
-        return BACKEND_FILESYSTEM
     raise ObjectStorageError(
         f"unknown storage backend {raw!r}; use filesystem or s3/object",
     )
 
 
 def resolve_storage_backend(settings: Settings | None = None) -> str:
-    """Pick filesystem (default) vs s3/object from STORAGE_BACKEND / SCREENSHOT_STORAGE."""
+    """Pick filesystem (default) vs s3/object from STORAGE_BACKEND (D72)."""
     cfg = settings or get_settings()
-    # Legacy D17 hint: SCREENSHOT_STORAGE=s3|object selects object backend.
-    shot = (cfg.screenshot_storage or "").strip().lower()
-    if shot in BACKEND_ALIASES:
-        return BACKEND_S3
     explicit = (cfg.storage_backend or "").strip()
     if explicit:
         return normalize_storage_backend(explicit)
     return BACKEND_FILESYSTEM
 
 
-def filesystem_root_for_screenshots(settings: Settings | None = None) -> Path:
-    """Local staging / filesystem root for screenshots (D17, D60)."""
-    cfg = settings or get_settings()
-    raw = (cfg.screenshot_storage or "").strip()
-    if not raw or raw.lower() in BACKEND_ALIASES:
-        raw = "./storage/screenshots"
-    base = Path(raw)
+def _local_storage_root(raw: str, *, default: str, env_name: str) -> Path:
+    """Resolve a local staging path; reject backend keywords that belong on STORAGE_BACKEND."""
+    value = (raw or "").strip()
+    if not value:
+        value = default
+    elif value.lower() in BACKEND_ALIASES:
+        raise ObjectStorageError(
+            f"{env_name}={value!r} is a path; set STORAGE_BACKEND=s3|object for object storage",
+        )
+    base = Path(value)
     if not base.is_absolute():
         base = Path(__file__).resolve().parent.parent / base
     return base.resolve()
+
+
+def filesystem_root_for_screenshots(settings: Settings | None = None) -> Path:
+    """Local staging / filesystem root for screenshots (D17, D60)."""
+    cfg = settings or get_settings()
+    return _local_storage_root(
+        cfg.screenshot_storage,
+        default="./storage/screenshots",
+        env_name="SCREENSHOT_STORAGE",
+    )
 
 
 def filesystem_root_for_artifacts(settings: Settings | None = None) -> Path:
     cfg = settings or get_settings()
-    raw = (cfg.artifact_storage or "").strip()
-    if not raw or raw.lower() in BACKEND_ALIASES:
-        raw = "./storage/artifacts"
-    base = Path(raw)
-    if not base.is_absolute():
-        base = Path(__file__).resolve().parent.parent / base
-    return base.resolve()
+    return _local_storage_root(
+        cfg.artifact_storage,
+        default="./storage/artifacts",
+        env_name="ARTIFACT_STORAGE",
+    )
 
 
 def object_storage_config(settings: Settings | None = None) -> ObjectStorageConfig:
