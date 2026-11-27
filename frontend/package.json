@@ -10,7 +10,7 @@
     "lint:fix": "biome check --write .",
     "knip": "knip",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "node --experimental-strip-types --test lib/github.test.ts lib/time.test.ts lib/queue.test.ts",
+    "test": "node --experimental-strip-types --test lib/github.test.ts lib/time.test.ts lib/queue.test.ts lib/screenshots.test.ts",
     "format": "biome format --write ."
   },
   "dependencies": {

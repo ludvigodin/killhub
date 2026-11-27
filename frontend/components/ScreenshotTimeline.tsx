@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { resolveScreenshotSrc, screenshotFallbackSrc } from "@/lib/screenshots";
 
 export type ScreenshotItem = {
   screenshot_id: string;
   step?: string;
   caption?: string;
+  /** Absolute CDN URL (D76) or relative `/api/…` path. */
   url?: string;
   created_at?: string;
 };
@@ -16,32 +18,39 @@ type ScreenshotTimelineProps = {
 };
 
 function shotSrc(jobId: string, shot: ScreenshotItem): string {
-  return (
-    shot.url ||
-    `/api/jobs/${encodeURIComponent(jobId)}/screenshots/${encodeURIComponent(shot.screenshot_id)}`
-  );
+  return resolveScreenshotSrc(jobId, shot.screenshot_id, shot.url);
 }
 
 function ShotImage({
+  jobId,
+  screenshotId,
   src,
   alt,
   className,
   priority = false,
 }: {
+  jobId: string;
+  screenshotId: string;
   src: string;
   alt: string;
   className?: string;
   priority?: boolean;
 }) {
+  const [currentSrc, setCurrentSrc] = useState(src);
+
   return (
-    // biome-ignore lint/performance/noImgElement: local API bytes, not next/image CDN
+    // biome-ignore lint/performance/noImgElement: dynamic CDN or API still bytes
     <img
-      src={src}
+      src={currentSrc}
       alt={alt}
       className={`opacity-0 transition-opacity duration-500 data-[ready=true]:opacity-100 ${className ?? ""}`}
       loading={priority ? "eager" : "lazy"}
       onLoad={(e) => {
         e.currentTarget.dataset.ready = "true";
+      }}
+      onError={() => {
+        const fallback = screenshotFallbackSrc(jobId, screenshotId, currentSrc);
+        if (fallback) setCurrentSrc(fallback);
       }}
     />
   );
@@ -86,7 +95,9 @@ export function ScreenshotTimeline({ jobId, shots }: ScreenshotTimelineProps) {
 
       <figure className="relative bg-(--paper)">
         <ShotImage
-          key={featured.screenshot_id}
+          key={`${featured.screenshot_id}:${featuredSrc}`}
+          jobId={jobId}
+          screenshotId={featured.screenshot_id}
           src={featuredSrc}
           alt={featured.caption || `Screenshot ${featured.screenshot_id}`}
           priority
@@ -131,6 +142,9 @@ export function ScreenshotTimeline({ jobId, shots }: ScreenshotTimelineProps) {
                   }`}
                 >
                   <ShotImage
+                    key={`${shot.screenshot_id}:${src}`}
+                    jobId={jobId}
+                    screenshotId={shot.screenshot_id}
                     src={src}
                     alt=""
                     className="aspect-video w-full object-cover object-top"
