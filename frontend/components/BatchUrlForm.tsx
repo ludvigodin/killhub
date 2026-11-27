@@ -117,13 +117,13 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
             "https://github.com/org/repo\nhttps://github.com/another/repo"
           }
           disabled={pending}
-          className="min-h-28 w-full resize-y rounded-md border border-[var(--line)] bg-white/70 px-4 py-3 font-mono text-sm leading-relaxed text-[var(--ink)] outline-none placeholder:text-[var(--muted)] focus:border-[var(--accent)] disabled:opacity-70"
+          className="min-h-28 w-full resize-y rounded-md border border-(--line) bg-white/70 px-4 py-3 font-mono text-sm leading-relaxed text-(--ink) outline-none placeholder:text-(--muted) focus:border-(--accent) disabled:opacity-70"
         />
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="submit"
             disabled={pending || lines.length === 0}
-            className="min-h-12 rounded-md bg-[var(--accent)] px-5 text-base font-medium text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70"
+            className="min-h-12 rounded-md bg-(--accent) px-5 text-base font-medium text-white transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-70"
           >
             {pending
               ? `Starting ${lines.length}…`
@@ -131,13 +131,13 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
                 ? `Start ${lines.length} jobs`
                 : "Start"}
           </button>
-          <p className="text-sm text-[var(--muted)]">
+          <p className="text-sm text-(--muted)">
             One public github.com URL per line. Admission caps still apply.
           </p>
         </div>
       </form>
       {invalidPreview.length > 0 ? (
-        <p className="mt-2 text-sm text-[var(--muted)]">
+        <p className="mt-2 text-sm text-(--muted)">
           {invalidPreview.length} line
           {invalidPreview.length === 1 ? "" : "s"} look invalid before submit.
         </p>
@@ -149,7 +149,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
           {results.map((r) => (
             <li
               key={`${r.url}-${r.job_id ?? r.code ?? "x"}`}
-              className={r.ok ? "text-[var(--accent)]" : "text-[#9b2c2c]"}
+              className={r.ok ? "text-(--accent)" : "text-[#9b2c2c]"}
             >
               {r.ok
                 ? `✓ ${r.url} → ${r.job_id}`

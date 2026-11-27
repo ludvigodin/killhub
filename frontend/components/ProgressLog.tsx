@@ -27,12 +27,12 @@ export function ProgressLog({ entries }: ProgressLogProps) {
   const lines = entries.filter((e) => isProgressLogType(e.type));
   return (
     <section aria-label="Job event log">
-      <p className="mb-2 text-sm uppercase tracking-wide text-[var(--muted)]">
+      <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
         Activity
       </p>
-      <ul className="max-h-96 space-y-1.5 overflow-y-auto border border-[var(--line)] bg-white/50 p-3 font-mono text-xs leading-relaxed">
+      <ul className="max-h-96 space-y-1.5 overflow-y-auto border border-(--line) bg-white/50 p-3 font-mono text-xs leading-relaxed">
         {lines.length === 0 ? (
-          <li className="text-[var(--muted)]">Waiting for events…</li>
+          <li className="text-(--muted)">Waiting for events…</li>
         ) : (
           lines.map((line) => (
             <li key={line.id} className="flex gap-2">
@@ -42,7 +42,7 @@ export function ProgressLog({ entries }: ProgressLogProps) {
               >
                 {line.type}
               </span>
-              <span className="min-w-0 break-words text-[var(--ink)]">
+              <span className="min-w-0 wrap-break-word text-(--ink)">
                 {line.message}
               </span>
             </li>

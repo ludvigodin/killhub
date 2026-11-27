@@ -8,13 +8,13 @@ export function ProgressBar({ progress, label }: ProgressBarProps) {
   return (
     <div className="w-full">
       <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
-        <span className="text-[var(--muted)]">{label || "Progress"}</span>
-        <span className="font-mono tabular-nums text-[var(--ink)]">
+        <span className="text-(--muted)">{label || "Progress"}</span>
+        <span className="font-mono tabular-nums text-(--ink)">
           {clamped}%
         </span>
       </div>
       <div
-        className="h-2 overflow-hidden rounded-full bg-[var(--paper-deep)]"
+        className="h-2 overflow-hidden rounded-full bg-(--paper-deep)"
         role="progressbar"
         aria-valuenow={clamped}
         aria-valuemin={0}
@@ -22,7 +22,7 @@ export function ProgressBar({ progress, label }: ProgressBarProps) {
         aria-label={label || "Job progress"}
       >
         <div
-          className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-500 ease-out"
+          className="h-full rounded-full bg-(--accent) transition-[width] duration-500 ease-out"
           style={{ width: `${clamped}%` }}
         />
       </div>

@@ -33,32 +33,32 @@ export function EnvStatus({ snapshot }: EnvStatusProps) {
 
   return (
     <section aria-label="Environment status" className="space-y-3">
-      <p className="text-sm uppercase tracking-wide text-[var(--muted)]">
+      <p className="text-sm uppercase tracking-wide text-(--muted)">
         Environment
       </p>
       <dl className="grid gap-2 text-sm sm:grid-cols-2">
         <div>
-          <dt className="text-[var(--muted)]">Lifecycle</dt>
-          <dd className="font-medium text-[var(--ink)]">
+          <dt className="text-(--muted)">Lifecycle</dt>
+          <dd className="font-medium text-(--ink)">
             {labelFor(snapshot)}
           </dd>
         </div>
         <div>
-          <dt className="text-[var(--muted)]">Job status</dt>
-          <dd className="font-medium text-[var(--ink)]">{snapshot.status}</dd>
+          <dt className="text-(--muted)">Job status</dt>
+          <dd className="font-medium text-(--ink)">{snapshot.status}</dd>
         </div>
         <div>
-          <dt className="text-[var(--muted)]">Sandbox</dt>
+          <dt className="text-(--muted)">Sandbox</dt>
           <dd className="font-mono text-xs break-all">{envId}</dd>
         </div>
         <div>
-          <dt className="text-[var(--muted)]">Expires</dt>
+          <dt className="text-(--muted)">Expires</dt>
           <dd className="font-mono text-xs">
             {snapshot.expires_at || snapshot.environment?.expires_at || "—"}
           </dd>
         </div>
         <div>
-          <dt className="text-[var(--muted)]">Cleanup</dt>
+          <dt className="text-(--muted)">Cleanup</dt>
           <dd className="font-medium">
             {snapshot.cleanup?.status || "pending"}
             {snapshot.cleanup?.last_error
@@ -67,11 +67,11 @@ export function EnvStatus({ snapshot }: EnvStatusProps) {
           </dd>
         </div>
         <div>
-          <dt className="text-[var(--muted)]">Destroyed at</dt>
+          <dt className="text-(--muted)">Destroyed at</dt>
           <dd className="font-mono text-xs">{snapshot.destroyed_at || "—"}</dd>
         </div>
         <div>
-          <dt className="text-[var(--muted)]">Readiness</dt>
+          <dt className="text-(--muted)">Readiness</dt>
           <dd>
             {readiness?.passed === true
               ? `passed (${readiness.probe || "probe"})`
@@ -81,11 +81,11 @@ export function EnvStatus({ snapshot }: EnvStatusProps) {
           </dd>
         </div>
         <div>
-          <dt className="text-[var(--muted)]">Verification kind</dt>
+          <dt className="text-(--muted)">Verification kind</dt>
           <dd className="font-medium">
             {kind || "—"}
             {kind === "generated_demo" ? (
-              <span className="mt-1 block text-xs font-normal text-[var(--muted)]">
+              <span className="mt-1 block text-xs font-normal text-(--muted)">
                 Generated demo — does not prove the original application works.
               </span>
             ) : null}
@@ -93,8 +93,8 @@ export function EnvStatus({ snapshot }: EnvStatusProps) {
         </div>
       </dl>
       {kind === "generated_demo" && verification?.original_failure != null ? (
-        <div className="border border-[var(--line)] bg-white/50 px-3 py-2 text-sm">
-          <p className="text-xs uppercase tracking-wide text-[var(--muted)]">
+        <div className="border border-(--line) bg-white/50 px-3 py-2 text-sm">
+          <p className="text-xs uppercase tracking-wide text-(--muted)">
             Original setup failure
           </p>
           <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs">
@@ -104,7 +104,7 @@ export function EnvStatus({ snapshot }: EnvStatusProps) {
           </pre>
         </div>
       ) : null}
-      <p className="text-xs text-[var(--muted)]">
+      <p className="text-xs text-(--muted)">
         Readiness is probe evidence only — it is not job completion, and it does
         not destroy the sandbox by itself.
       </p>

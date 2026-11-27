@@ -293,9 +293,9 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
 
   return (
     <div className="space-y-8">
-      <p className="font-mono text-sm text-[var(--muted)]">{jobId}</p>
+      <p className="font-mono text-sm text-(--muted)">{jobId}</p>
       {snapshot?.github_url ? (
-        <p className="text-sm text-[var(--muted)]">
+        <p className="text-sm text-(--muted)">
           <a href={snapshot.github_url} target="_blank" rel="noreferrer">
             {snapshot.github_url}
           </a>
@@ -305,21 +305,21 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
       {snapshot ? (
         <section
           aria-label="Job status"
-          className="space-y-4 border border-[var(--line)] bg-white/55 px-4 py-5"
+          className="space-y-4 border border-(--line) bg-white/55 px-4 py-5"
         >
           <div className="flex flex-wrap items-center gap-3">
             <StatusBadge status={snapshot.status} />
-            <p className="text-sm text-[var(--muted)]">
+            <p className="text-sm text-(--muted)">
               {snapshot.current_step || "Waiting for next step…"}
             </p>
           </div>
           <ProgressBar progress={snapshot.progress} />
-          <p className="font-mono text-xs text-[var(--muted)]">
+          <p className="font-mono text-xs text-(--muted)">
             cursor {snapshot.event_cursor ?? "—"}
           </p>
         </section>
       ) : (
-        <p className="text-[var(--muted)]">Loading snapshot…</p>
+        <p className="text-(--muted)">Loading snapshot…</p>
       )}
 
       {error ? <ErrorBanner message={error.message} code={error.code} /> : null}
@@ -329,7 +329,7 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
           type="button"
           onClick={() => void onCancel()}
           disabled={busy || terminal}
-          className="rounded-md border border-[var(--line)] bg-white px-4 py-2 text-sm transition-opacity disabled:opacity-50"
+          className="rounded-md border border-(--line) bg-white px-4 py-2 text-sm transition-opacity disabled:opacity-50"
         >
           Cancel job
         </button>
@@ -340,7 +340,7 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
       <ScreenshotTimeline jobId={jobId} shots={shots} />
 
       {showReport && snapshot ? (
-        <div className="border-t border-[var(--line)] pt-8">
+        <div className="border-t border-(--line) pt-8">
           <JobReport snapshot={snapshot} />
         </div>
       ) : null}

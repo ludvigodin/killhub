@@ -10,7 +10,7 @@ async function JobShell({ params }: { params: Promise<{ id: string }> }) {
 export default function JobPage(props: PageProps<"/jobs/[id]">) {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col px-6 py-12 sm:py-16">
-      <Link href="/" className="mb-8 text-sm text-[var(--muted)]">
+      <Link href="/" className="mb-8 text-sm text-(--muted)">
         ← Killhub
       </Link>
       <h1
@@ -19,13 +19,13 @@ export default function JobPage(props: PageProps<"/jobs/[id]">) {
       >
         Job
       </h1>
-      <p className="mb-8 text-sm text-[var(--muted)]">
+      <p className="mb-8 text-sm text-(--muted)">
         Live status while running; receipt, profile, and scan findings when the
         job finishes. Leave and return — state restores from snapshot + SSE.
       </p>
       <Suspense
         fallback={
-          <p className="font-mono text-sm text-[var(--muted)]">Loading job…</p>
+          <p className="font-mono text-sm text-(--muted)">Loading job…</p>
         }
       >
         <JobShell params={props.params} />
