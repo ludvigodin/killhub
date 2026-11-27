@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { type FrameEvent, mapEvents, stations } from "@/lib/mainframe";
 import type { ProgressLogEntry } from "./ProgressLog";
 import type { mountScene } from "./telemetryScene";
@@ -8,9 +9,17 @@ import type { mountScene } from "./telemetryScene";
 const control =
   "rounded border border-[#527167] px-2.5 py-1.5 text-xs hover:bg-[#28403b] disabled:opacity-40";
 
-export function HackerVision({ entries }: { entries: ProgressLogEntry[] }) {
+export function HackerVision({
+  entries,
+  onClose,
+}: {
+  entries: ProgressLogEntry[];
+  onClose: () => void;
+}) {
   const canvas = useRef<HTMLCanvasElement>(null),
     scene = useRef<ReturnType<typeof mountScene> | null>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const [mounted, setMounted] = useState(false);
   const [pinned, setPinned] = useState<string | null>(null),
     [followCamera, setFollowCamera] = useState(true);
   const [unavailable, setUnavailable] = useState(false),
@@ -41,14 +50,30 @@ export function HackerVision({ entries }: { entries: ProgressLogEntry[] }) {
   }, [events]);
   const state = useRef({ banks, selected, danger, followCamera });
   useEffect(() => {
+    setMounted(true);
+  }, []);
+  useEffect(() => {
+    closeRef.current?.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+  useEffect(() => {
     state.current = { banks, selected, danger, followCamera };
     scene.current?.update(banks, selected, Boolean(danger), followCamera);
   }, [banks, selected, danger, followCamera]);
   useEffect(() => {
-    let mounted = true;
+    let alive = true;
     import("./telemetryScene")
       .then(({ mountScene }) => {
-        if (!mounted || !canvas.current) return;
+        if (!alive || !canvas.current) return;
         scene.current = mountScene(
           canvas.current,
           setPinned,
@@ -64,10 +89,10 @@ export function HackerVision({ entries }: { entries: ProgressLogEntry[] }) {
         );
       })
       .catch(() => {
-        if (mounted) setUnavailable(true);
+        if (alive) setUnavailable(true);
       });
     return () => {
-      mounted = false;
+      alive = false;
       scene.current?.dispose();
       scene.current = null;
     };
@@ -76,27 +101,41 @@ export function HackerVision({ entries }: { entries: ProgressLogEntry[] }) {
     setPinned(item.event.id);
     setFollowCamera(true);
   };
-  return (
-    <section
+  if (!mounted) return null;
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
       aria-label="HackerVision telemetry"
-      className="overflow-hidden rounded-lg border border-[#416459] bg-[#101e20] font-mono text-[#d5e8dc]"
+      className="fixed inset-0 z-50 flex flex-col overflow-hidden bg-[#101e20] font-mono text-[#d5e8dc]"
     >
-      <header className="flex items-center justify-between gap-2 border-b border-[#38544b] px-4 py-3">
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[#38544b] px-4 py-3 sm:px-6">
         <h2 className="text-lg font-bold tracking-tight text-[#aff0c9]">
           HackerVision{" "}
           <span className="font-normal text-[#a2b9ac]">/ Mainframe</span>
         </h2>
-        <span className="text-right text-xs">
-          {events.length} retained events
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="hidden text-right text-xs sm:inline">
+            {events.length} retained events
+          </span>
+          <button
+            ref={closeRef}
+            type="button"
+            onClick={onClose}
+            className="rounded-md px-2.5 py-1 text-lg leading-none text-[#a2b9ac] transition hover:bg-[#28403b] hover:text-[#aff0c9]"
+            aria-label="Close HackerVision"
+          >
+            ×
+          </button>
+        </div>
       </header>
-      <div className="relative bg-[#142c29]">
+      <div className="relative min-h-0 flex-1 bg-[#142c29]">
         <canvas
           ref={canvas}
           role="img"
           tabIndex={0}
           aria-label="Mainframe cabinets. Drag to look, use W and S to fly, A and D to turn, or select a station below."
-          className="block h-72 w-full touch-pan-y outline-offset-[-3px] sm:h-96"
+          className="block h-full w-full touch-pan-y outline-offset-[-3px]"
         />
         <div className="pointer-events-none absolute inset-x-3 bottom-3 flex items-end justify-between gap-3">
           <div className="max-w-xl border-l-2 border-[#a6e9be] bg-[#071713ed] px-3 py-2">
@@ -123,7 +162,7 @@ export function HackerVision({ entries }: { entries: ProgressLogEntry[] }) {
           )}
         </div>
       </div>
-      <div className="space-y-3 border-t border-[#38544b] px-4 py-3">
+      <div className="max-h-[40vh] shrink-0 space-y-3 overflow-y-auto border-t border-[#38544b] px-4 py-3 sm:px-6">
         {unavailable && (
           <p className="text-sm">
             3D unavailable. Use the stations and event controls below.
@@ -289,6 +328,7 @@ export function HackerVision({ entries }: { entries: ProgressLogEntry[] }) {
           </>
         )}
       </div>
-    </section>
+    </div>,
+    document.body,
   );
 }

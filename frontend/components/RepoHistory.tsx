@@ -140,7 +140,16 @@ export function RepoHistory({ githubUrl, title }: RepoHistoryProps) {
     <>
       <header className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 max-w-3xl">
-          <h1 className="type-page-title mb-2">{title}</h1>
+          <h1 className="type-page-title mb-2">
+            <a
+              href={githubUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-inherit no-underline underline-offset-2 hover:underline"
+            >
+              {title}
+            </a>
+          </h1>
           <p className="mb-3 text-sm text-(--muted)">
             Latest run in full, with earlier runs listed below.
           </p>
@@ -181,14 +190,6 @@ export function RepoHistory({ githubUrl, title }: RepoHistoryProps) {
               ) : null}
             </div>
           ) : null}
-          <a
-            href={githubUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-(--accent) underline-offset-2 hover:underline"
-          >
-            {githubUrl}
-          </a>
         </div>
         <div ref={setActionsHost} className="shrink-0 self-start sm:pt-1" />
       </header>
