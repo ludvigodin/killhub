@@ -324,6 +324,491 @@ a:hover {
   }
 }
 
+.two-planes {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.two-planes-stage {
+  display: grid;
+  gap: 0.75rem;
+  align-items: stretch;
+}
+
+.two-planes-node {
+  position: relative;
+  border-radius: 0.75rem;
+  border: 1px solid var(--line);
+  padding: 1.25rem 1.35rem 1.35rem;
+  overflow: hidden;
+}
+
+.two-planes-node-head {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.two-planes-node-control {
+  background: linear-gradient(180deg, #1a1e24 0%, var(--paper-deep) 100%);
+}
+
+.two-planes-node-sandbox {
+  background: linear-gradient(
+    180deg,
+    #132422 0%,
+    color-mix(in srgb, var(--accent-soft) 55%, var(--paper-deep)) 100%
+  );
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--accent) 22%, transparent);
+  animation: two-planes-sandbox-in 0.7s ease-out both;
+  animation-delay: 0.12s;
+}
+
+.two-planes-node-sandbox::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at 88% 12%,
+    color-mix(in srgb, var(--accent) 18%, transparent),
+    transparent 42%
+  );
+  opacity: 0.9;
+}
+
+.two-planes-tag {
+  flex-shrink: 0;
+  border-radius: 0.3rem;
+  padding: 0.12rem 0.45rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+
+.two-planes-tag-host {
+  color: var(--muted);
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--paper) 70%, transparent);
+}
+
+.two-planes-tag-ephemeral {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.two-planes-node > :not(.two-planes-node-head) {
+  position: relative;
+  z-index: 1;
+}
+
+.two-planes-list > li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+}
+
+.two-planes-dot {
+  flex-shrink: 0;
+  width: 0.4rem;
+  height: 0.4rem;
+  margin-top: 0.45rem;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+.two-planes-dot-accent {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.two-planes-bridge {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 4.5rem;
+  padding-inline: 0.25rem;
+}
+
+.two-planes-bridge-rail {
+  position: absolute;
+  inset-inline: 0.5rem;
+  top: 50%;
+  height: 2.75rem;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 35%, var(--line));
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--paper-deep) 80%, transparent),
+    color-mix(in srgb, var(--accent-soft) 40%, transparent),
+    color-mix(in srgb, var(--paper-deep) 80%, transparent)
+  );
+  overflow: hidden;
+}
+
+.two-planes-flow {
+  position: absolute;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+}
+
+.two-planes-flow-out {
+  top: 28%;
+  left: 8%;
+  background: var(--accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 55%, transparent);
+  animation: two-planes-flow-right 2.4s ease-in-out infinite;
+}
+
+.two-planes-flow-back {
+  top: 62%;
+  right: 8%;
+  background: var(--ok);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--ok) 45%, transparent);
+  animation: two-planes-flow-left 2.4s ease-in-out infinite;
+  animation-delay: 1.2s;
+}
+
+.two-planes-bridge-label {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  padding: 0.45rem 0.75rem;
+  border-radius: 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  background: color-mix(in srgb, var(--paper) 88%, var(--accent-soft));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--paper) 70%, transparent);
+}
+
+.two-planes-boundary {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  text-align: center;
+}
+
+.two-planes-boundary-line {
+  flex: 1;
+  height: 1px;
+  background: repeating-linear-gradient(
+    to right,
+    var(--line) 0 4px,
+    transparent 4px 9px
+  );
+}
+
+@keyframes two-planes-sandbox-in {
+  from {
+    opacity: 0.55;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes two-planes-flow-right {
+  0% {
+    left: 6%;
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    left: 86%;
+    opacity: 0;
+  }
+}
+
+@keyframes two-planes-flow-left {
+  0% {
+    right: 6%;
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    right: 86%;
+    opacity: 0;
+  }
+}
+
+@media (min-width: 1024px) {
+  .two-planes-stage {
+    grid-template-columns: minmax(0, 1fr) 8.5rem minmax(0, 1fr);
+    gap: 0;
+    align-items: stretch;
+  }
+
+  .two-planes-bridge {
+    width: 8.5rem;
+    min-height: 100%;
+    align-self: stretch;
+  }
+
+  .two-planes-bridge-rail {
+    inset-inline: 0.35rem;
+    height: 3.1rem;
+  }
+}
+
+.pattern-loop {
+  display: flex;
+  flex-direction: column;
+  gap: 1.15rem;
+}
+
+.pattern-loop-track {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.pattern-loop-step {
+  position: relative;
+  animation: pattern-loop-step-in 0.55s ease-out both;
+}
+
+.pattern-loop-card {
+  height: 100%;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  padding: 1rem 1.1rem 1.15rem;
+  background: linear-gradient(180deg, #1a1e24 0%, var(--paper-deep) 100%);
+}
+
+.pattern-loop-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.55rem;
+}
+
+.pattern-loop-step-terminal .pattern-loop-card {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: linear-gradient(
+    180deg,
+    #132422 0%,
+    color-mix(in srgb, var(--accent-soft) 55%, var(--paper-deep)) 100%
+  );
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.pattern-loop-connector {
+  display: none;
+}
+
+.pattern-loop-caption {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  text-align: center;
+}
+
+.pattern-loop-caption-line {
+  flex: 1;
+  height: 1px;
+  background: repeating-linear-gradient(
+    to right,
+    var(--line) 0 4px,
+    transparent 4px 9px
+  );
+}
+
+@keyframes pattern-loop-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (min-width: 640px) {
+  .pattern-loop-track {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.85rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .pattern-loop-track {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    align-items: stretch;
+  }
+
+  .pattern-loop-step {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .pattern-loop-step:first-child {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pattern-loop-connector {
+    display: flex;
+    align-items: center;
+    width: 1.35rem;
+    flex-shrink: 0;
+  }
+
+  .pattern-loop-connector-line {
+    display: block;
+    width: 100%;
+    height: 1px;
+    background: repeating-linear-gradient(
+      to right,
+      color-mix(in srgb, var(--accent) 55%, var(--line)) 0 4px,
+      transparent 4px 8px
+    );
+  }
+
+  .pattern-loop-step-terminal .pattern-loop-connector-line {
+    background: repeating-linear-gradient(
+      to right,
+      var(--accent) 0 4px,
+      transparent 4px 8px
+    );
+  }
+}
+
+.done-dossier-sheet {
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: linear-gradient(180deg, #1a1e24 0%, var(--paper-deep) 100%);
+  overflow: hidden;
+}
+
+.done-dossier-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.2rem 1.35rem 1.1rem;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent-soft) 45%, transparent),
+    transparent 55%
+  );
+}
+
+.done-dossier-stamp {
+  margin: 0;
+  flex-shrink: 0;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--ok) 45%, var(--line));
+  border-radius: 0.35rem;
+  color: var(--ok);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transform: rotate(-6deg);
+  background: color-mix(in srgb, var(--ok-soft) 70%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 18%, transparent);
+  animation: done-dossier-stamp-in 0.55s ease-out both;
+  animation-delay: 0.18s;
+}
+
+.done-dossier-columns {
+  display: grid;
+  gap: 0;
+}
+
+.done-dossier-column {
+  padding: 1.15rem 1.35rem 1.3rem;
+}
+
+.done-dossier-rule {
+  display: none;
+  width: 1px;
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--line) 0 4px,
+    transparent 4px 9px
+  );
+}
+
+.done-dossier-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+
+.done-dossier-mark {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-top: 0.1rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.done-dossier-mark-ok {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.done-dossier-mark-bad {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+@keyframes done-dossier-stamp-in {
+  from {
+    opacity: 0;
+    transform: rotate(-6deg) scale(0.86);
+  }
+  to {
+    opacity: 1;
+    transform: rotate(-6deg) scale(1);
+  }
+}
+
+@media (min-width: 640px) {
+  .done-dossier-columns {
+    grid-template-columns: 1fr auto 1fr;
+    align-items: stretch;
+  }
+
+  .done-dossier-rule {
+    display: block;
+    margin-block: 1.15rem;
+  }
+}
+
 .job-timeline-stage {
   animation: timeline-stage-in 0.45s ease-out both;
 }
@@ -344,8 +829,18 @@ a:hover {
   .job-timeline-stage,
   .job-timeline-pulse,
   .containment-absorb,
-  .problem-fork-node-good {
+  .problem-fork-node-good,
+  .two-planes-node-sandbox,
+  .two-planes-flow-out,
+  .two-planes-flow-back,
+  .done-dossier-stamp,
+  .pattern-loop-step {
     animation: none;
+  }
+
+  .done-dossier-stamp {
+    opacity: 1;
+    transform: rotate(-6deg);
   }
 
   body::before {

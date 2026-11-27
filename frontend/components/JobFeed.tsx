@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { listRepos, type RepoSummary } from "@/lib/api";
 import { repoPathFromGithubUrl } from "@/lib/github";
@@ -10,25 +11,18 @@ import { SiteNav } from "./SiteNav";
 
 const POLL_MS = 4000;
 const PAGE_SIZE = 12;
-/** Server caps GET /api/repos at 200 (D77). */
-const SHOW_ALL_LIMIT = 200;
 
 export function JobFeed() {
   const [repos, setRepos] = useState<RepoSummary[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(0);
-  const [showAll, setShowAll] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
   const reposRef = useRef(repos);
   reposRef.current = repos;
 
-  const limit = showAll ? SHOW_ALL_LIMIT : PAGE_SIZE;
-  const offset = showAll ? 0 : page * PAGE_SIZE;
-  const from = total === 0 ? 0 : offset + 1;
-  const to = Math.min(offset + repos.length, total);
-  const showingAll = showAll && total > 0;
+  const from = total === 0 ? 0 : 1;
+  const to = Math.min(repos.length, total);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reloadToken refreshes after batch create
   useEffect(() => {
@@ -36,18 +30,11 @@ export function JobFeed() {
 
     async function load() {
       try {
-        const next = await listRepos(limit, offset);
+        const next = await listRepos(PAGE_SIZE, 0);
         if (cancelled) return;
         setRepos(next.repos);
         setTotal(next.total);
         setError(null);
-        if (!showAll) {
-          // If the current page is past the end (jobs deleted / pruned), snap back.
-          const maxPage = Math.max(0, Math.ceil(next.total / PAGE_SIZE) - 1);
-          if (page > maxPage) {
-            setPage(maxPage);
-          }
-        }
       } catch (err) {
         if (cancelled) return;
         const e = err as Error;
@@ -69,12 +56,10 @@ export function JobFeed() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [reloadToken, page, offset, limit, showAll]);
+  }, [reloadToken]);
 
   function onCreated(results: BatchResult[]) {
     if (results.some((r) => r.ok)) {
-      setPage(0);
-      setShowAll(false);
       setReloadToken((n) => n + 1);
     }
   }
@@ -160,23 +145,12 @@ export function JobFeed() {
               })}
             </div>
             <div className="mt-3 flex justify-center">
-              <button
-                type="button"
-                className="rounded-md border border-(--line) bg-(--paper-deep) px-4 py-1.5 text-sm text-(--ink) transition hover:border-(--accent) disabled:cursor-not-allowed disabled:opacity-40"
-                disabled={loading}
-                aria-expanded={showingAll}
-                onClick={() => {
-                  if (showingAll) {
-                    setShowAll(false);
-                    setPage(0);
-                  } else {
-                    setShowAll(true);
-                    setPage(0);
-                  }
-                }}
+              <Link
+                href="/hubs"
+                className="rounded-md border border-(--line) bg-(--paper-deep) px-4 py-1.5 text-sm text-(--ink) no-underline transition hover:border-(--accent)"
               >
-                {showingAll ? "Show less" : "Show all"}
-              </button>
+                Show all
+              </Link>
             </div>
           </>
         )}

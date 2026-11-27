@@ -3,19 +3,24 @@ import type { ReactNode } from "react";
 const PIPELINE = [
   {
     label: "Plan",
-    detail: "Agent inspects the repo and writes an executable profile",
+    short: "Profile",
+    detail: "Inspect the repo and write an executable environment profile",
   },
   {
-    label: "Sandboxed execution",
+    label: "Sandbox",
+    short: "Execute",
     detail: "Clone · install · launch inside a disposable Microsandbox",
   },
   {
-    label: "Verifiable output",
-    detail: "Readiness evidence · screenshots · containment · receipt",
+    label: "Prove",
+    short: "Evidence",
+    detail: "Readiness · stills · containment — honest outcome labels",
   },
   {
     label: "Destroy",
-    detail: "Confirmed sandbox removal — dossier outlives the VM",
+    short: "Receipt",
+    detail: "Confirmed removal — dossier outlives the VM",
+    terminal: true,
   },
 ] as const;
 
@@ -170,97 +175,288 @@ function Outcome({
 
 function Pipeline() {
   return (
-    <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      {PIPELINE.map((step, i) => (
-        <li
-          key={step.label}
-          className="relative rounded-lg border border-(--line) bg-(--paper-deep) px-3.5 py-3"
-        >
-          <p className="mb-1 font-mono text-[11px] tabular-nums text-(--accent)">
-            {String(i + 1).padStart(2, "0")}
-          </p>
-          <p className="text-sm font-semibold tracking-tight text-(--ink)">
-            {step.label}
-          </p>
-          <p className="mt-0.5 text-xs text-(--muted)">{step.detail}</p>
-        </li>
-      ))}
-    </ol>
+    <figure className="pattern-loop m-0" aria-label="Pattern A loop stages">
+      <ol className="pattern-loop-track m-0 list-none p-0">
+        {PIPELINE.map((step, i) => {
+          const terminal = "terminal" in step && step.terminal;
+          return (
+            <li
+              key={step.label}
+              className={
+                terminal
+                  ? "pattern-loop-step pattern-loop-step-terminal"
+                  : "pattern-loop-step"
+              }
+              style={{ animationDelay: `${120 + i * 90}ms` }}
+            >
+              {i > 0 ? (
+                <span className="pattern-loop-connector" aria-hidden>
+                  <span className="pattern-loop-connector-line" />
+                </span>
+              ) : null}
+              <div className="pattern-loop-card">
+                <div className="pattern-loop-card-top">
+                  <p className="font-mono text-[11px] tabular-nums text-(--accent)">
+                    {String(i + 1).padStart(2, "0")}
+                  </p>
+                  <p className="font-mono text-[11px] uppercase tracking-wider text-(--muted)">
+                    {step.short}
+                  </p>
+                </div>
+                <p
+                  className="mb-1.5 text-base font-semibold tracking-tight text-(--ink)"
+                  style={{
+                    fontFamily:
+                      "var(--font-display), ui-sans-serif, sans-serif",
+                  }}
+                >
+                  {step.label}
+                </p>
+                <p className="text-sm leading-snug text-(--muted)">
+                  {step.detail}
+                </p>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      <figcaption className="pattern-loop-caption">
+        <span className="pattern-loop-caption-line" aria-hidden />
+        <span className="font-mono text-[11px] uppercase tracking-wider text-(--muted)">
+          One public URL in · real evidence out · VM gone
+        </span>
+        <span className="pattern-loop-caption-line" aria-hidden />
+      </figcaption>
+    </figure>
   );
 }
 
 function TwoPlanes() {
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_auto_1fr] lg:items-center">
-      <div className="rounded-lg border border-(--line) bg-(--paper-deep) p-5">
-        <p className="mb-1 font-mono text-[11px] uppercase tracking-wider text-(--accent)">
-          Plane 1 · plan & verify
-        </p>
-        <p
-          className="mb-3 text-lg font-semibold tracking-tight"
-          style={{
-            fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-          }}
-        >
-          Control plane
-        </p>
-        <ul className="space-y-1.5 text-sm text-(--muted)">
-          <li>Plans the task via Vultr Serverless Inference</li>
-          <li>Dispatches work · streams evidence · writes the receipt</li>
-          <li>Secrets stay here — never injected into the sandbox</li>
-        </ul>
+    <figure
+      className="two-planes m-0"
+      aria-label="Control plane and disposable sandbox"
+    >
+      <div className="two-planes-stage">
+        <article className="two-planes-node two-planes-node-control">
+          <header className="two-planes-node-head">
+            <p className="font-mono text-[11px] uppercase tracking-wider text-(--accent)">
+              Plane 1 · plan & verify
+            </p>
+            <span className="two-planes-tag two-planes-tag-host">
+              Trusted host
+            </span>
+          </header>
+          <p
+            className="mb-3 text-lg font-semibold tracking-tight sm:text-xl"
+            style={{
+              fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
+            }}
+          >
+            Control plane
+          </p>
+          <ul className="two-planes-list m-0 list-none space-y-2 p-0 text-sm leading-snug text-(--muted)">
+            <li>
+              <span className="two-planes-dot" aria-hidden />
+              <span>Plans via Vultr Serverless Inference</span>
+            </li>
+            <li>
+              <span className="two-planes-dot" aria-hidden />
+              <span>
+                Dispatches work · streams evidence · writes the receipt
+              </span>
+            </li>
+            <li>
+              <span className="two-planes-dot" aria-hidden />
+              <span>Secrets stay here — never injected into the sandbox</span>
+            </li>
+          </ul>
+        </article>
+
+        <div className="two-planes-bridge" aria-hidden>
+          <div className="two-planes-bridge-rail">
+            <span className="two-planes-flow two-planes-flow-out" />
+            <span className="two-planes-flow two-planes-flow-back" />
+          </div>
+          <div className="two-planes-bridge-label">
+            <p className="font-mono text-[11px] uppercase tracking-wider text-(--accent)">
+              msb
+            </p>
+            <p className="text-[11px] leading-tight text-(--muted)">
+              create · exec · destroy
+            </p>
+            <p className="mt-1 text-[11px] leading-tight text-(--muted)">
+              evidence returns
+            </p>
+          </div>
+        </div>
+
+        <article className="two-planes-node two-planes-node-sandbox">
+          <header className="two-planes-node-head">
+            <p className="font-mono text-[11px] uppercase tracking-wider text-(--accent)">
+              Plane 2 · sandboxed execution
+            </p>
+            <span className="two-planes-tag two-planes-tag-ephemeral">
+              Ephemeral
+            </span>
+          </header>
+          <p
+            className="mb-3 text-lg font-semibold tracking-tight sm:text-xl"
+            style={{
+              fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
+            }}
+          >
+            Disposable microVM
+          </p>
+          <ul className="two-planes-list m-0 list-none space-y-2 p-0 text-sm leading-snug text-(--muted)">
+            <li>
+              <span
+                className="two-planes-dot two-planes-dot-accent"
+                aria-hidden
+              />
+              <span>Real clone · install · launch — not described</span>
+            </li>
+            <li>
+              <span
+                className="two-planes-dot two-planes-dot-accent"
+                aria-hidden
+              />
+              <span>Containment absorbs hostile loops / egress</span>
+            </li>
+            <li>
+              <span
+                className="two-planes-dot two-planes-dot-accent"
+                aria-hidden
+              />
+              <span>Destroyed after the job; dossier remains</span>
+            </li>
+          </ul>
+        </article>
       </div>
-      <div className="flex flex-col items-center gap-1 px-2 text-center">
-        <p className="font-mono text-[11px] text-(--muted)">msb</p>
-        <p className="text-xs text-(--muted)">create · exec · destroy</p>
-        <span className="hidden text-(--accent) lg:inline" aria-hidden>
-          →
+
+      <figcaption className="two-planes-boundary">
+        <span className="two-planes-boundary-line" aria-hidden />
+        <span className="font-mono text-[11px] uppercase tracking-wider text-(--muted)">
+          Trust boundary — untrusted code never runs as a privileged host
+          process
         </span>
-      </div>
-      <div className="rounded-lg border border-(--accent)/40 bg-(--accent-soft)/30 p-5">
-        <p className="mb-1 font-mono text-[11px] uppercase tracking-wider text-(--accent)">
-          Plane 2 · sandboxed execution
-        </p>
-        <p
-          className="mb-3 text-lg font-semibold tracking-tight"
-          style={{
-            fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-          }}
-        >
-          Disposable microVM
-        </p>
-        <ul className="space-y-1.5 text-sm text-(--muted)">
-          <li>Real clone · install · launch — not described</li>
-          <li>Containment absorbs hostile loops / egress</li>
-          <li>Destroyed after the job; dossier remains</li>
-        </ul>
-      </div>
-    </div>
+        <span className="two-planes-boundary-line" aria-hidden />
+      </figcaption>
+    </figure>
   );
 }
 
+const DONE_EVIDENCE = [
+  {
+    label: "Readiness",
+    detail: "Probes with honest outcome labels",
+  },
+  {
+    label: "Stills",
+    detail: "Screenshot trail when HTTP verify captures",
+  },
+  {
+    label: "Containment",
+    detail: "∞ loop absorbed, then destroy",
+  },
+] as const;
+
+const DONE_EXCLUSIONS = [
+  {
+    label: "Chat-only claims",
+    detail: "No “I would run…” without a sandbox",
+  },
+  {
+    label: "Secret leakage",
+    detail: "No Killhub secrets in the guest",
+  },
+  {
+    label: "Leftover VM",
+    detail: "No sandbox after the receipt",
+  },
+] as const;
+
 function SecurityScope() {
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      <div className="rounded-lg border border-(--ok)/35 bg-(--ok-soft)/40 p-5">
-        <p className="mb-3 text-sm font-semibold text-(--ok)">Verifiable</p>
-        <ul className="space-y-2 text-sm text-(--muted)">
-          <li>Readiness probes with honest outcome labels</li>
-          <li>Screenshot trail when HTTP verify captures stills</li>
-          <li>Containment moment — ∞ loop absorbed, then destroy</li>
-        </ul>
+    <figure
+      className="done-dossier m-0"
+      aria-label="What counts as done versus what does not"
+    >
+      <div className="done-dossier-sheet">
+        <header className="done-dossier-head">
+          <div>
+            <p className="font-mono text-[11px] uppercase tracking-wider text-(--accent)">
+              Durable receipt
+            </p>
+            <p
+              className="mt-1 text-lg font-semibold tracking-tight sm:text-xl"
+              style={{
+                fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
+              }}
+            >
+              Evidence outlives the VM
+            </p>
+          </div>
+          <p className="done-dossier-stamp">Destroyed</p>
+        </header>
+
+        <div className="done-dossier-columns">
+          <div className="done-dossier-column">
+            <p className="mb-3 font-mono text-[11px] uppercase tracking-wider text-(--ok)">
+              Counts as done
+            </p>
+            <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
+              {DONE_EVIDENCE.map((item) => (
+                <li key={item.label} className="done-dossier-row">
+                  <span
+                    className="done-dossier-mark done-dossier-mark-ok"
+                    aria-hidden
+                  >
+                    ✓
+                  </span>
+                  <span>
+                    <span className="block text-sm font-semibold tracking-tight text-(--ink)">
+                      {item.label}
+                    </span>
+                    <span className="block text-sm leading-snug text-(--muted)">
+                      {item.detail}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="done-dossier-rule" aria-hidden />
+
+          <div className="done-dossier-column">
+            <p className="mb-3 font-mono text-[11px] uppercase tracking-wider text-(--danger)">
+              Does not count
+            </p>
+            <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
+              {DONE_EXCLUSIONS.map((item) => (
+                <li key={item.label} className="done-dossier-row">
+                  <span
+                    className="done-dossier-mark done-dossier-mark-bad"
+                    aria-hidden
+                  >
+                    ✕
+                  </span>
+                  <span>
+                    <span className="block text-sm font-semibold tracking-tight text-(--muted)">
+                      {item.label}
+                    </span>
+                    <span className="block text-sm leading-snug text-(--muted)">
+                      {item.detail}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
       </div>
-      <div className="rounded-lg border border-(--line) bg-(--paper-deep) p-5">
-        <p className="mb-3 text-sm font-semibold text-(--muted)">
-          Not a chat demo
-        </p>
-        <ul className="space-y-2 text-sm text-(--muted)">
-          <li>No “I would run…” without a sandbox</li>
-          <li>No secrets in the guest</li>
-          <li>No leftover VM after the receipt</li>
-        </ul>
-      </div>
-    </div>
+    </figure>
   );
 }
 

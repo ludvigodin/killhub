@@ -16,18 +16,21 @@ export default function FeaturesPage() {
     <main className="min-h-screen w-full">
       <div className="mx-auto flex w-full max-w-5xl flex-col px-6 pb-24">
         <SiteNav />
-        <header className="pb-4 pt-4 sm:pt-6">
+        <header className="pb-2 pt-4 sm:pt-6">
+          <p className="mb-2 font-mono text-[11px] uppercase tracking-wider text-(--accent)">
+            Features
+          </p>
           <h1
             className="mb-2 text-3xl font-semibold tracking-tight sm:text-4xl"
             style={{
               fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
             }}
           >
-            Pattern A execution
+            Pattern A on Vultr
           </h1>
-          <p className="max-w-2xl text-base leading-relaxed text-(--muted) sm:text-lg">
-            Plan → sandboxed execution → verifiable output → destroy. Real work
-            in a Microsandbox — not a chat that describes what it would do.
+          <p className="max-w-xl text-base leading-relaxed text-(--muted)">
+            How Killhub plans, sandboxes, proves, and destroys — with a hard
+            plane boundary.
           </p>
         </header>
         <MarketingDiagrams />

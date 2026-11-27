@@ -14,12 +14,20 @@ export default function NotFound() {
         <Link href="/" className="no-underline" aria-label="Killhub home">
           <KillhubLogo size={28} withWordmark />
         </Link>
-        <Link
-          href="/features"
-          className="rounded-md px-2.5 py-1.5 text-sm text-(--muted) no-underline transition hover:text-(--ink)"
-        >
-          Features
-        </Link>
+        <div className="flex items-center gap-1 sm:gap-2">
+          <Link
+            href="/features"
+            className="rounded-md px-2.5 py-1.5 text-sm text-(--muted) no-underline transition hover:text-(--ink)"
+          >
+            Features
+          </Link>
+          <Link
+            href="/hubs"
+            className="rounded-md px-2.5 py-1.5 text-sm text-(--muted) no-underline transition hover:text-(--ink)"
+          >
+            Hubs
+          </Link>
+        </div>
       </nav>
 
       <section className="feed-hero mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center py-16 text-center sm:py-24">
@@ -49,10 +57,10 @@ export default function NotFound() {
             Back to feed
           </Link>
           <Link
-            href="/features"
+            href="/hubs"
             className="inline-flex min-h-11 items-center justify-center rounded-lg border border-(--line) bg-(--paper-deep) px-5 text-sm text-(--ink) no-underline transition hover:border-(--accent)"
           >
-            Features
+            Hubs
           </Link>
         </div>
       </section>

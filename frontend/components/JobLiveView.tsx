@@ -28,6 +28,8 @@ const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 
 type JobLiveViewProps = {
   jobId: string;
+  /** Hide redundant chrome when nested on the repo history page. */
+  embedded?: boolean;
 };
 
 type SsePayload = {
@@ -57,7 +59,7 @@ function toShot(meta: ScreenshotMeta, jobId: string): ScreenshotItem {
   };
 }
 
-export function JobLiveView({ jobId }: JobLiveViewProps) {
+export function JobLiveView({ jobId, embedded = false }: JobLiveViewProps) {
   const [snapshot, setSnapshot] = useState<JobSnapshot | null>(null);
   const [logs, setLogs] = useState<ProgressLogEntry[]>([]);
   const [shots, setShots] = useState<ScreenshotItem[]>([]);
@@ -303,7 +305,7 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
   return (
     <div className="space-y-8">
       <p className="font-mono text-sm text-(--muted)">{jobId}</p>
-      {snapshot?.github_url ? (
+      {!embedded && snapshot?.github_url ? (
         <p className="text-sm text-(--muted)">
           <a href={snapshot.github_url} target="_blank" rel="noreferrer">
             {snapshot.github_url}
