@@ -317,10 +317,13 @@ export async function createJob(
   const res = await fetch("/api/jobs", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
-    // Existing GitHub callers keep the same wire payload.
-    body: JSON.stringify(
-      typeof target === "string" ? { github_url: target } : target,
-    ),
+    body: JSON.stringify({
+      // The original UI call signatures keep working with the typed API envelope.
+      target:
+        typeof target === "string"
+          ? { kind: "github_repo", github_url: target }
+          : { kind: "fixture", fixture_id: target.fixture_id },
+    }),
   });
   const body = await parseJson<CreateJobResponse & ApiError>(res);
   if (!res.ok) {

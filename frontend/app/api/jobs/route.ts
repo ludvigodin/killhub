@@ -53,7 +53,11 @@ export async function POST(request: Request) {
     return Response.json(limited.body, { status: limited.status });
   }
 
-  let body: { github_url?: unknown; fixture_id?: unknown } | null;
+  let body: {
+    github_url?: unknown;
+    fixture_id?: unknown;
+    target?: unknown;
+  } | null;
   try {
     body = await request.json();
   } catch {
@@ -65,29 +69,39 @@ export async function POST(request: Request) {
 
   const githubUrl = body?.github_url;
   const fixtureId = body?.fixture_id;
+  const selector = body?.target;
   if (
-    (githubUrl != null) === (fixtureId != null) ||
+    [githubUrl, fixtureId, selector].filter((field) => field != null).length !==
+      1 ||
+    Object.keys(body ?? {}).some(
+      (key) => key !== "github_url" && key !== "fixture_id" && key !== "target",
+    ) ||
     (githubUrl != null && typeof githubUrl !== "string") ||
     (fixtureId != null &&
       (typeof fixtureId !== "string" || !/^[a-z0-9_-]{1,96}$/.test(fixtureId)))
   ) {
     return Response.json(
-      { error: "Provide one GitHub URL or fixture ID", code: "invalid_target" },
+      { error: "Provide exactly one job target", code: "invalid_target" },
       { status: 400 },
     );
   }
 
-  // Fixture IDs are resolved by the worker catalog. The browser supplies no pin.
-  let target: { github_url: string } | { fixture_id: string };
+  // The worker validates typed selectors and resolves catalog IDs.
+  let target:
+    | { github_url: string }
+    | { fixture_id: string }
+    | { target: unknown };
   try {
     target =
-      typeof fixtureId === "string"
-        ? { fixture_id: fixtureId }
-        : {
-            github_url: validateGithubUrl(
-              typeof githubUrl === "string" ? githubUrl : "",
-            ),
-          };
+      selector != null
+        ? { target: selector }
+        : typeof fixtureId === "string"
+          ? { fixture_id: fixtureId }
+          : {
+              github_url: validateGithubUrl(
+                typeof githubUrl === "string" ? githubUrl : "",
+              ),
+            };
   } catch (error) {
     return Response.json(
       {

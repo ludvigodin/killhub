@@ -6,13 +6,13 @@ import asyncio
 import json
 from pathlib import Path
 from time import monotonic
-from typing import Any, AsyncIterator, Dict, List, Optional, Union
+from typing import Any, AsyncIterator, Dict, List, Literal, Optional, Union
 from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.auth import require_internal_token
 from config import get_settings
@@ -38,9 +38,35 @@ router = APIRouter(
 )
 
 
+class GitHubJobTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["github_repo"]
+    github_url: str = Field(min_length=1)
+
+
+class FixtureJobTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["fixture"]
+    fixture_id: str = Field(min_length=1, max_length=96)
+
+
+class RegistryJobTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["registry_pin"]
+    pin_id: UUID
+
+
 class CreateJobBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     github_url: str | None = Field(default=None, min_length=1)
     fixture_id: str | None = Field(default=None, min_length=1, max_length=96)
+    target: GitHubJobTarget | FixtureJobTarget | RegistryJobTarget | None = Field(
+        default=None, discriminator="kind"
+    )
 
 
 class RegistryPinBody(BaseModel):
@@ -99,14 +125,22 @@ def post_job(
     x_real_ip: Optional[str] = Header(default=None),
     x_client_ip: Optional[str] = Header(default=None),
 ) -> Dict[str, str]:
-    # Resolve fixture selection before admission so invalid selectors reserve no capacity.
-    if (body.github_url is None) == (body.fixture_id is None):
-        raise _error(400, "Provide one GitHub URL or fixture ID", "invalid_target")
+    # A selector must resolve to exactly one job target before reservation.
+    if sum(value is not None for value in (body.github_url, body.fixture_id, body.target)) != 1:
+        raise _error(400, "Provide exactly one job target", "invalid_target")
     github_url = body.github_url
-    if body.fixture_id is not None:
+    fixture_id = body.fixture_id
+    if isinstance(body.target, GitHubJobTarget):
+        github_url = body.target.github_url
+    elif isinstance(body.target, FixtureJobTarget):
+        fixture_id = body.target.fixture_id
+    elif isinstance(body.target, RegistryJobTarget):
+        # Registry release pins are evidence records and have no runnable worker path.
+        raise _error(409, "Registry-backed jobs are unavailable", "registry_execution_unavailable")
+    if fixture_id is not None:
         try:
             github_url = resolve_intake_fixture(
-                body.fixture_id, restricted=get_settings().public_demo_fixtures_only
+                fixture_id, restricted=get_settings().public_demo_fixtures_only
             )
         except ValueError as exc:
             raise _error(400, str(exc), "invalid_fixture") from exc

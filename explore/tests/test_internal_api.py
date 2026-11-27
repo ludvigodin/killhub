@@ -18,12 +18,19 @@ def test_auth_required(client: TestClient) -> None:
     assert res.status_code == 401
 
 
-def test_create_from_pinned_fixture(client: TestClient, auth_header: dict[str, str]) -> None:
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"fixture_id": "sca_npm_control"},
+        {"target": {"kind": "fixture", "fixture_id": "sca_npm_control"}},
+    ],
+)
+def test_create_from_pinned_fixture(
+    client: TestClient, auth_header: dict[str, str], payload: dict[str, object]
+) -> None:
     from fixtures import match_fixture, require_fixture
 
-    response = client.post(
-        "/internal/jobs", headers=auth_header, json={"fixture_id": "sca_npm_control"}
-    )
+    response = client.post("/internal/jobs", headers=auth_header, json=payload)
     assert response.status_code == 201
     job_id = response.json()["job_id"]
     snapshot = client.get(f"/internal/jobs/{job_id}", headers=auth_header).json()
@@ -52,6 +59,56 @@ def test_rejected_fixture_selectors_create_no_job(
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == code
     assert client.get("/internal/jobs", headers=auth_header).json()["total"] == 0
+
+
+@pytest.mark.parametrize(
+    ("payload", "status"),
+    [
+        (
+            {"target": {"kind": "registry_pin", "pin_id": "b30a0f3a-c629-40e5-b87e-8e0befabc9f2"}},
+            409,
+        ),
+        (
+            {
+                "target": {"kind": "fixture", "fixture_id": "sca_npm_control"},
+                "github_url": "https://github.com/example/demo",
+            },
+            400,
+        ),
+        (
+            {
+                "target": {
+                    "kind": "fixture",
+                    "fixture_id": "sca_npm_control",
+                    "pin_id": "unexpected",
+                }
+            },
+            422,
+        ),
+    ],
+)
+def test_invalid_typed_selectors_leave_admission_empty(
+    client: TestClient, auth_header: dict[str, str], payload: dict[str, object], status: int
+) -> None:
+    response = client.post("/internal/jobs", headers=auth_header, json=payload)
+    assert response.status_code == status
+    if status == 409:
+        assert response.json()["detail"]["code"] == "registry_execution_unavailable"
+    assert client.get("/internal/jobs", headers=auth_header).json()["total"] == 0
+
+
+def test_typed_github_target_creates_normal_job(
+    client: TestClient, auth_header: dict[str, str]
+) -> None:
+    url = "https://github.com/example/demo"
+    response = client.post(
+        "/internal/jobs",
+        headers=auth_header,
+        json={"target": {"kind": "github_repo", "github_url": url}},
+    )
+    assert response.status_code == 201
+    snapshot = client.get(f"/internal/jobs/{response.json()['job_id']}", headers=auth_header)
+    assert snapshot.json()["github_url"] == url
 
 
 def test_create_snapshot_sse_cancel_flow(client: TestClient, auth_header: dict[str, str]) -> None:
