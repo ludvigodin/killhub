@@ -446,3 +446,5 @@ Public HTTP remains unversioned under `/api/...` in v1. **Profile** schema is ve
 `GET /api/fixtures` returns `restricted` and a `fixtures` array from the active worker policy. Each entry includes its id and public repository URL. In restricted mode only pinned public-demo fixtures appear. Operator MCP and the submission form read this catalog.
 
 `GET /health` returns HTTP 503 if Explore is unconfigured, unavailable, or reports an unhealthy ledger or admission store. Explore also returns HTTP 503 on a failed dependency check.
+
+The vulnerability report summary includes checked and discovered pinned dependency entry counts when inputs yield packages. The terminal vulnerability-scan log also records `packages_checked` and `packages_discovered`. Budgets, unavailable inputs and failed lookups preserve partial coverage. Counts refer to entries extracted from copied files.

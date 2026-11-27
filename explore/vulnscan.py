@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -39,6 +40,8 @@ LOCKFILE_NAMES = (
 )
 
 OSV_BATCH_LIMIT = 80
+OSV_MAX_BATCHES = 16
+OSV_LOOKUP_SECONDS = 30
 OSV_QUERYBATCH = "https://api.osv.dev/v1/querybatch"
 
 
@@ -255,11 +258,11 @@ def query_osv_batch(
     """Query OSV from Plane 1 (never from guest after offline — D43)."""
     if ecosystem == "unknown" or not packages:
         return []
-    # Cap queries to keep finalize bounded.
-    capped = packages[:OSV_BATCH_LIMIT]
+    if len(packages) > OSV_BATCH_LIMIT:
+        raise ValueError("OSV request exceeds batch size")
     queries = [
         {"package": {"name": name, "ecosystem": ecosystem}, "version": version}
-        for name, version in capped
+        for name, version in packages
     ]
     body = json.dumps({"queries": queries}).encode("utf-8")
     req = urllib.request.Request(
@@ -274,13 +277,13 @@ def query_osv_batch(
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         payload = json.loads(resp.read().decode("utf-8"))
     results = payload.get("results") if isinstance(payload, dict) else None
-    if not isinstance(results, list) or len(results) != len(capped):
+    if not isinstance(results, list) or len(results) != len(packages):
         raise ValueError("Incomplete OSV batch response")
     vulns: list[dict[str, Any]] = []
     for i, item in enumerate(results):
         if not isinstance(item, dict) or not isinstance(item.get("vulns", []), list):
             raise ValueError("Invalid OSV result")
-        name, version = capped[i]
+        name, version = packages[i]
         for vuln in item.get("vulns") or []:
             if not isinstance(vuln, dict) or not vuln.get("id"):
                 raise ValueError("Invalid OSV advisory")
@@ -330,14 +333,15 @@ def sca_findings_from_lockfiles(
     lockfiles: list[Path],
     *,
     osv_endpoint: str = OSV_QUERYBATCH,
-) -> tuple[list[dict[str, Any]], str]:
+) -> tuple[list[dict[str, Any]], str, int, int]:
     """
-    Return (findings, status) where status is ok|partial|failed.
+    Return findings, status, checked entries and discovered pinned entries.
     """
     findings: list[dict[str, Any]] = []
-    if not lockfiles:
-        return [], "partial"
-    incomplete = False
+    incomplete = not lockfiles
+    deadline = time.monotonic() + OSV_LOOKUP_SECONDS
+    requested = 0
+    discovered = 0
     errors = 0
     scanned = 0
     for path in lockfiles:
@@ -346,28 +350,34 @@ def sca_findings_from_lockfiles(
             if not packages:
                 incomplete = True
                 continue
-            if len(packages) > OSV_BATCH_LIMIT:
-                incomplete = True
-            vulns = query_osv_batch(ecosystem, packages, endpoint=osv_endpoint)
-            scanned += 1
-            for vuln in vulns:
-                fid = f"sca-{uuid.uuid4().hex[:8]}"
-                findings.append(
-                    {
-                        "id": fid,
-                        "severity": vuln.get("severity") or "medium",
-                        "package": f"{vuln.get('package')}@{vuln.get('version')}",
-                        "title": str(vuln.get("summary") or vuln.get("osv_id") or "advisory"),
-                        "advisory_url": vuln.get("advisory_url"),
-                        "source": "sca",
-                        "detail": {
-                            "osv_id": vuln.get("osv_id"),
-                            "ecosystem": vuln.get("ecosystem"),
-                            "lockfile": path.name,
-                            "aliases": vuln.get("aliases") or [],
-                        },
-                    }
-                )
+            discovered += len(packages)
+            for start in range(0, len(packages), OSV_BATCH_LIMIT):
+                remaining = deadline - time.monotonic()
+                if requested >= OSV_MAX_BATCHES or remaining <= 0:
+                    incomplete = True
+                    break
+                batch = packages[start : start + OSV_BATCH_LIMIT]
+                requested += 1
+                vulns = query_osv_batch(ecosystem, batch, endpoint=osv_endpoint, timeout=remaining)
+                scanned += len(batch)
+                for vuln in vulns:
+                    fid = f"sca-{uuid.uuid4().hex[:8]}"
+                    findings.append(
+                        {
+                            "id": fid,
+                            "severity": vuln.get("severity") or "medium",
+                            "package": f"{vuln.get('package')}@{vuln.get('version')}",
+                            "title": str(vuln.get("summary") or vuln.get("osv_id") or "advisory"),
+                            "advisory_url": vuln.get("advisory_url"),
+                            "source": "sca",
+                            "detail": {
+                                "osv_id": vuln.get("osv_id"),
+                                "ecosystem": vuln.get("ecosystem"),
+                                "lockfile": path.name,
+                                "aliases": vuln.get("aliases") or [],
+                            },
+                        }
+                    )
         except (
             OSError,
             json.JSONDecodeError,
@@ -378,10 +388,10 @@ def sca_findings_from_lockfiles(
             errors += 1
             logger.warning("SCA failed for %s: %s", path, exc)
     if errors and scanned == 0:
-        return findings, "failed"
+        return findings, "failed", scanned, discovered
     if errors or incomplete:
-        return findings, "partial"
-    return findings, "ok"
+        return findings, "partial", scanned, discovered
+    return findings, "ok", scanned, discovered
 
 
 def collect_stream_findings(job_id: str, settings: Settings) -> list[dict[str, Any]]:
@@ -643,7 +653,9 @@ def run_vuln_scan(
         )
 
     endpoint = osv_endpoint or getattr(cfg, "vuln_scan_osv_url", None) or OSV_QUERYBATCH
-    sca_findings, sca_status = sca_findings_from_lockfiles(lock_host, osv_endpoint=str(endpoint))
+    sca_findings, sca_status, checked, discovered = sca_findings_from_lockfiles(
+        lock_host, osv_endpoint=str(endpoint)
+    )
     for finding in sca_findings:
         _finding_event(job_id, settings=cfg, finding=finding)
 
@@ -686,6 +698,9 @@ def run_vuln_scan(
     elif status == "partial":
         summary = f"Dependency advisory coverage was incomplete. {summary}"
 
+    if discovered:
+        summary = f"Checked {checked} of {discovered} pinned dependency entries. {summary}"
+
     report = ledger.upsert_vuln_report(
         job_id,
         summary=summary,
@@ -701,6 +716,8 @@ def run_vuln_scan(
         status=status,
         finding_count=len(all_findings),
         lockfiles=[p.name for p in lock_host],
+        packages_checked=checked,
+        packages_discovered=discovered,
         report_id=report.get("job_id"),
         review_mode=review_mode,
     )

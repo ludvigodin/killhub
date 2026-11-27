@@ -153,6 +153,15 @@ function AxisRow({ axis }: { axis: ContainmentAxis }) {
   );
 }
 
+function UnverifiedHostTargets({ view }: { view: ContainmentView }) {
+  if (!view.unverifiedHostTargets.length) return null;
+  return (
+    <p className="mt-1 text-xs text-(--muted)">
+      Unverified host targets: {view.unverifiedHostTargets.join(", ")}
+    </p>
+  );
+}
+
 function ClaimHeader({ view }: { view: ContainmentView }) {
   const tone = claimTone(view.claim);
   return (
@@ -173,6 +182,7 @@ function ClaimHeader({ view }: { view: ContainmentView }) {
           {view.passed}/{view.total} axes proven
           {view.at ? ` · ${view.at}` : ""}
         </p>
+        <UnverifiedHostTargets view={view} />
       </div>
       <span
         className="inline-flex items-center rounded-md px-2.5 py-1 font-mono text-xs uppercase tracking-wide"
@@ -249,6 +259,7 @@ export function ContainmentPanel({
             ))}
           </ul>
         </div>
+        <UnverifiedHostTargets view={view} />
       </section>
     );
   }

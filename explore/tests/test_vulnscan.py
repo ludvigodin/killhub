@@ -86,7 +86,8 @@ def test_sca_from_lockfile_with_mock_osv(tmp_path: Path, monkeypatch: pytest.Mon
         ]
 
     monkeypatch.setattr("vulnscan.query_osv_batch", fake_osv)
-    findings, status = sca_findings_from_lockfiles([path])
+    findings, status, checked, discovered = sca_findings_from_lockfiles([path])
+    assert checked == discovered == 1
     assert status == "ok"
     assert len(findings) == 1
     assert findings[0]["source"] == "sca"
@@ -109,7 +110,7 @@ def test_no_scan_inputs_persist_partial_report(monkeypatch, sandbox_id):
 def test_unsupported_file_is_partial(tmp_path):
     path = tmp_path / "Cargo.lock"
     path.write_text("")
-    assert sca_findings_from_lockfiles([path]) == ([], "partial")
+    assert sca_findings_from_lockfiles([path]) == ([], "partial", 0, 0)
 
 
 @pytest.mark.parametrize(
@@ -217,4 +218,31 @@ def test_unavailable_advisory_lookup_preserves_coverage(
     assert sca_findings_from_lockfiles(inputs) == (
         [],
         "partial" if has_completed_lookup else "failed",
+        int(has_completed_lookup),
+        len(inputs),
     )
+
+
+@pytest.mark.parametrize(
+    "limit,fail_second,expected",
+    [(3, False, ("ok", 161)), (1, False, ("partial", 80)), (3, True, ("partial", 80))],
+)
+def test_large_lock_coverage(tmp_path, monkeypatch, limit, fail_second, expected):
+    path = tmp_path / "requirements.txt"
+    path.write_text("".join(f"pkg{i}==1\n" for i in range(161)))
+    batches = []
+
+    def lookup(ecosystem, packages, **kwargs):
+        assert 0 < kwargs["timeout"] <= 30
+        assert len(packages) <= 80
+        if batches and fail_second:
+            raise TimeoutError
+        batches.extend(packages)
+        return []
+
+    monkeypatch.setattr("vulnscan.OSV_MAX_BATCHES", limit)
+    monkeypatch.setattr("vulnscan.query_osv_batch", lookup)
+    _, status, checked, discovered = sca_findings_from_lockfiles([path])
+    assert (status, checked) == expected
+    assert discovered == 161
+    assert len(set(batches)) == checked
