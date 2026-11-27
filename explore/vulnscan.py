@@ -13,9 +13,12 @@ from pathlib import Path
 from typing import Any
 
 from config import Settings, get_settings
+from errors import HarnessError
+from fixtures import match_fixture
 from harness import copy_out, exec_command
 from jobs import get_ledger
 from ledger.store import utc_now
+from models import JobEvent
 
 logger = logging.getLogger("killhub.vulnscan")
 
@@ -427,6 +430,75 @@ def collect_stream_findings(job_id: str, settings: Settings) -> list[dict[str, A
     return deduped
 
 
+def _measure_filesystem_read(
+    environment_id: str, job_id: str, settings: Settings
+) -> dict[str, Any]:
+    detail: dict[str, Any] = {}
+    try:
+        result = exec_command(
+            environment_id,
+            ["python3", "-E", "-s", "/opt/killhub/helpers/mcp_fixture_read.py"],
+            job_id=job_id,
+            settings=settings,
+            timeout=20,
+        )
+        measurement = json.loads(result.stdout) if result.exit_code == 0 else {}
+        if not isinstance(measurement, dict):
+            measurement = {}
+        status = measurement.get("status")
+        if (
+            status in ("passed", "failed")
+            and all(
+                isinstance(measurement.get(k), str)
+                and re.fullmatch(r"[0-9a-f]{64}", measurement[k])
+                for k in ("expected_sha256", "response_sha256", "schema_sha256")
+            )
+            and type(measurement.get("elapsed_ms")) is int
+            and measurement["elapsed_ms"] >= 0
+            and type(measurement.get("fixture_unchanged")) is bool
+            and measurement.get("tool") == "read_text_file"
+        ):
+            for key in (
+                "tool",
+                "expected_sha256",
+                "response_sha256",
+                "schema_sha256",
+                "fixture_unchanged",
+                "elapsed_ms",
+            ):
+                detail[key] = measurement[key]
+            detail["timeout_ms"] = 15000
+            matched = (
+                detail["fixture_unchanged"]
+                and detail["response_sha256"] == detail["expected_sha256"]
+                and detail["elapsed_ms"] <= detail["timeout_ms"]
+            )
+            detail["status"] = "passed" if matched and status == "passed" else "failed"
+        else:
+            detail.update(status="partial", reason="measurement_unavailable")
+    except (HarnessError, ValueError):
+        detail.update(status="partial", reason="measurement_unavailable")
+    return detail
+
+
+def _has_offline_evidence(events: list[JobEvent], environment_id: str) -> bool:
+    restored = False
+    denied = False
+    for event in events:
+        payload = event.payload
+        if event.type == "lifecycle" and payload.get("phase") == "network_verify":
+            restored = (
+                payload.get("environment_id") == environment_id
+                and (payload.get("net") or {}).get("no_net") is True
+            )
+            denied = False
+        elif (
+            event.type == "log" and payload.get("kind") == "install" and "offline_probe" in payload
+        ):
+            denied = (payload.get("offline_probe") or {}).get("classification") == "policy_denied"
+    return restored and denied
+
+
 def run_mcp_assessment_if_planned(
     environment_id: str | None,
     *,
@@ -439,50 +511,39 @@ def run_mcp_assessment_if_planned(
     assessment = mcp.get("security_assessment") or {}
     if not isinstance(assessment, dict) or not assessment.get("enabled"):
         return None
-    if not environment_id:
-        result = {
-            "enabled": True,
-            "status": "skipped",
-            "reason": "no_sandbox",
-            "at": utc_now(),
-        }
-        _log(
-            job_id,
-            "mcp_assessment skipped (no sandbox)",
-            settings=settings,
-            kind="mcp_assessment",
-            **result,
-        )
-        return result
-
-    # Bounded, non-weaponizing surface probe: confirm helpers still list MCP tools
-    # when stdio transport is declared. Never runs exploit suites (D33).
+    ledger = get_ledger(settings)
+    job = ledger.get_job(job_id)
+    fixture = match_fixture(job.github_url) if job else None
     transport = mcp.get("transport")
-    detail: dict[str, Any] = {
+    detail = {
         "enabled": True,
+        "check": "filesystem_read_v1",
         "transport": transport,
         "at": utc_now(),
+        "status": "skipped",
     }
-    if transport == "stdio":
-        probe = exec_command(
-            environment_id,
-            [
-                "sh",
-                "-lc",
-                "test -f /opt/killhub/helpers/mcp_stdio_verify.py "
-                "&& echo helper_ok || echo helper_missing",
-            ],
-            job_id=job_id,
-            settings=settings,
-            timeout=30,
-        )
-        ok = "helper_ok" in (probe.stdout or "")
-        detail["status"] = "ok" if ok else "partial"
-        detail["helper"] = "present" if ok else "missing"
+    if not environment_id or not job or job.sandbox_id != environment_id:
+        detail["reason"] = "no_current_sandbox"
+    elif transport != "stdio" or assessment.get("check") != detail["check"]:
+        detail["reason"] = "no_supported_behavior_check"
+    elif (
+        not fixture
+        or fixture["id"] != "git_mcp_filesystem"
+        or job.resolved_commit != fixture["commit"]
+        or (profile.get("source") or {}).get("commit") != fixture["commit"]
+    ):
+        detail["reason"] = "unmatched_fixture_revision"
+    elif (
+        job.cancel_requested_at
+        or not (job.readiness or {}).get("passed")
+        or (job.verification or {}).get("kind") != "original_application"
+    ):
+        detail["reason"] = "original_readiness_required"
+    elif not _has_offline_evidence(ledger.list_events(job_id), environment_id):
+        detail["reason"] = "offline_evidence_missing"
     else:
-        detail["status"] = "ok"
-        detail["note"] = "assessment recorded without offensive probes"
-
+        detail["resolved_commit"] = job.resolved_commit
+        detail.update(_measure_filesystem_read(environment_id, job_id, settings))
     _log(
         job_id,
         f"mcp_assessment → {detail.get('status')}",
@@ -490,11 +551,13 @@ def run_mcp_assessment_if_planned(
         kind="mcp_assessment",
         **detail,
     )
-    if detail.get("status") == "partial":
+    if detail.get("status") in ("failed", "partial"):
         finding = {
             "id": f"mcp-{uuid.uuid4().hex[:8]}",
             "severity": "low",
-            "title": "MCP assessment tooling incomplete",
+            "title": "Fixture read differed from expected behavior"
+            if detail["status"] == "failed"
+            else "Fixture read evidence incomplete",
             "source": "mcp_assessment",
             "detail": detail,
         }

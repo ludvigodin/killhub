@@ -110,3 +110,111 @@ def test_unsupported_file_is_partial(tmp_path):
     path = tmp_path / "Cargo.lock"
     path.write_text("")
     assert sca_findings_from_lockfiles([path]) == ([], "partial")
+
+
+@pytest.mark.parametrize(
+    "case", ["matched", "mismatch", "changed_file", "late", "missing", "unbound_commit", "online"]
+)
+def test_pinned_read_assessment_receipt(case, monkeypatch):
+    from discover import infer_runtime_profile
+    from fixtures import require_fixture
+    from harness import ExecResult
+    from operator_mcp_tools import summarize_receipt
+
+    fixture = require_fixture("git_mcp_filesystem")
+    job = create_job(fixture["github_url"])
+    ledger = get_ledger()
+    profile = infer_runtime_profile(
+        github_url=job.github_url,
+        commit=fixture["commit"],
+        inspect={},
+        fixture=fixture,
+        oci_image="debian",
+    )
+    ledger.append_profile_revision(job.job_id, phase="runtime", schema_version="1", profile=profile)
+    ledger.update_job_fields(
+        job.job_id,
+        sandbox_id="env-fixture",
+        resolved_commit=("0" * 40 if case == "unbound_commit" else fixture["commit"]),
+        readiness={"passed": True},
+        verification={"kind": "original_application"},
+    )
+    ledger.append_event(
+        job.job_id,
+        typ="lifecycle",
+        message="restore",
+        payload={
+            "phase": "network_verify",
+            "environment_id": "env-fixture",
+            "net": {"no_net": True},
+        },
+    )
+    ledger.append_event(
+        job.job_id,
+        typ="log",
+        message="install",
+        payload={
+            "kind": "install",
+            "offline_probe": {
+                "classification": "policy_bypass" if case == "online" else "policy_denied"
+            },
+        },
+    )
+
+    def measure(env, cmd, **kwargs):
+        assert case not in ("unbound_commit", "online")
+        assert cmd[-1] == "/opt/killhub/helpers/mcp_fixture_read.py"
+        data = {
+            "tool": "read_text_file",
+            "status": "passed",
+            "expected_sha256": "1" * 64,
+            "schema_sha256": "3" * 64,
+            "response_sha256": ("2" if case == "mismatch" else "1") * 64,
+            "elapsed_ms": 15001 if case == "late" else 51,
+            "fixture_unchanged": case != "changed_file",
+        }
+        return ExecResult(
+            stdout="{}" if case == "missing" else json.dumps(data), stderr="", exit_code=0
+        )
+
+    monkeypatch.setattr("vulnscan.exec_command", measure)
+    monkeypatch.setattr("vulnscan.copy_lockfiles_to_artifacts", lambda *a, **kw: ([], False))
+    result = run_vuln_scan(job.job_id)
+    expected = {
+        "matched": "passed",
+        "mismatch": "failed",
+        "changed_file": "failed",
+        "late": "failed",
+        "missing": "partial",
+        "unbound_commit": "skipped",
+        "online": "skipped",
+    }[case]
+    assert result.mcp_assessment["status"] == expected
+    snap = ledger.get_snapshot(job.job_id)
+    assert (
+        summarize_receipt(snap, base_url="https://example.test")["mcp_assessment"]
+        == result.mcp_assessment
+    )
+    assert snap["readiness"]["passed"]
+
+
+@pytest.mark.parametrize("has_completed_lookup", [False, True])
+def test_unavailable_advisory_lookup_preserves_coverage(
+    tmp_path, monkeypatch, has_completed_lookup
+):
+    npm = tmp_path / "package-lock.json"
+    npm.write_text(json.dumps({"packages": {"node_modules/pkg": {"version": "1.0.0"}}}))
+    python = tmp_path / "requirements.txt"
+    python.write_text("fixture==1.0.0\n")
+
+    def lookup(ecosystem, packages, **kwargs):
+        if ecosystem == "npm":
+            raise TimeoutError("advisory lookup unavailable")
+        return []
+
+    monkeypatch.setattr("vulnscan.query_osv_batch", lookup)
+    inputs = [npm, python] if has_completed_lookup else [npm]
+    assert sca_findings_from_lockfiles(inputs) == (
+        [],
+        "partial" if has_completed_lookup else "failed",
+    )

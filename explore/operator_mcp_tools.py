@@ -123,6 +123,7 @@ def summarize_receipt(snap: dict[str, Any], *, base_url: str) -> dict[str, Any]:
         }
         if ready
         else None,
+        "mcp_assessment": vuln.get("mcp_assessment") if isinstance(vuln, dict) else None,
         "findings": findings,
         "containment": containment,
         "screenshot_ids": shot_ids,

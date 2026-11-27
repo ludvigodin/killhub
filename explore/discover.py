@@ -398,6 +398,11 @@ def infer_runtime_profile(
             "summary": "MCP filesystem server from pinned checkout (stdio)",
             "verification_target": "original_application",
             "mcp": {
+                **(
+                    {"security_assessment": mcp_meta["security_assessment"]}
+                    if "security_assessment" in mcp_meta
+                    else {}
+                ),
                 "transport": "stdio",
                 "entrypoint": mcp_meta.get("entrypoint") or "src/filesystem",
                 "launch_command": _cmd(

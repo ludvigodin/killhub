@@ -349,6 +349,8 @@ Cap: `MAX_SCREENSHOTS_PER_JOB` and disk budget (D40). Capture in Plane 2 (D38); 
 | `canary` | Unexpected canary credential hit (D44); excludes deliberate probe sessions (D65) |
 | `network` / `containment` | Policy / isolation evidence (`policy_denied` vs `infra_error` — D65) |
 
+The existing vulnerability report JSON and receipt dossier JSON also store the optional `filesystem_read_v1` observation. The report owns the measurement and the finalizer copies it into the dossier before terminal status. Historical dossiers can omit this key. The synthetic marker and raw tool reply are transient guest data; their SHA-256 digests persist as evidence. See [Jobs API](API.md) for result semantics.
+
 Findings do not delete readiness evidence. Report generation is bounded in `scanning` / `finalizing` before terminal status (D37, D66).
 
 ---

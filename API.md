@@ -221,6 +221,8 @@ Full job snapshot for poll/hydrate.
 
 **Errors:** `404` unknown job.
 
+The pinned filesystem profile enables the optional `filesystem_read_v1` assessment after original-app readiness and confirmed offline egress. The job snapshot exposes its evidence under `vuln_report.mcp_assessment`, the terminal receipt under `receipt.dossier.mcp_assessment`, and the operator's slim receipt under `mcp_assessment`. A measured result records the tool, source commit, schema digest, expected and returned content digests, elapsed time, time limit and fixture integrity. `passed` means the expected content arrived within the bound and the synthetic fixture remained intact. `failed` means a measured expectation differed. `partial` means measurement evidence was unavailable. `skipped` includes the reason a planned check could not run. Older helper-presence assessments can have `status=ok` without a behavior check identifier. An omitted assessment remains optional.
+
 Poll and SSE must agree on `status` / `progress` (D13).
 
 ---

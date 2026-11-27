@@ -44,6 +44,7 @@
       "mcp": {
         "transport": "stdio",
         "entrypoint": "src/filesystem",
+        "security_assessment": {"enabled": true, "check": "filesystem_read_v1"},
         "package": "@modelcontextprotocol/server-filesystem",
         "launch_bin": "dist/index.js",
         "workdir_relative": "src/filesystem",
