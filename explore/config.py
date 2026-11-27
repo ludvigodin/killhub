@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     internal_api_token: str = Field(default="", alias="INTERNAL_API_TOKEN")
     sse_keepalive_seconds: int = Field(default=15, alias="SSE_KEEPALIVE_SECONDS")
     worker_poll_seconds: float = Field(default=1.0, alias="WORKER_POLL_SECONDS")
+
+    # Operator-controlled console settings. The guest creates no host-side socket paths.
+    novnc_enabled: bool = Field(default=False, alias="NOVNC_ENABLED")
+    novnc_socket_root: str = Field(default="", alias="NOVNC_SOCKET_ROOT")
+    novnc_allowed_origin: str = Field(default="", alias="NOVNC_ALLOWED_ORIGIN")
+    novnc_token_secret: SecretStr = Field(default=SecretStr(""), alias="NOVNC_TOKEN_SECRET")
+    novnc_operator_token: SecretStr = Field(default=SecretStr(""), alias="NOVNC_OPERATOR_TOKEN")
 
     # Vultr
     vultr_api_key: str = Field(default="", alias="VULTR_API_KEY")
