@@ -6,14 +6,21 @@ export class RaptorGuide {
   readonly destination = new T.Vector3();
   private rest = 0;
   private speed = 0;
+  private readonly idle: T.AnimationAction;
   private readonly stride: T.AnimationAction;
+  readonly model: T.Group;
+  private readonly mixer: T.AnimationMixer;
   constructor(
-    readonly model: T.Group,
-    private readonly mixer: T.AnimationMixer,
+    model: T.Group,
+    mixer: T.AnimationMixer,
     walk: T.AnimationClip,
+    idle: T.AnimationClip,
   ) {
+    this.model = model;
+    this.mixer = mixer;
     this.stride = mixer.clipAction(walk);
-    this.stride.play();
+    this.stride.setEffectiveWeight(0).play();
+    this.idle = mixer.clipAction(idle).play();
   }
   goTo(x: number, z: number) {
     this.destination.set(
@@ -49,31 +56,39 @@ export class RaptorGuide {
     const dx = this.destination.x - pos.x,
       dz = this.destination.z - pos.z;
     const distance = Math.hypot(dx, dz);
-    if (distance < 0.12) {
-      this.speed = 0;
+    if (distance < 0.16) {
       this.rest += dt;
-      if (this.rest > 2.8) {
-        const z = T.MathUtils.clamp(
-          camera.z - 4 + (Math.random() - 0.5) * 8,
-          -22,
-          6,
-        );
-        this.goTo((Math.random() - 0.5) * 1.85, z);
+      this.speed = T.MathUtils.damp(this.speed, 0, 12, dt);
+      if (this.rest >= 1.5) {
+        // Pick a point in the operator's view with room for several full steps.
+        const near = T.MathUtils.clamp(camera.z - 2.8, -16, 7);
+        const far = near - 6.5;
+        let z = T.MathUtils.lerp(far, near, Math.random());
+        if (Math.abs(z - pos.z) < 2.25)
+          z = pos.z < (far + near) / 2 ? near : far;
+        this.goTo((Math.random() - 0.5) * 1.9, z);
       }
-      return;
+    } else {
+      const desired = Math.atan2(dx, dz);
+      const turn = Math.atan2(
+        Math.sin(desired - this.model.rotation.y),
+        Math.cos(desired - this.model.rotation.y),
+      );
+      this.model.rotation.y += T.MathUtils.clamp(turn, -dt * 3.2, dt * 3.2);
+      const pace =
+        Math.min(1.65, Math.sqrt(4 * distance)) * Math.max(0, Math.cos(turn));
+      this.speed = T.MathUtils.damp(this.speed, pace, 7, dt);
+      const travel = Math.min(distance, this.speed * dt);
+      pos.x += (dx / distance) * travel;
+      pos.z += (dz / distance) * travel;
     }
-    const desired = Math.atan2(dx, dz);
-    const turn = Math.atan2(
-      Math.sin(desired - this.model.rotation.y),
-      Math.cos(desired - this.model.rotation.y),
-    );
-    this.model.rotation.y += T.MathUtils.clamp(turn, -dt * 2.8, dt * 2.8);
-    const speed = Math.min(1.55, distance * 2) * Math.max(0, Math.cos(turn));
-    this.speed = T.MathUtils.damp(this.speed, speed, 6, dt);
-    const travel = Math.min(distance, this.speed * dt);
-    pos.x += (dx / distance) * travel;
-    pos.z += (dz / distance) * travel;
-    this.stride.timeScale = this.speed / 1.55;
+
+    // Idle and walk share a planted pose. Keep the mixer running through turns
+    // and arrivals so the neck and tail remain alive while the feet settle.
+    const walking = T.MathUtils.smoothstep(this.speed, 0.05, 0.65);
+    this.idle.setEffectiveWeight(1 - walking);
+    this.stride.setEffectiveWeight(walking);
+    this.stride.timeScale = Math.max(0.4, this.speed / 1.65);
     this.mixer.update(dt);
   }
 }

@@ -163,6 +163,8 @@ export function mountScene(
     for (const side of [-1, 1])
       box(side * 8, 2.2, 5 - j * 4.5, 3, 4.4, 3.5, metal);
   const motion = matchMedia("(prefers-reduced-motion: reduce)");
+  let animateInReducedMotion = false;
+  const raptorMoves = () => !motion.matches || animateInReducedMotion;
   let disposed = false,
     following = true,
     yaw = 0,
@@ -183,7 +185,7 @@ export function mountScene(
     if (loading) return;
     loading = true;
     new GLTFLoader().load(
-      "/hackervision/velociraptor.glb",
+      "/hackervision/velociraptor.glb?motion=2",
       (g) => {
         if (disposed) {
           release(g.scene);
@@ -196,8 +198,9 @@ export function mountScene(
         scene.add(raptor);
         mixer = new T.AnimationMixer(raptor);
         const walk = T.AnimationClip.findByName(g.animations, "Walk");
-        if (walk) {
-          guide = new RaptorGuide(raptor, mixer, walk);
+        const idle = T.AnimationClip.findByName(g.animations, "Idle");
+        if (walk && idle) {
+          guide = new RaptorGuide(raptor, mixer, walk, idle);
           guide.appear(station, side);
         }
         wake();
@@ -223,7 +226,7 @@ export function mountScene(
   }
   function draw(now: number) {
     frame = 0;
-    const dt = Math.min(0.055, (now - prev) / 1000);
+    const dt = prev ? Math.min(0.25, (now - prev) / 1000) : 1 / 60;
     prev = now;
     const targetZ = 7.1 - station * 4.3,
       targetYaw = side ? -0.36 : 0.36;
@@ -242,7 +245,11 @@ export function mountScene(
     if (raptor) {
       raptor.visible = shadow.visible = glow.visible = active;
       if (active) {
-        if (!motion.matches) guide?.step(dt, camera.position);
+        if (raptorMoves() && guide) {
+          const steps = Math.ceil(dt * 30);
+          for (let i = 0; i < steps; i++)
+            guide.step(dt / steps, camera.position);
+        }
         shadow.position.set(raptor.position.x, 0.018, raptor.position.z);
         shadow.rotation.y = raptor.rotation.y;
         glow.position.copy(raptor.position);
@@ -267,7 +274,7 @@ export function mountScene(
     if (
       packet.visible ||
       keys.size ||
-      (active && raptor && !motion.matches) ||
+      (active && guide && raptorMoves()) ||
       (following &&
         Math.abs(camera.position.z - targetZ) +
           Math.abs(camera.position.x) +
@@ -294,7 +301,7 @@ export function mountScene(
   function directRaptor(x: number, z: number) {
     if (!guide || !active) return;
     guide.goTo(x, z);
-    if (motion.matches) guide.model.position.copy(guide.destination);
+    if (!raptorMoves()) guide.model.position.copy(guide.destination);
     wake();
   }
   const ray = new T.Raycaster();
@@ -390,7 +397,7 @@ export function mountScene(
       if (alert && !active) guide?.appear(station, side);
       else if (alert && changedBank && guide) {
         guide.approachStation(station, side);
-        if (motion.matches) guide.model.position.copy(guide.destination);
+        if (!raptorMoves()) guide.model.position.copy(guide.destination);
       }
       active = alert;
       for (let i = 0; i < lamps.length; i++)
@@ -406,6 +413,10 @@ export function mountScene(
                   : "#6da88e",
         );
       if (alert) loadRaptor();
+      wake();
+    },
+    allowRaptorMotion(value: boolean) {
+      animateInReducedMotion = value;
       wake();
     },
     callRaptor() {

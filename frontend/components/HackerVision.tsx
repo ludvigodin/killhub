@@ -15,6 +15,7 @@ export function HackerVision({ entries }: { entries: ProgressLogEntry[] }) {
     [followCamera, setFollowCamera] = useState(true);
   const [unavailable, setUnavailable] = useState(false),
     [modelMissing, setModelMissing] = useState(false);
+  const [motionOptIn, setMotionOptIn] = useState(false);
   const events = useMemo(() => mapEvents(entries), [entries]);
   const index =
     pinned === null
@@ -220,6 +221,19 @@ export function HackerVision({ entries }: { entries: ProgressLogEntry[] }) {
                   onClick={() => scene.current?.callRaptor()}
                 >
                   Call raptor
+                </button>
+              )}
+              {danger && !unavailable && !modelMissing && (
+                <button
+                  type="button"
+                  className={`hidden motion-reduce:inline-flex ${control}`}
+                  aria-pressed={motionOptIn}
+                  onClick={() => {
+                    scene.current?.allowRaptorMotion(!motionOptIn);
+                    setMotionOptIn(!motionOptIn);
+                  }}
+                >
+                  {motionOptIn ? "Hold raptor pose" : "Animate raptor"}
                 </button>
               )}
               {!unavailable && !followCamera && (
