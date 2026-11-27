@@ -14,7 +14,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Mapping, Optional, Sequence
+from typing import Any, Callable, Mapping, Optional, Sequence
 
 from config import Settings, get_settings
 from errors import HarnessError
@@ -609,15 +609,23 @@ def create_environment(
         )
         raise
 
-    gen = ledger.append_sandbox_generation(
-        job_id,
-        environment_id=name,
-        image=env_plan.image,
-        expires_at=job.expires_at,
-        state="provisioning",
-        cpus=env_plan.cpus,
-        memory=env_plan.memory,
-    )
+    try:
+        gen = ledger.append_sandbox_generation(
+            job_id,
+            environment_id=name,
+            image=env_plan.image,
+            expires_at=job.expires_at,
+            state="provisioning",
+            cpus=env_plan.cpus,
+            memory=env_plan.memory,
+        )
+    except Exception:
+        # The VM exists but the ledger refused it — typically a cancel landed
+        # while `msb create` was in flight, and the cancel finalizer already
+        # closed the job. Never leave an untracked VM running: remove it now
+        # and record only what is confirmed (D57, D61).
+        _remove_untracked_vm(name, job_id=job_id, ledger=ledger, msb=msb)
+        raise
     ledger.append_event(
         job_id,
         typ="lifecycle",
@@ -981,6 +989,35 @@ def wait_until_ready(
         f"sandbox {environment_id} not running before timeout ({last[:200]})",
         code="not_ready",
     )
+
+
+def _remove_untracked_vm(name: str, *, job_id: str, ledger: Any, msb: MsbCli) -> bool:
+    """Stop + remove a VM the ledger never recorded; True only if confirmed gone."""
+    msb.stop(name, force=True)
+    msb.remove(name, force=True)
+    status = msb.status(name)
+    text = f"{status.stdout}\n{status.stderr}".lower()
+    confirmed = (not status.ok) and "not found" in text
+    try:
+        ledger.append_event(
+            job_id,
+            typ="lifecycle",
+            message="untracked sandbox removed"
+            if confirmed
+            else "untracked sandbox removal unconfirmed",
+            payload={
+                "phase": "destroyed" if confirmed else "destroy_failed",
+                "environment_id": name,
+                "reason": "create_after_cancel",
+                "confirmed": confirmed,
+            },
+            finalizer=True,
+        )
+    except Exception:  # noqa: BLE001 — evidence is best-effort; removal already ran
+        logger.warning("could not record untracked VM removal for %s", name)
+    if not confirmed:
+        logger.error("untracked sandbox %s may still be running (reaper will retry)", name)
+    return confirmed
 
 
 def destroy_environment(
