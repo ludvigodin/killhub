@@ -477,6 +477,39 @@ LEDGER_BACKUP_UPLOAD=true   # optional
 
 4. Restart explore. Misconfiguration **fails closed** (clear error) when backend is `s3`/`object` without credentials. Account currently needs an operator-created subscription/bucket — code does not provision one.
 
+### Vultr CDN Pull Zone (optional, D76 — after D72)
+
+Once screenshots land in Object Storage, put a **CDN Pull Zone** in front of the bucket so the home-feed thumbs hit the edge instead of Plane 1:
+
+1. Create a Pull Zone (dashboard: Products → CDN → Pull Zones, or `vultr-cli`):
+
+```bash
+vultr-cli cdn pull create \
+  --domain your-bucket.ewr1.vultrobjects.com \
+  --scheme https \
+  --label killhub-screenshots \
+  --gzip \
+  --cors
+```
+
+Origin must be the **virtual-host** bucket URL (`https://{bucket}.{cluster}.vultrobjects.com/`), not the path-style API endpoint.
+
+2. Copy the assigned CDN hostname into Plane 1 env (no trailing slash):
+
+```bash
+OBJECT_STORAGE_CDN_BASE_URL=https://cdn-xxxxx.vultrcdn.com
+```
+
+3. Restart explore. New screenshot uploads get `public-read` + `Cache-Control: public, max-age=86400`. Artifacts and ledger backups stay private. Feed responses include absolute `screenshot_url` values.
+
+4. Verify (after at least one uploaded still):
+
+```bash
+curl -I "https://cdn-xxxxx.vultrcdn.com/killhub/screenshots/{job_id}/{shot_id}.png"
+```
+
+Enable CORS on the pull zone so `killhub.pro` can load CDN images. Historical private objects are not rewritten — only new uploads get public ACL. Code does not provision the pull zone.
+
 ---
 
 ## 8. Verify
@@ -529,7 +562,7 @@ cd ../explore && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .v
 |-----|---------|
 | [README.md](README.md) | Product |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Planes, trust zones, deploy topology |
-| [DECISIONS.md](DECISIONS.md) | D24, D25, D41, D46, D59, D70–D75, … |
+| [DECISIONS.md](DECISIONS.md) | D24, D25, D41, D46, D59, D70–D76, … |
 | [`ops/vx1-firewall.sh`](ops/vx1-firewall.sh) | Dry-run / apply Vultr Firewall for VX1 (D70) |
 | [AGENTS.md](AGENTS.md) | Agent rules, quality gate, Vultr tooling |
 | [DATABASE.md](DATABASE.md) | Ledger, reaper, backups |

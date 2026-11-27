@@ -202,6 +202,12 @@ class Settings(BaseSettings):
         default="killhub",
         alias="OBJECT_STORAGE_PREFIX",
     )
+    # Optional Vultr CDN Pull Zone base for public screenshot URLs (D76).
+    # e.g. https://cdn-xxxxx.vultrcdn.com — no trailing slash.
+    object_storage_cdn_base_url: str = Field(
+        default="",
+        alias="OBJECT_STORAGE_CDN_BASE_URL",
+    )
     # Nightly ledger backup may also upload when true (and object backend configured).
     ledger_backup_upload: bool = Field(
         default=False,

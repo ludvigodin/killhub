@@ -1,32 +1,51 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type JobSummary, listJobs } from "@/lib/api";
 import { type BatchResult, BatchUrlForm } from "./BatchUrlForm";
 import { JobEntryCard } from "./JobEntryCard";
 
 const POLL_MS = 4000;
+const PAGE_SIZE = 12;
 
 export function JobFeed() {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const jobsRef = useRef(jobs);
+  jobsRef.current = jobs;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadToken is an intentional refresh trigger after batch create
+  const offset = page * PAGE_SIZE;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const from = total === 0 ? 0 : offset + 1;
+  const to = Math.min(offset + jobs.length, total);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadToken refreshes after batch create
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
       try {
-        const { jobs: next } = await listJobs(48);
+        const next = await listJobs(PAGE_SIZE, offset);
         if (cancelled) return;
-        setJobs(next);
+        setJobs(next.jobs);
+        setTotal(next.total);
         setError(null);
+        // If the current page is past the end (jobs deleted / pruned), snap back.
+        const maxPage = Math.max(0, Math.ceil(next.total / PAGE_SIZE) - 1);
+        if (page > maxPage) {
+          setPage(maxPage);
+        }
       } catch (err) {
         if (cancelled) return;
         const e = err as Error;
-        setError(e.message || "Could not load jobs");
+        // Keep the last good feed; only surface the error when empty.
+        if (jobsRef.current.length === 0) {
+          setError(e.message || "Could not load jobs");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -41,10 +60,11 @@ export function JobFeed() {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [reloadToken]);
+  }, [reloadToken, page, offset]);
 
   function onCreated(results: BatchResult[]) {
     if (results.some((r) => r.ok)) {
+      setPage(0);
       setReloadToken((n) => n + 1);
     }
   }
@@ -78,7 +98,11 @@ export function JobFeed() {
             Entries
           </h2>
           <p className="text-sm text-(--muted)">
-            {loading ? "Loading…" : `${jobs.length} recent`}
+            {loading
+              ? "Loading…"
+              : total === 0
+                ? "0 recent"
+                : `${from}–${to} of ${total}`}
           </p>
         </div>
 
@@ -100,11 +124,41 @@ export function JobFeed() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {jobs.map((job, i) => (
-              <JobEntryCard key={job.job_id} job={job} index={i} />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {jobs.map((job, i) => (
+                <JobEntryCard key={job.job_id} job={job} index={i} />
+              ))}
+            </div>
+            {total > PAGE_SIZE ? (
+              <nav
+                aria-label="Feed pages"
+                className="mt-2 flex items-center justify-between gap-3"
+              >
+                <button
+                  type="button"
+                  className="rounded-md border border-(--line) bg-white/60 px-3 py-1.5 text-sm text-(--ink) transition enabled:hover:border-(--accent) enabled:hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={page <= 0 || loading}
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                >
+                  Previous
+                </button>
+                <p className="text-sm text-(--muted)">
+                  Page {page + 1} of {pageCount}
+                </p>
+                <button
+                  type="button"
+                  className="rounded-md border border-(--line) bg-white/60 px-3 py-1.5 text-sm text-(--ink) transition enabled:hover:border-(--accent) enabled:hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+                  disabled={page + 1 >= pageCount || loading}
+                  onClick={() =>
+                    setPage((p) => Math.min(pageCount - 1, p + 1))
+                  }
+                >
+                  Next
+                </button>
+              </nav>
+            ) : null}
+          </>
         )}
       </section>
     </div>

@@ -20,7 +20,7 @@ from service import (
     cancel_job,
     create_job,
     get_public_snapshot,
-    list_job_summaries,
+    list_jobs_page,
 )
 
 router = APIRouter(
@@ -70,9 +70,10 @@ def post_job(
 @router.get("/jobs")
 def list_jobs(
     limit: int = Query(default=48, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ) -> Dict[str, Any]:
-    """Recent jobs newest-first for the public feed (D69)."""
-    return {"jobs": list_job_summaries(limit=limit)}
+    """Recent jobs newest-first for the public feed (D69 / D77)."""
+    return list_jobs_page(limit=limit, offset=offset)
 
 
 @router.get("/jobs/{job_id}")

@@ -159,15 +159,27 @@ def get_public_snapshot(job_id: str) -> dict[str, Any] | None:
 def list_job_summaries(
     *,
     limit: int = 48,
+    offset: int = 0,
     settings: Settings | None = None,
 ) -> list[dict[str, Any]]:
-    """Recent jobs for the public feed — summary fields only (D69)."""
+    """Recent jobs for the public feed — summary fields only (D69 / D77)."""
     cfg = settings or get_settings()
     ledger = get_ledger(cfg)
     out: list[dict[str, Any]] = []
-    for job in ledger.list_recent_jobs(limit=limit):
+    for job in ledger.list_recent_jobs(limit=limit, offset=offset):
         shots = ledger.list_screenshots(job.job_id)
-        latest = shots[-1]["screenshot_id"] if shots else None
+        latest_shot = shots[-1] if shots else None
+        latest = latest_shot["screenshot_id"] if latest_shot else None
+        screenshot_url: str | None = None
+        if latest_shot is not None and latest:
+            from screenshots import public_screenshot_url
+
+            screenshot_url = public_screenshot_url(
+                job.job_id,
+                str(latest),
+                storage_path=str(latest_shot.get("storage_path") or "") or None,
+                settings=cfg,
+            )
         out.append(
             {
                 "job_id": job.job_id,
@@ -178,11 +190,37 @@ def list_job_summaries(
                 "created_at": job.created_at,
                 "updated_at": job.updated_at,
                 "screenshot_id": latest,
+                "screenshot_url": screenshot_url,
                 "error": job.error,
                 "verification": job.verification,
             }
         )
     return out
+
+
+def list_jobs_page(
+    *,
+    limit: int = 48,
+    offset: int = 0,
+    settings: Settings | None = None,
+) -> dict[str, Any]:
+    """Paginated feed page with total count (D77)."""
+    cfg = settings or get_settings()
+    capped_limit = max(1, min(int(limit), 200))
+    capped_offset = max(0, int(offset))
+    ledger = get_ledger(cfg)
+    total = ledger.count_jobs()
+    jobs = list_job_summaries(
+        limit=capped_limit,
+        offset=capped_offset,
+        settings=cfg,
+    )
+    return {
+        "jobs": jobs,
+        "total": total,
+        "limit": capped_limit,
+        "offset": capped_offset,
+    }
 
 
 def cancel_job(job_id: str) -> dict[str, Any]:

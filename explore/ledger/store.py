@@ -223,9 +223,16 @@ class Ledger:
         rows = self._conn.execute("SELECT * FROM jobs ORDER BY created_at ASC").fetchall()
         return [self._row_to_job(r) for r in rows]
 
-    def list_recent_jobs(self, *, limit: int = 48) -> list[Job]:
-        """Newest-first job rows for the public feed (D69)."""
+    def count_jobs(self) -> int:
+        row = self._conn.execute("SELECT COUNT(*) AS n FROM jobs").fetchone()
+        if row is None:
+            return 0
+        return int(row["n"])
+
+    def list_recent_jobs(self, *, limit: int = 48, offset: int = 0) -> list[Job]:
+        """Newest-first job rows for the public feed (D69 / D77)."""
         capped = max(1, min(int(limit), 200))
+        skip = max(0, int(offset))
         # created_at is second-precision; tie-break with insertion order (rowid)
         # so same-second creates stay newest-first. Postgres uses ctid.
         order = (
@@ -234,8 +241,8 @@ class Ledger:
             else "ORDER BY created_at DESC, rowid DESC"
         )
         rows = self._conn.execute(
-            f"SELECT * FROM jobs {order} LIMIT ?",
-            (capped,),
+            f"SELECT * FROM jobs {order} LIMIT ? OFFSET ?",
+            (capped, skip),
         ).fetchall()
         return [self._row_to_job(r) for r in rows]
 

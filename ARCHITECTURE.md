@@ -520,6 +520,7 @@ Install phase keeps package/git egress; verify/containment switch to **deny-all 
 | `MAX_SCREENSHOTS_PER_JOB` | Screenshot cap |
 | `STORAGE_BACKEND` / `SCREENSHOT_STORAGE` | `filesystem` (default) or `s3`/`object`; local staging paths (D17, D72) |
 | `OBJECT_STORAGE_*` | Vultr Object Storage endpoint/bucket/keys (Plane 1 only — D72) |
+| `OBJECT_STORAGE_CDN_BASE_URL` | Optional Vultr CDN Pull Zone base for public screenshot thumbs (D76) |
 | `LEDGER_BACKUP_UPLOAD` | Optional nightly SQLite upload to object storage (D72) |
 
 ---

@@ -34,7 +34,7 @@ Frozen **before** implementing N1/E1. Not public. Base URL e.g. `http://127.0.0.
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/internal/jobs` | Create job `{ github_url }` → `{ job_id }` (admission applied here or in Next before proxy) |
-| `GET` | `/internal/jobs` | Recent job **summaries** newest-first (`?limit=`, default 48, max 200) for the public feed (D69) |
+| `GET` | `/internal/jobs` | Recent job **summaries** newest-first (`?limit=` default 48 max 200, `?offset=` default 0) with `total` for the public feed (D69, D77) |
 | `GET` | `/internal/jobs/{id}` | Full snapshot (same shape as public GET) |
 | `GET` | `/internal/jobs/{id}/events` | SSE (same event model as public) |
 | `DELETE` | `/internal/jobs/{id}` | Cancel (idempotent finalizer path — D61) |
@@ -72,6 +72,7 @@ Recent job summaries for the home feed (D69). Newest first.
       "created_at": "…",
       "updated_at": "…",
       "screenshot_id": "…",
+      "screenshot_url": "/api/jobs/…/screenshots/…",
       "error": null,
       "verification": null
     }
@@ -79,7 +80,7 @@ Recent job summaries for the home feed (D69). Newest first.
 }
 ```
 
-`screenshot_id` is the latest still when present; otherwise `null`. Full dossier stays on `GET /api/jobs/{id}`.
+`screenshot_id` is the latest still when present; otherwise `null`. `screenshot_url` is an absolute Vultr CDN URL when Object Storage + `OBJECT_STORAGE_CDN_BASE_URL` are configured (D76); otherwise the relative `/api/jobs/{id}/screenshots/{screenshot_id}` path when a still exists; otherwise `null`. Full dossier stays on `GET /api/jobs/{id}`.
 
 ---
 

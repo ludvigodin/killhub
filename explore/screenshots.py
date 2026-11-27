@@ -16,7 +16,7 @@ from config import Settings, get_settings
 from harness import copy_out, exec_command
 from jobs import get_ledger
 from ledger.store import utc_now
-from object_storage import is_s3_ref, maybe_upload_local_file
+from object_storage import cdn_url_for_s3_ref, is_s3_ref, maybe_upload_local_file
 
 logger = logging.getLogger("killhub.screenshots")
 
@@ -59,8 +59,23 @@ def _log(job_id: str, message: str, *, settings: Settings, kind: str, **payload:
     )
 
 
-def _public_url(job_id: str, screenshot_id: str) -> str:
+def _api_screenshot_url(job_id: str, screenshot_id: str) -> str:
     return f"/api/jobs/{job_id}/screenshots/{screenshot_id}"
+
+
+def public_screenshot_url(
+    job_id: str,
+    screenshot_id: str,
+    *,
+    storage_path: str | None = None,
+    settings: Settings | None = None,
+) -> str:
+    """Prefer CDN absolute URL when s3 + OBJECT_STORAGE_CDN_BASE_URL (D76)."""
+    if storage_path:
+        cdn = cdn_url_for_s3_ref(storage_path, settings=settings)
+        if cdn:
+            return cdn
+    return _api_screenshot_url(job_id, screenshot_id)
 
 
 def _current_runtime_profile(job_id: str, settings: Settings) -> dict[str, Any]:
@@ -404,7 +419,12 @@ def capture_http_screenshot(
         "screenshot_id": shot_id,
         "step": step,
         "caption": safe_caption,
-        "url": _public_url(job_id, shot_id),
+        "url": public_screenshot_url(
+            job_id,
+            shot_id,
+            storage_path=storage_ref,
+            settings=cfg,
+        ),
         "bytes": host_path.stat().st_size if host_path.is_file() else 0,
         "at": utc_now(),
     }
