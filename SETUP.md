@@ -515,9 +515,18 @@ LEDGER_BACKUP_UPLOAD=true   # optional
 
 ### Vultr CDN Pull Zone (optional, D76 — after D72)
 
-Once screenshots land in Object Storage, put a **CDN Pull Zone** in front of the bucket so the home-feed thumbs hit the edge instead of Plane 1:
+Once screenshots land in Object Storage, put a **CDN Pull Zone** in front of the bucket so the home-feed thumbs hit the edge instead of Plane 1.
 
-1. Create a Pull Zone (dashboard: Products → CDN → Pull Zones, or `vultr-cli`):
+1. Dry-run then create (operator machine; needs `VULTR_API_KEY` + an existing bucket):
+
+```bash
+export OBJECT_STORAGE_ENDPOINT=https://ewr1.vultrobjects.com
+export OBJECT_STORAGE_BUCKET=killhub
+./ops/cdn-pull-zone.sh
+./ops/cdn-pull-zone.sh --apply
+```
+
+Or manually:
 
 ```bash
 vultr-cli cdn pull create \
@@ -528,7 +537,7 @@ vultr-cli cdn pull create \
   --cors
 ```
 
-Origin must be the **virtual-host** bucket URL (`https://{bucket}.{cluster}.vultrobjects.com/`), not the path-style API endpoint.
+Origin must be the **virtual-host** bucket hostname (`{bucket}.{cluster}.vultrobjects.com`), not the path-style API endpoint. `--cors` is required so `killhub.pro` can load CDN images.
 
 2. Copy the assigned CDN hostname into Plane 1 env (no trailing slash):
 
@@ -536,7 +545,7 @@ Origin must be the **virtual-host** bucket URL (`https://{bucket}.{cluster}.vult
 OBJECT_STORAGE_CDN_BASE_URL=https://cdn-xxxxx.vultrcdn.com
 ```
 
-3. Restart explore. New screenshot uploads get `public-read` + `Cache-Control: public, max-age=86400`. Artifacts and ledger backups stay private. Feed responses include absolute `screenshot_url` values.
+3. Restart explore. New screenshot uploads get `public-read` + `Cache-Control: public, max-age=86400`. Artifacts and ledger backups stay private. Feed `screenshot_url` and `GET …/screenshots` `url` fields use the CDN when the still is on Object Storage.
 
 4. Verify (after at least one uploaded still):
 
@@ -544,7 +553,7 @@ OBJECT_STORAGE_CDN_BASE_URL=https://cdn-xxxxx.vultrcdn.com
 curl -I "https://cdn-xxxxx.vultrcdn.com/killhub/screenshots/{job_id}/{shot_id}.png"
 ```
 
-Enable CORS on the pull zone so `killhub.pro` can load CDN images. Historical private objects are not rewritten — only new uploads get public ACL. Code does not provision the pull zone.
+Historical private objects are not rewritten — only new uploads get public ACL. Code does not provision Object Storage or the pull zone automatically.
 
 ---
 

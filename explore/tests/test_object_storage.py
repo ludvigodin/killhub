@@ -19,6 +19,7 @@ from object_storage import (
     maybe_upload_local_file,
     normalize_storage_backend,
     object_key,
+    object_storage_origin_hostname,
     parse_s3_ref,
     prune_prefix,
     require_object_storage_config,
@@ -269,6 +270,22 @@ def test_cdn_url_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
         == "https://cdn-example.vultrcdn.com/killhub/screenshots/j/a.png"
     )
     assert cdn_url_for_s3_ref("./storage/screenshots/j/a.png") is None
+
+
+def test_object_storage_origin_hostname(monkeypatch: pytest.MonkeyPatch) -> None:
+    from config import get_settings
+
+    monkeypatch.setenv("OBJECT_STORAGE_ENDPOINT", "https://ewr1.vultrobjects.com")
+    monkeypatch.setenv("OBJECT_STORAGE_BUCKET", "killhub-shots")
+    get_settings.cache_clear()
+    assert object_storage_origin_hostname() == "killhub-shots.ewr1.vultrobjects.com"
+    assert (
+        object_storage_origin_hostname(
+            endpoint="https://killhub-shots.ewr1.vultrobjects.com",
+            bucket="killhub-shots",
+        )
+        == "killhub-shots.ewr1.vultrobjects.com"
+    )
 
 
 def test_screenshot_upload_public_when_cdn_configured(

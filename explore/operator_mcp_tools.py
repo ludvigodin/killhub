@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from contextvars import ContextVar
 from typing import Any
 from urllib.parse import urljoin
 
@@ -18,11 +19,16 @@ TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 DEFAULT_BASE_URL = "https://killhub.pro"
 DEFAULT_WAIT_TIMEOUT = 60.0
 CREATE_AND_WAIT_TIMEOUT = 900.0
+# Cap long polls on HTTP MCP so Next/Caddy proxies do not time out (D81).
+HTTP_CREATE_AND_WAIT_TIMEOUT = 120.0
 DEFAULT_POLL_SECONDS = 2.0
 MAX_CREATE_JOBS = 5
 FINDINGS_CAP = 10
 MAX_TAIL_EVENTS = 200
 DEFAULT_TAIL_EVENTS = 50
+
+# Set True for public HTTP MCP requests (middleware / handle_jsonrpc http_mode).
+mcp_http_mode: ContextVar[bool] = ContextVar("killhub_mcp_http_mode", default=False)
 
 TOOL_NAMES = (
     "create_job",
@@ -348,7 +354,9 @@ def tools_list() -> list[dict[str, Any]]:
             "name": "create_and_wait",
             "description": (
                 "Create a job and poll until completed|failed|cancelled "
-                f"(default timeout {int(CREATE_AND_WAIT_TIMEOUT)}s). "
+                f"(stdio default {int(CREATE_AND_WAIT_TIMEOUT)}s; "
+                f"HTTP MCP capped at {int(HTTP_CREATE_AND_WAIT_TIMEOUT)}s). "
+                "Over HTTP prefer create_job + wait_job to avoid proxy timeouts. "
                 "Returns a slim receipt summary (or in-progress status if soft timeout)."
             ),
             "inputSchema": {
@@ -577,7 +585,13 @@ def call_tool(client: KillhubJobsClient, name: str, arguments: dict[str, Any]) -
         url = str(arguments.get("github_url") or "").strip()
         if not url:
             raise KillhubApiError("github_url is required")
-        timeout = float(arguments.get("timeout_seconds") or CREATE_AND_WAIT_TIMEOUT)
+        http_mode = mcp_http_mode.get() or (
+            os.environ.get("KILLHUB_MCP_TRANSPORT", "").strip().lower() == "http"
+        )
+        default_timeout = HTTP_CREATE_AND_WAIT_TIMEOUT if http_mode else CREATE_AND_WAIT_TIMEOUT
+        timeout = float(arguments.get("timeout_seconds") or default_timeout)
+        if http_mode:
+            timeout = min(timeout, HTTP_CREATE_AND_WAIT_TIMEOUT)
         poll = float(arguments.get("poll_seconds") or DEFAULT_POLL_SECONDS)
         created = client.create_job(url)
         job_id = str(created.get("job_id") or "")
@@ -686,15 +700,32 @@ def read_screenshot_resource(client: KillhubJobsClient, uri: str) -> dict[str, A
     }
 
 
-def handle_jsonrpc(client: KillhubJobsClient, msg: dict[str, Any]) -> dict[str, Any] | None:
+def handle_jsonrpc(
+    client: KillhubJobsClient,
+    msg: dict[str, Any],
+    *,
+    http_mode: bool | None = None,
+) -> dict[str, Any] | None:
     """Handle one JSON-RPC request. Returns None for notifications."""
+    if http_mode is None:
+        http_mode = os.environ.get("KILLHUB_MCP_TRANSPORT", "").strip().lower() == "http"
+    mode_token = mcp_http_mode.set(bool(http_mode))
+    try:
+        return _handle_jsonrpc_body(client, msg)
+    finally:
+        mcp_http_mode.reset(mode_token)
+
+
+def _handle_jsonrpc_body(client: KillhubJobsClient, msg: dict[str, Any]) -> dict[str, Any] | None:
     req_id = msg.get("id")
     method = msg.get("method")
     params = msg.get("params") or {}
     if not isinstance(params, dict):
         params = {}
 
-    if method == "notifications/initialized":
+    if method == "notifications/initialized" or (
+        isinstance(method, str) and method.startswith("notifications/")
+    ):
         return None
 
     if method == "initialize":

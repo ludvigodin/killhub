@@ -120,7 +120,9 @@ def list_screenshots(job_id: str) -> List[Dict[str, Any]]:
     ledger = get_ledger()
     if ledger.get_job(job_id) is None:
         raise _error(404, "job not found", "not_found")
-    return ledger.list_screenshots(job_id)
+    from screenshots import public_screenshot_rows
+
+    return public_screenshot_rows(ledger.list_screenshots(job_id))
 
 
 @router.get("/jobs/{job_id}/screenshots/{shot_id}", response_model=None)

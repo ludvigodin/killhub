@@ -51,6 +51,33 @@ def test_public_url_cdn_when_s3_and_configured(
     )
 
 
+def test_public_screenshot_rows_enrich_cdn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from screenshots import public_screenshot_rows
+
+    monkeypatch.setenv(
+        "OBJECT_STORAGE_CDN_BASE_URL",
+        "https://cdn-example.vultrcdn.com",
+    )
+    from config import get_settings
+
+    get_settings.cache_clear()
+    rows = public_screenshot_rows(
+        [
+            {
+                "job_id": "job-1",
+                "screenshot_id": "shot-a",
+                "storage_path": "s3://bucket/killhub/screenshots/job-1/shot-a.png",
+                "step": "verify",
+            },
+        ],
+    )
+    assert rows[0]["url"] == (
+        "https://cdn-example.vultrcdn.com/killhub/screenshots/job-1/shot-a.png"
+    )
+
+
 def test_list_summaries_include_screenshot_url(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -269,11 +269,11 @@ Keep-alives at least ~every 15s while open (D50). Payloads must not include real
 
 ### `GET /api/jobs/{id}/screenshots`
 
-Ordered timeline (may be `[]`).
+Ordered timeline (may be `[]`). Each row includes ledger fields plus a public `url`: absolute Vultr CDN URL when the still is on Object Storage and `OBJECT_STORAGE_CDN_BASE_URL` is set (D76); otherwise the relative `/api/jobs/{id}/screenshots/{screenshot_id}` path.
 
 ### `GET /api/jobs/{id}/screenshots/{shot_id}`
 
-Image bytes (`image/png`). Serves a local hot cache when present; otherwise streams from Vultr Object Storage when `storage_path` is `s3://…` or `STORAGE_BACKEND=s3` (D72).
+Image bytes (`image/png`). Serves a local hot cache when present; otherwise streams from Vultr Object Storage when `storage_path` is `s3://…` or `STORAGE_BACKEND=s3` (D72). Remains available when CDN is configured (hot cache / non-CDN clients).
 
 ---
 
@@ -432,7 +432,7 @@ Cursor (stdio):
 }
 ```
 
-Cursor (HTTP):
+Cursor (HTTP — remote agents; prefer stdio in-desktop):
 
 ```json
 {
@@ -443,6 +443,8 @@ Cursor (HTTP):
   }
 }
 ```
+
+Public `/mcp` edge behavior (Streamable HTTP–friendly): **POST** only; **GET → 405**; JSON-RPC **notifications → 202** (empty body). Over HTTP, `create_and_wait` is capped at **120s** — prefer `create_job` + short `wait_job`.
 
 ---
 
