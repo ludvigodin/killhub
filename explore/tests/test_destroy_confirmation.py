@@ -309,7 +309,9 @@ def test_restart_recovery_preserves_evidence_and_publishes_verdict(tmp_path: Pat
         reset_ledger_for_tests()
 
 
-@pytest.mark.parametrize(("ttl", "timeout", "expected"), [(120, 45, 45), (45, 120, 45)])
+@pytest.mark.parametrize(
+    ("ttl", "timeout", "expected"), [(120, 45, 45), (45, 120, 45), (45, 0, 45)]
+)
 def test_job_uses_shorter_absolute_lifetime(
     tmp_path: Path, ttl: int, timeout: int, expected: int
 ) -> None:
@@ -351,7 +353,10 @@ def test_sandbox_create_refuses_expired_job_before_invoking_msb(tmp_path: Path) 
 
 def test_claim_records_expiry_before_taking_a_worker_slot(tmp_path: Path) -> None:
     cfg = Settings(
-        _env_file=None, LEDGER_URL=f"sqlite:///{tmp_path / 'ledger.db'}", ADMISSION_STORE="memory"
+        _env_file=None,
+        LEDGER_URL=f"sqlite:///{tmp_path / 'ledger.db'}",
+        ADMISSION_STORE="memory",
+        MSB_AUTO_CREATE=True,
     )
     ledger = get_ledger(cfg)
     try:

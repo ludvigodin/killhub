@@ -246,7 +246,7 @@ class Ledger:
                     job_id,
                     {
                         "status": "analyzing",
-                        "current_step": "worker stub: analyzing",
+                        "current_step": "analyzing",
                         "progress": 5,
                         "steps_completed": ["pending"],
                     },
@@ -1155,6 +1155,7 @@ class Ledger:
         status: JobStatus,
         receipt: dict[str, Any],
         include_verdict: bool = False,
+        expected_job: Job | None = None,
         event_message: str | None = None,
         event_payload: dict[str, Any] | None = None,
         **fields: Any,
@@ -1174,9 +1175,15 @@ class Ledger:
 
         self._conn.begin()
         try:
-            job = self.get_job(job_id)
-            if job is None:
+            lock = " FOR UPDATE" if self._conn.engine == "postgres" else ""
+            row = self._conn.execute("SELECT * FROM jobs WHERE job_id = ?" + lock, (job_id,))
+            raw = row.fetchone()
+            if raw is None:
                 raise KeyError(f"unknown job_id: {job_id}")
+            job = self._row_to_job(raw)
+            if expected_job is not None and job != expected_job:
+                # A stale cleanup writer must not overwrite a competing terminal receipt.
+                raise Ledger.WriterFrozenError("job changed before finalization")
             self._finalize_unlocked(
                 job,
                 status,

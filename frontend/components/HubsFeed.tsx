@@ -73,7 +73,7 @@ export function HubsFeed() {
           Hubs
         </h1>
         <p className="max-w-2xl text-base leading-relaxed text-(--muted) sm:text-lg">
-          Every repo Killhub has planned, sandboxed, and verified — latest run
+          Every repo Killhub has planned, sandboxed, and verified - latest run
           first.
         </p>
       </header>

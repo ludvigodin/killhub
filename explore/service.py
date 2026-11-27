@@ -17,11 +17,13 @@ from jobs import get_ledger
 from ledger import Ledger
 from ledger.store import utc_now
 from models import CleanupState, Job
+from safety import summary_safety
 
 logger = logging.getLogger("killhub.admission")
 
 TERMINAL = frozenset({"completed", "failed", "cancelled"})
 QUEUED_STATUSES = frozenset({"pending", "queued"})
+_pipeline_flags_warned = False
 RUNNING_STATUSES = frozenset(
     {
         "analyzing",
@@ -148,7 +150,9 @@ def create_job(
     ledger = get_ledger(cfg)
     try:
         # The host reaper reads this immutable deadline from the sandbox label.
-        lifetime = min(cfg.env_ttl_seconds, cfg.job_timeout_seconds)
+        lifetime = cfg.env_ttl_seconds
+        if cfg.job_timeout_seconds > 0:
+            lifetime = min(lifetime, cfg.job_timeout_seconds)
         job = ledger.create_job(github_url, env_ttl_seconds=lifetime)
     except Exception:
         # Undo Valkey queue reservation if ledger create fails.
@@ -188,6 +192,8 @@ def _job_summary_dict(
             storage_path=str(latest_shot.get("storage_path") or "") or None,
             settings=settings,
         )
+    receipt = ledger.get_receipt(job.job_id)
+    vuln_report = ledger.get_vuln_report(job.job_id)
     return {
         "job_id": job.job_id,
         "github_url": job.github_url,
@@ -200,6 +206,12 @@ def _job_summary_dict(
         "screenshot_url": screenshot_url,
         "error": job.error,
         "verification": job.verification,
+        "safety": summary_safety(
+            status=job.status,
+            verification=job.verification if isinstance(job.verification, dict) else None,
+            vuln_report=vuln_report,
+            receipt=receipt,
+        ),
     }
 
 
@@ -411,9 +423,30 @@ def _run_cancel_finalizer(ledger: Ledger, job_id: str) -> None:
     release_admission_slot(was_running=was_running)
 
 
+def _pipeline_flags_enabled(cfg: Settings) -> bool:
+    return bool(
+        cfg.msb_auto_create
+        or cfg.discover_on_claim
+        or cfg.install_on_claim
+        or cfg.verify_on_claim
+        or cfg.screenshots_on_claim
+        or cfg.containment_on_claim
+        or cfg.finalize_on_claim
+    )
+
+
 def claim_pending_job(*, settings: Settings | None = None) -> Job | None:
-    """Close expired queued jobs, then return the oldest successfully claimed job."""
+    """Background worker: pick the oldest pending job and move it to analyzing."""
+    from stall import reason_for_misconfigured_worker
+
+    global _pipeline_flags_warned
     cfg = settings or get_settings()
+    if not _pipeline_flags_enabled(cfg):
+        # D81: do not claim into a stub with no runner; leave jobs pending.
+        if not _pipeline_flags_warned:
+            logger.error("%s", reason_for_misconfigured_worker())
+            _pipeline_flags_warned = True
+        return None
     ledger = get_ledger(cfg)
     for job in ledger.list_jobs():
         if job.status != "pending":

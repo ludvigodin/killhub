@@ -34,6 +34,7 @@ from harness import (
     replace_environment,
     wait_until_ready,
 )
+from heartbeat import with_heartbeat
 from jobs import get_ledger
 
 logger = logging.getLogger("killhub.discover")
@@ -115,8 +116,13 @@ def _status(
     ledger.append_event(
         job_id,
         typ="status",
-        message=status,
-        payload={"status": status, "step": step},
+        message=step,
+        payload={
+            "status": status,
+            "step": step,
+            "current_step": step,
+            "progress": progress,
+        },
     )
 
 
@@ -161,21 +167,26 @@ def clone_and_resolve_commit(
         timeout=30,
     )
     if "git" not in (probe.stdout or ""):
-        install = _exec(
-            environment_id,
-            [
-                *shell,
-                "if command -v apt-get >/dev/null 2>&1; then "
-                "export DEBIAN_FRONTEND=noninteractive; "
-                "apt-get update -qq && apt-get install -y -qq git ca-certificates; "
-                "elif command -v apk >/dev/null 2>&1; then "
-                "apk add --no-cache git ca-certificates; "
-                "else echo 'no package manager' >&2; exit 1; fi",
-            ],
-            job_id=job_id,
+        install = with_heartbeat(
+            job_id,
             settings=settings,
-            exec_fn=exec_fn,
-            timeout=300,
+            label="installing git in sandbox",
+            fn=lambda: _exec(
+                environment_id,
+                [
+                    *shell,
+                    "if command -v apt-get >/dev/null 2>&1; then "
+                    "export DEBIAN_FRONTEND=noninteractive; "
+                    "apt-get update -qq && apt-get install -y -qq git ca-certificates; "
+                    "elif command -v apk >/dev/null 2>&1; then "
+                    "apk add --no-cache git ca-certificates; "
+                    "else echo 'no package manager' >&2; exit 1; fi",
+                ],
+                job_id=job_id,
+                settings=settings,
+                exec_fn=exec_fn,
+                timeout=300,
+            ),
         )
         if install.exit_code != 0:
             raise DiscoverError(
@@ -203,13 +214,18 @@ def clone_and_resolve_commit(
         )
     else:
         clone_script = f"set -eu; git clone --depth 1 {json.dumps(github_url)} {GUEST_REPO_ROOT}"
-    cloned = _exec(
-        environment_id,
-        [*shell, clone_script],
-        job_id=job_id,
+    cloned = with_heartbeat(
+        job_id,
         settings=settings,
-        exec_fn=exec_fn,
-        timeout=300,
+        label="cloning repository",
+        fn=lambda: _exec(
+            environment_id,
+            [*shell, clone_script],
+            job_id=job_id,
+            settings=settings,
+            exec_fn=exec_fn,
+            timeout=300,
+        ),
     )
     if cloned.exit_code != 0:
         raise DiscoverError(
@@ -571,6 +587,7 @@ def discover_runtime_profile(
                 steps_completed=["pending"],
             )
             _span(job_id, "bootstrap_create", settings=cfg, status="start")
+            # create_environment heartbeats msb create + guest ready-wait.
             gen = create_environment(
                 job_id,
                 default_bootstrap_plan(cfg),
@@ -578,7 +595,7 @@ def discover_runtime_profile(
             )
             environment_id = gen.environment_id
             created_here = True
-            wait_until_ready(environment_id, settings=cfg)
+            wait_until_ready(environment_id, settings=cfg, job_id=job_id)
             _span(
                 job_id,
                 "bootstrap_create",
@@ -586,7 +603,7 @@ def discover_runtime_profile(
                 detail={"environment_id": environment_id, "generation": gen.generation},
             )
         elif environment_id:
-            wait_until_ready(environment_id, settings=cfg)
+            wait_until_ready(environment_id, settings=cfg, job_id=job_id)
         else:
             raise DiscoverError(
                 "no sandbox; create=True required for bootstrap discover",

@@ -19,6 +19,7 @@ from typing import Callable, Mapping, Optional, Sequence
 
 from config import Settings, get_settings
 from errors import HarnessError
+from heartbeat import log_wait, with_heartbeat
 from jobs import get_ledger
 from ledger.store import utc_now
 from models import SandboxGeneration
@@ -604,7 +605,13 @@ def create_environment(
     )
 
     try:
-        msb.create(name=name, plan=env_plan, labels=labels)
+        with_heartbeat(
+            job_id,
+            settings=cfg,
+            label="creating microsandbox",
+            announce=False,
+            fn=lambda: msb.create(name=name, plan=env_plan, labels=labels),
+        )
     except HarnessError as exc:
         ledger.append_event(
             job_id,
@@ -638,7 +645,7 @@ def create_environment(
     )
 
     # Guest must be running to plant file canaries (D44).
-    wait_until_ready(name, settings=cfg, cli=msb)
+    wait_until_ready(name, settings=cfg, cli=msb, job_id=job_id)
     plant_file_canaries(name, canaries, job_id=job_id, settings=cfg, cli=msb)
     ledger.append_event(
         job_id,
@@ -900,22 +907,27 @@ def wait_until_ready(
     cli: MsbCli | None = None,
     timeout_seconds: float | None = None,
     poll_seconds: float = 1.0,
+    job_id: str | None = None,
+    heartbeat_seconds: float = 15.0,
 ) -> None:
     """Block until guest reports running (not job readiness — D37)."""
     cfg = settings or get_settings()
     msb = cli or MsbCli(cfg)
-    deadline = time.monotonic() + (
+    ledger = get_ledger(cfg)
+    started = time.monotonic()
+    deadline = started + (
         timeout_seconds
         if timeout_seconds is not None
         else float(getattr(cfg, "msb_ready_timeout_seconds", 120) or 120)
     )
     last = ""
+    last_beat = started
+    announced = False
     while time.monotonic() < deadline:
         result = msb.status(environment_id)
         text = f"{result.stdout}\n{result.stderr}".lower()
         last = text.strip()
         if result.ok and "running" in text:
-            ledger = get_ledger(cfg)
             for job in ledger.list_jobs():
                 if job.sandbox_id != environment_id:
                     continue
@@ -936,6 +948,37 @@ def wait_until_ready(
                     },
                 )
             return
+        now = time.monotonic()
+        if heartbeat_seconds > 0 and now - last_beat >= heartbeat_seconds:
+            last_beat = now
+            elapsed = int(now - started)
+            targets: list[str] = []
+            if job_id is not None:
+                targets.append(job_id)
+            else:
+                targets.extend(
+                    job.job_id
+                    for job in ledger.list_jobs()
+                    if job.sandbox_id == environment_id
+                    or environment_name_for_job(job.job_id) == environment_id
+                )
+            for target in targets:
+                if not announced:
+                    log_wait(
+                        target,
+                        "waiting for sandbox guest…",
+                        settings=cfg,
+                        environment_id=environment_id,
+                    )
+                    announced = True
+                else:
+                    log_wait(
+                        target,
+                        f"still waiting for sandbox guest ({elapsed}s)",
+                        settings=cfg,
+                        environment_id=environment_id,
+                        elapsed_seconds=elapsed,
+                    )
         time.sleep(poll_seconds)
     raise HarnessError(
         f"sandbox {environment_id} not running before timeout ({last[:200]})",

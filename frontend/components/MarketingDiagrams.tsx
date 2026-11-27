@@ -14,12 +14,12 @@ const PIPELINE = [
   {
     label: "Prove",
     short: "Evidence",
-    detail: "Readiness · stills · containment — honest outcome labels",
+    detail: "Readiness · stills · containment - honest outcome labels",
   },
   {
     label: "Destroy",
     short: "Receipt",
-    detail: "Confirmed removal — dossier outlives the VM",
+    detail: "Confirmed removal - dossier outlives the VM",
     terminal: true,
   },
 ] as const;
@@ -94,7 +94,7 @@ function ProblemFork() {
         <li>
           <Outcome
             title="Your laptop"
-            detail="Chat that describes work — or unsafe local runs"
+            detail="Chat that describes work - or unsafe local runs"
             tone="bad"
           />
         </li>
@@ -268,7 +268,7 @@ function TwoPlanes() {
             </li>
             <li>
               <span className="two-planes-dot" aria-hidden />
-              <span>Secrets stay here — never injected into the sandbox</span>
+              <span>Secrets stay here - never injected into the sandbox</span>
             </li>
           </ul>
         </article>
@@ -314,7 +314,7 @@ function TwoPlanes() {
                 className="two-planes-dot two-planes-dot-accent"
                 aria-hidden
               />
-              <span>Real clone · install · launch — not described</span>
+              <span>Real clone · install · launch - not described</span>
             </li>
             <li>
               <span
@@ -337,7 +337,7 @@ function TwoPlanes() {
       <figcaption className="two-planes-boundary">
         <span className="two-planes-boundary-line" aria-hidden />
         <span className="font-mono text-[11px] uppercase tracking-wider text-(--muted)">
-          Trust boundary — untrusted code never runs as a privileged host
+          Trust boundary - untrusted code never runs as a privileged host
           process
         </span>
         <span className="two-planes-boundary-line" aria-hidden />
@@ -465,7 +465,7 @@ export function MarketingDiagrams() {
     <div className="flex flex-col gap-4 pb-8 pt-6">
       <Section
         title="Why sandbox"
-        support="An agent that only chats is a demo. An agent that executes safely — then destroys the environment — is a product."
+        support="An agent that only chats is a demo. An agent that executes safely - then destroys the environment - is a product."
         delay={40}
       >
         <ProblemFork />
@@ -479,7 +479,7 @@ export function MarketingDiagrams() {
       </Section>
       <Section
         title="Two planes"
-        support="Control plane plans and verifies. Plane 2 executes. Hard boundary — untrusted code never runs as a privileged host process."
+        support="Control plane plans and verifies. Plane 2 executes. Hard boundary - untrusted code never runs as a privileged host process."
         delay={120}
       >
         <TwoPlanes />

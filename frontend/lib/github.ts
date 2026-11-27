@@ -119,6 +119,28 @@ export function ownerRepoFromGithubUrl(raw: string): string | null {
   return parsed.pathSegments.join("/");
 }
 
+/** Allowlisted host from a public git URL, or null. */
+export function hostFromGithubUrl(raw: string): string | null {
+  return parsePublicGitUrl(raw)?.host ?? null;
+}
+
+/** Short host label for UI chrome (GitHub / GitLab / Bitbucket / Codeberg). */
+export function hostLabelFromGithubUrl(raw: string): string {
+  const host = hostFromGithubUrl(raw);
+  switch (host) {
+    case "github.com":
+      return "GitHub";
+    case "gitlab.com":
+      return "GitLab";
+    case "bitbucket.org":
+      return "Bitbucket";
+    case "codeberg.org":
+      return "Codeberg";
+    default:
+      return host ?? "git";
+  }
+}
+
 /** App path for the repo history page, e.g. `/repos/github.com/org/repo`. */
 export function repoPathFromGithubUrl(raw: string): string | null {
   const parsed = parsePublicGitUrl(raw);
@@ -132,6 +154,54 @@ export function githubUrlFromRepoSlug(slug: string[]): string | null {
   const joined = slug.map((s) => s.trim()).filter(Boolean);
   if (joined.length < 3) return null;
   return parsePublicGitUrl(`https://${joined.join("/")}`)?.url ?? null;
+}
+
+/** App route first segments that must never be treated as a GitHub owner (D82). */
+const RESERVED_APP_SEGMENTS = new Set([
+  "jobs",
+  "repos",
+  "features",
+  "hubs",
+  "mcp",
+  "health",
+  "api",
+  "_next",
+]);
+
+/** True when a path segment collides with a Killhub app route. */
+export function isReservedAppSegment(segment: string): boolean {
+  const cleaned = segment.trim().toLowerCase();
+  if (!cleaned) return true;
+  return RESERVED_APP_SEGMENTS.has(cleaned);
+}
+
+function normalizeOwnerRepoSegment(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  let seg = trimmed;
+  if (seg.endsWith(".git")) {
+    seg = seg.slice(0, -".git".length);
+  }
+  if (!seg || !SEGMENT_RE.test(seg)) return null;
+  if (FORBIDDEN_SEGMENTS.has(seg.toLowerCase())) return null;
+  return seg;
+}
+
+/**
+ * Build a canonical github.com URL from a short-path `/{owner}/{repo}` pair (D82).
+ * Returns null for reserved app segments or invalid GitHub path junk.
+ */
+export function githubUrlFromOwnerRepo(
+  owner: string,
+  repo: string,
+): string | null {
+  if (isReservedAppSegment(owner)) return null;
+  const ownerSeg = normalizeOwnerRepoSegment(owner);
+  const repoSeg = normalizeOwnerRepoSegment(repo);
+  if (!ownerSeg || !repoSeg) return null;
+  return (
+    parsePublicGitUrl(`https://github.com/${ownerSeg}/${repoSeg}`)?.url ?? null
+  );
 }
 
 /** Split textarea / paste input into candidate URL lines (trim, drop blanks). */

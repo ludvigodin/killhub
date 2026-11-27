@@ -134,36 +134,24 @@ function StageNode({
 
 export function JobHeroTimeline({ snapshot, logs = [] }: JobHeroTimelineProps) {
   const stages = buildJobTimeline(snapshot, evidenceFromLogs(logs));
-  const active = stages.find((s) => s.state === "active");
 
   return (
     <section
       aria-label="Job timeline"
       className="job-timeline space-y-4 border border-(--line) bg-(--paper-deep)/55 px-3 py-5 sm:px-5"
     >
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <p className="text-xs uppercase tracking-[0.14em] text-(--muted)">
-            Pattern A loop
-          </p>
-          <h2
-            className="mt-1 text-lg font-semibold tracking-tight sm:text-xl"
-            style={{
-              fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-            }}
-          >
-            Plan → execute → prove → destroy
-          </h2>
-        </div>
-        <p className="max-w-sm text-right text-xs text-(--muted) sm:text-sm">
-          {active
-            ? `Now: ${active.label}`
-            : snapshot.status === "completed"
-              ? "Loop finished — sandbox destroyed"
-              : snapshot.status === "failed" || snapshot.status === "cancelled"
-                ? `Stopped · ${snapshot.status}`
-                : "Waiting for the next gate"}
+      <div>
+        <p className="text-xs uppercase tracking-[0.14em] text-(--muted)">
+          Pattern A loop
         </p>
+        <h2
+          className="mt-1 text-lg font-semibold tracking-tight sm:text-xl"
+          style={{
+            fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
+          }}
+        >
+          Plan → execute → prove → destroy
+        </h2>
       </div>
 
       <ol className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-0">

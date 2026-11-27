@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useEffectEvent, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   cancelJob,
   getJob,
@@ -9,12 +10,16 @@ import {
   listScreenshots,
   type ScreenshotMeta,
 } from "@/lib/api";
+import { ownerRepoFromGithubUrl, repoPathFromGithubUrl } from "@/lib/github";
+import { formatJobWhen, isJobStalled } from "@/lib/time";
+import { type BreadcrumbItem, Breadcrumbs } from "./Breadcrumbs";
 import { ContainmentPanel } from "./ContainmentPanel";
 import { ErrorBanner } from "./ErrorBanner";
 import { FindingsSummary } from "./FindingsSummary";
 import { HackerVision } from "./HackerVision";
 import { JobHeroTimeline } from "./JobHeroTimeline";
 import { JobReport } from "./JobReport";
+import { LoadingPanel } from "./LoadingPanel";
 import { ProgressBar } from "./ProgressBar";
 import {
   isProgressLogType,
@@ -23,6 +28,27 @@ import {
 } from "./ProgressLog";
 import { type ScreenshotItem, ScreenshotTimeline } from "./ScreenshotTimeline";
 import { StatusBadge } from "./StatusBadge";
+import { VerificationBadge } from "./VerificationBadge";
+
+function shortJobId(jobId: string): string {
+  return jobId.length > 12 ? `${jobId.slice(0, 8)}…` : jobId;
+}
+
+function jobBreadcrumbs(
+  jobId: string,
+  githubUrl: string | undefined,
+): BreadcrumbItem[] {
+  const items: BreadcrumbItem[] = [{ label: "Hubs", href: "/hubs" }];
+  if (githubUrl) {
+    const repo = ownerRepoFromGithubUrl(githubUrl);
+    const path = repoPathFromGithubUrl(githubUrl);
+    if (repo && path) {
+      items.push({ label: repo, href: path, title: githubUrl });
+    }
+  }
+  items.push({ label: shortJobId(jobId), title: jobId });
+  return items;
+}
 
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 
@@ -30,6 +56,8 @@ type JobLiveViewProps = {
   jobId: string;
   /** Hide redundant chrome when nested on the repo history page. */
   embedded?: boolean;
+  /** Portal Cancel / HackerVision into a page header actions host. */
+  actionsHost?: HTMLElement | null;
 };
 
 type SsePayload = {
@@ -47,6 +75,34 @@ type SsePayload = {
   payload?: Record<string, unknown>;
 };
 
+function activityMessage(type: string, data: SsePayload): string {
+  const payload = data.payload;
+  const stepCandidate = [
+    data.current_step,
+    data.step,
+    typeof payload?.step === "string" ? payload.step : null,
+    typeof payload?.current_step === "string" ? payload.current_step : null,
+  ].find((v): v is string => typeof v === "string" && v.length > 0);
+  const pct =
+    typeof data.progress === "number"
+      ? data.progress
+      : typeof payload?.progress === "number"
+        ? payload.progress
+        : null;
+
+  if (type === "status") {
+    if (stepCandidate) return stepCandidate;
+    return data.message || data.status || "status";
+  }
+  if (type === "progress") {
+    if (stepCandidate && pct != null) return `${stepCandidate} (${pct}%)`;
+    if (stepCandidate) return stepCandidate;
+    if (pct != null) return `${pct}%`;
+    return data.message || "progress";
+  }
+  return data.message || type;
+}
+
 function toShot(meta: ScreenshotMeta, jobId: string): ScreenshotItem {
   return {
     screenshot_id: meta.screenshot_id,
@@ -59,10 +115,64 @@ function toShot(meta: ScreenshotMeta, jobId: string): ScreenshotItem {
   };
 }
 
-export function JobLiveView({ jobId, embedded = false }: JobLiveViewProps) {
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function formatFindingDetail(
+  payload: Record<string, unknown> | undefined,
+): string | undefined {
+  if (!payload) return undefined;
+  const parts: string[] = [];
+  if (typeof payload.source === "string") parts.push(payload.source);
+  if (typeof payload.severity === "string") parts.push(payload.severity);
+  if (typeof payload.package === "string") parts.push(payload.package);
+  if (typeof payload.id === "string") parts.push(payload.id);
+  if (typeof payload.classification === "string") {
+    parts.push(payload.classification);
+  }
+  if (typeof payload.title === "string") parts.push(payload.title);
+  return parts.length ? parts.join(" · ") : undefined;
+}
+
+function formatLogKind(
+  payload: Record<string, unknown> | undefined,
+): string | undefined {
+  if (!payload) return undefined;
+  if (typeof payload.kind === "string" && payload.kind.length > 0) {
+    return payload.kind;
+  }
+  if (typeof payload.phase === "string" && payload.phase.length > 0) {
+    return payload.phase;
+  }
+  return undefined;
+}
+
+function isContainmentMatrix(
+  payload: Record<string, unknown> | undefined,
+): payload is Record<string, unknown> {
+  if (!payload) return false;
+  return (
+    typeof payload.claim === "string" ||
+    asRecord(payload.dimensions) != null ||
+    asRecord(payload.canary_scan) != null
+  );
+}
+
+export function JobLiveView({
+  jobId,
+  embedded = false,
+  actionsHost = null,
+}: JobLiveViewProps) {
   const [snapshot, setSnapshot] = useState<JobSnapshot | null>(null);
   const [logs, setLogs] = useState<ProgressLogEntry[]>([]);
   const [shots, setShots] = useState<ScreenshotItem[]>([]);
+  const [liveContainment, setLiveContainment] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const [error, setError] = useState<{ message: string; code?: string } | null>(
     null,
   );
@@ -85,6 +195,10 @@ export function JobLiveView({ jobId, embedded = false }: JobLiveViewProps) {
 
   const onSnapshot = useEffectEvent((snap: JobSnapshot) => {
     setSnapshot(snap);
+    const receiptContainment = asRecord(snap.receipt?.containment);
+    if (receiptContainment) {
+      setLiveContainment(receiptContainment);
+    }
   });
 
   useEffect(() => {
@@ -120,7 +234,7 @@ export function JobLiveView({ jobId, embedded = false }: JobLiveViewProps) {
     function openSse(after: string | null) {
       if (cancelled) return;
       source?.close();
-      // EventSource ignores SSE comment keep-alives (`: keepalive`) — no flicker (D50).
+      // EventSource ignores SSE comment keep-alives (`: keepalive`) - no flicker (D50).
       source = new EventSource(jobEventsUrl(jobId, after));
 
       const handlePayload = (event: MessageEvent, type: string) => {
@@ -128,7 +242,7 @@ export function JobLiveView({ jobId, embedded = false }: JobLiveViewProps) {
         try {
           data = JSON.parse(String(event.data)) as SsePayload;
         } catch {
-          // Malformed or empty frames — ignore (keep-alive comments never reach here).
+          // Malformed or empty frames - ignore (keep-alive comments never reach here).
           return;
         }
 
@@ -148,9 +262,18 @@ export function JobLiveView({ jobId, embedded = false }: JobLiveViewProps) {
           onLog({
             id,
             type,
-            message: data.message || type,
+            message: activityMessage(type, data),
             timestamp: data.timestamp,
+            kind: formatLogKind(data.payload),
+            detail:
+              type === "finding"
+                ? formatFindingDetail(data.payload)
+                : undefined,
           });
+        }
+
+        if (type === "containment" && isContainmentMatrix(data.payload)) {
+          setLiveContainment(data.payload);
         }
 
         if (type === "screenshot") {
@@ -183,10 +306,6 @@ export function JobLiveView({ jobId, embedded = false }: JobLiveViewProps) {
           }
         }
 
-        if (data.event_id) {
-          // cursor advanced via snapshot patch below
-        }
-
         setSnapshot((prev) => {
           if (!prev) return prev;
           const next = { ...prev };
@@ -195,7 +314,7 @@ export function JobLiveView({ jobId, embedded = false }: JobLiveViewProps) {
           if (typeof data.current_step === "string") {
             next.current_step = data.current_step;
           }
-          // Nested progress fields on status/log payloads.
+          // Nested progress fields on status/log/wait payloads.
           const payload = data.payload;
           if (payload) {
             if (typeof payload.status === "string") {
@@ -204,11 +323,24 @@ export function JobLiveView({ jobId, embedded = false }: JobLiveViewProps) {
             if (typeof payload.progress === "number") {
               next.progress = payload.progress;
             }
-            if (typeof payload.current_step === "string") {
-              next.current_step = payload.current_step;
+            // Status events use `step`; wait heartbeats use `current_step`.
+            const step =
+              (typeof payload.current_step === "string" &&
+                payload.current_step) ||
+              (typeof payload.step === "string" && payload.step) ||
+              null;
+            if (step) next.current_step = step;
+            if (typeof payload.cancel_requested_at === "string") {
+              next.cancel_requested_at = payload.cancel_requested_at;
             }
           }
           if (data.event_id) next.event_cursor = data.event_id;
+          // Meaningful SSE frames refresh last-activity (keep-alives never arrive).
+          if (typeof data.timestamp === "string" && data.timestamp.length > 0) {
+            next.updated_at = data.timestamp;
+          } else {
+            next.updated_at = new Date().toISOString();
+          }
           return next;
         });
 
@@ -294,6 +426,9 @@ export function JobLiveView({ jobId, embedded = false }: JobLiveViewProps) {
   }
 
   const terminal = snapshot ? TERMINAL.has(snapshot.status) : false;
+  const stalled =
+    Boolean(snapshot) && !terminal && isJobStalled(snapshot?.updated_at);
+  const cancelling = Boolean(snapshot?.cancel_requested_at && !terminal);
   const showReport = Boolean(
     snapshot &&
       (terminal ||
@@ -301,46 +436,194 @@ export function JobLiveView({ jobId, embedded = false }: JobLiveViewProps) {
         snapshot.vuln_report ||
         snapshot.profile),
   );
+  const containment =
+    asRecord(snapshot?.receipt?.containment) || liveContainment;
+  const stepsCompleted = Array.isArray(snapshot?.steps_completed)
+    ? snapshot.steps_completed.filter(
+        (step): step is string => typeof step === "string" && step.length > 0,
+      )
+    : [];
+  const jobError =
+    typeof snapshot?.error === "string" && snapshot.error.trim().length > 0
+      ? snapshot.error.trim()
+      : null;
+
+  const actions = (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      <button
+        type="button"
+        onClick={() => void onCancel()}
+        disabled={busy || terminal || cancelling || !snapshot}
+        className="rounded-md border border-[#ff4d4d]/55 bg-[#1a0a0a] px-4 py-2 font-mono text-sm tracking-wide text-[#ff6b6b] shadow-[0_0_8px_rgba(255,77,77,0.2)] transition-[box-shadow,border-color,opacity,background-color] hover:border-[#ff4d4d] hover:bg-[#2a1010] hover:shadow-[0_0_14px_rgba(255,77,77,0.4)] disabled:opacity-40 disabled:shadow-none"
+      >
+        {cancelling ? "Cancelling…" : "Cancel job"}
+      </button>
+      <button
+        type="button"
+        aria-pressed={vision}
+        onClick={() => setVision(!vision)}
+        className="rounded-md border border-[#3dff9a]/50 bg-[#07151d] px-4 py-2 font-mono text-sm tracking-wide text-[#3dff9a] shadow-[0_0_8px_rgba(61,255,154,0.25)] transition-[box-shadow,border-color,background-color] hover:border-[#3dff9a] hover:shadow-[0_0_14px_rgba(61,255,154,0.45)] aria-pressed:border-[#80ffdb] aria-pressed:bg-[#102e32] aria-pressed:text-[#80ffdb] aria-pressed:shadow-[0_0_16px_rgba(128,255,219,0.4)]"
+      >
+        HackerVision
+      </button>
+    </div>
+  );
+
+  const githubUrl = snapshot?.github_url;
+  const repoTitle = githubUrl
+    ? (ownerRepoFromGithubUrl(githubUrl) ?? null)
+    : null;
+  const started = snapshot?.created_at
+    ? formatJobWhen(snapshot.created_at)
+    : null;
+  const updated = snapshot?.updated_at
+    ? formatJobWhen(snapshot.updated_at)
+    : null;
 
   return (
     <div className="space-y-8">
-      <p className="font-mono text-sm text-(--muted)">{jobId}</p>
-      {!embedded && snapshot?.github_url ? (
-        <p className="text-sm text-(--muted)">
-          <a href={snapshot.github_url} target="_blank" rel="noreferrer">
-            {snapshot.github_url}
-          </a>
-        </p>
-      ) : null}
+      {!embedded ? (
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <Breadcrumbs items={jobBreadcrumbs(jobId, githubUrl)} />
+            <h1
+              className="mb-1 text-3xl font-semibold tracking-tight"
+              style={{
+                fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
+              }}
+            >
+              {repoTitle ?? "Job"}
+            </h1>
+            {started ? (
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-(--muted)">
+                <time
+                  dateTime={started.iso}
+                  className="tabular-nums text-(--ink)"
+                  title={started.absolute || undefined}
+                >
+                  Started {started.relative || started.absolute}
+                </time>
+                {started.absolute ? (
+                  <>
+                    <span aria-hidden className="text-(--line)">
+                      ·
+                    </span>
+                    <span className="tabular-nums">{started.absolute}</span>
+                  </>
+                ) : null}
+                {updated && updated.iso !== started.iso ? (
+                  <>
+                    <span aria-hidden className="text-(--line)">
+                      ·
+                    </span>
+                    <time
+                      dateTime={updated.iso}
+                      className="tabular-nums"
+                      title={updated.absolute || undefined}
+                    >
+                      Updated {updated.relative}
+                    </time>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
+          </div>
+          {actionsHost ? null : (
+            <div className="shrink-0 self-start sm:pt-1">{actions}</div>
+          )}
+        </header>
+      ) : actionsHost ? null : (
+        actions
+      )}
+      {actionsHost ? createPortal(actions, actionsHost) : null}
+
+      {vision ? <HackerVision entries={logs} /> : null}
 
       {snapshot ? (
         <>
           <JobHeroTimeline snapshot={snapshot} logs={logs} />
           <section
             aria-label="Job status"
+            aria-busy={!terminal || undefined}
             className="space-y-4 border border-(--line) bg-(--paper-deep)/60 px-4 py-5"
           >
             <div className="flex flex-wrap items-center gap-3">
               <StatusBadge status={snapshot.status} />
+              <VerificationBadge kind={snapshot.verification?.kind} />
+              {cancelling ? (
+                <span className="inline-flex items-center gap-1.5 font-mono text-xs tracking-wide text-(--warn)">
+                  <span className="job-live-dot" aria-hidden />
+                  Cancelling
+                </span>
+              ) : stalled ? (
+                <span className="inline-flex items-center gap-1.5 font-mono text-xs tracking-wide text-(--muted)">
+                  May be stalled
+                </span>
+              ) : !terminal ? (
+                <span className="inline-flex items-center gap-1.5 font-mono text-xs tracking-wide text-(--accent)">
+                  <span className="job-live-dot" aria-hidden />
+                  Live
+                </span>
+              ) : null}
               <p className="text-sm text-(--muted)">
-                {snapshot.current_step || "Waiting for next step…"}
+                {snapshot.current_step ||
+                  (terminal ? "Finished." : "Waiting for next step…")}
               </p>
             </div>
-            <ProgressBar progress={snapshot.progress} />
+            {stepsCompleted.length > 0 ? (
+              <p className="font-mono text-xs text-(--muted)">
+                steps {stepsCompleted.join(" → ")}
+              </p>
+            ) : null}
+            {started ? (
+              <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs tabular-nums text-(--muted)">
+                <time
+                  dateTime={started.iso}
+                  title={started.absolute || undefined}
+                >
+                  Started {started.relative || started.absolute}
+                  {started.absolute ? ` · ${started.absolute}` : ""}
+                </time>
+                {updated && updated.iso !== started.iso ? (
+                  <time
+                    dateTime={updated.iso}
+                    title={updated.absolute || undefined}
+                  >
+                    · Updated {updated.relative}
+                  </time>
+                ) : null}
+              </p>
+            ) : null}
+            <ProgressBar
+              progress={snapshot.progress}
+              active={!terminal && !stalled}
+            />
             <p className="font-mono text-xs text-(--muted)">
-              cursor {snapshot.event_cursor ?? "—"}
+              cursor {snapshot.event_cursor ?? "-"}
+              {snapshot.inference_model
+                ? ` · model ${snapshot.inference_model}`
+                : ""}
+              {snapshot.current_profile_revision != null
+                ? ` · profile rev ${snapshot.current_profile_revision}`
+                : ""}
+              {snapshot.current_sandbox_generation != null
+                ? ` · sandbox gen ${snapshot.current_sandbox_generation}`
+                : ""}
             </p>
           </section>
         </>
       ) : (
-        <p className="text-(--muted)">Loading snapshot…</p>
+        <LoadingPanel
+          label="Loading job snapshot…"
+          detail="Fetching status, then connecting to the live event stream."
+        />
       )}
+
+      {jobError ? <ErrorBanner message={jobError} code="job_error" /> : null}
 
       <ScreenshotTimeline jobId={jobId} shots={shots} />
 
-      {snapshot?.receipt?.containment ? (
-        <ContainmentPanel containment={snapshot.receipt.containment} />
-      ) : null}
+      {containment ? <ContainmentPanel containment={containment} /> : null}
 
       {snapshot && (snapshot.vuln_report || terminal) ? (
         <FindingsSummary snapshot={snapshot} />
@@ -348,32 +631,7 @@ export function JobLiveView({ jobId, embedded = false }: JobLiveViewProps) {
 
       {error ? <ErrorBanner message={error.message} code={error.code} /> : null}
 
-      <div>
-        <button
-          type="button"
-          onClick={() => void onCancel()}
-          disabled={busy || terminal}
-          className="rounded-md border border-(--line) bg-(--paper-deep) px-4 py-2 text-sm transition-opacity disabled:opacity-50"
-        >
-          Cancel job
-        </button>
-      </div>
-
-      <div className="space-y-3">
-        <button
-          type="button"
-          aria-pressed={vision}
-          onClick={() => setVision(!vision)}
-          className="rounded-md border border-(--line) bg-(--paper-deep) px-4 py-2 font-mono text-sm aria-pressed:bg-[#102e32] aria-pressed:text-[#80ffdb]"
-        >
-          HackerVision
-        </button>
-        {vision ? (
-          <HackerVision entries={logs} />
-        ) : (
-          <ProgressLog entries={logs} />
-        )}
-      </div>
+      {!vision ? <ProgressLog entries={logs} /> : null}
 
       {showReport && snapshot ? (
         <div className="border-t border-(--line) pt-8">

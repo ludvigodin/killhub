@@ -1,40 +1,54 @@
 Killhub alignment handoff for Antigravity
 27 November 2026
 
-Current work and branch
+Branch and acceptance audit
 
-The current task is Step 06, Microsandbox teardown confirmation and reaping.
-The workspace is /home/hej/Dokument/hackathon/killhub. The shared branch is
-integration-alignment-0-22 at 1894a2f, with origin/main 06b4878 already merged as
-e294cdf. The local and remote integration tips matched after fetching both refs.
+Workspace: /home/hej/Dokument/hackathon/killhub
+Integration branch: integration-alignment-0-22
+Antigravity Wave 0: 284e41f (teardown and recovery), bf3a9b9 (worker schema sync)
+Review grounding: 30c5d35 (validated finding priorities and evidence-only prose)
+Upstream reviewed: main at 343e41d (stall, heartbeat, and frontend changes)
 
-Step 06 teardown edits are local and uncommitted. The new guard requires a
-successful msb remove or the sandbox's absence from a successful, validated JSON
-inventory. Destroy, replacement, offline restore, lost-sandbox recovery, and the
-reaper share this confirmation rule. Cleanup tracks the named generation and the
-reaper checks whether an expired row's name now belongs to a newer generation.
-Tests use an injected CLI runner and a real SQLite ledger. The failure cases
-reproduced before the fix and all eight focused cases now pass.
-The follow-up in progress checks that a late teardown confirmation updates the
-terminal receipt and makes its checkpoint eligible for collection.
+Wave 0 is on GitHub. Git contains the teardown code and all four worker
+schemas. The merge retains atomic claims, confirmed-only cleanup, terminal
+receipt and verdict evidence, and upstream heartbeat and stall handling.
+A stale heartbeat observation cannot replace a newer job record. The feed
+honors an inconclusive or suspicious verdict even when the dependency scan
+is clear. The production branch's Git SHA alone does not establish real
+microVM acceptance for the integration branch.
 
-Verification for the teardown-confirmation patch
+Hackbus cards and Git evidence
 
-Python reported 246 passed and one skipped live PostgreSQL test. Ruff, Biome,
+38  Wave 0 teardown and schema sync — done on the shared branch.
+39  Host model proxy and key isolation — open. No proxy implementation found
+    on the fetched integration branch.
+40  Host interception and canary blocking — open. Existing network policy and
+    offline checks are present. The named interception modules are absent.
+41  IPC and guest supervision — open. Existing msb exec/copy is in place.
+    The named IPC and supervision modules are absent.
+42  Intake and alignment demo fixtures — open. Existing Git preflight and
+    baseline fixture pins are present. No alignment scenario catalog verified.
+43  Install contract, planning, and capability drift — open. Worker schemas
+    are bundled. No complete runtime producer through terminal receipt verified.
+44  View-only console and telemetry access — open. Live status, verdict and
+    screenshot views are present. The named console bridge and routes are absent.
+45  End-to-end integration and real VX1 acceptance — open. Local gates exercise
+    the committed worker and frontend. Dedicated VX1 acceptance is unverified.
+
+Verification for the upstream merge candidate
+
+Python reported 299 passed and one skipped live PostgreSQL test. Ruff, Biome,
 Knip, Next.js route type generation, TypeScript, the Turbopack production build,
-all four JSON Schema validations, and git diff --check passed.
+both frontend test files, and all four JSON Schema validations passed. The
+new watchdog regression tests use SQLite and an injected CLI runner.
 
 Protected files and collaboration
 
-Keep all Markdown files byte-for-byte intact. The 41 tracked Markdown files
-match baseline b41beda. Use integration-alignment-0-22 as the shared integration
-line and leave main untouched. Preserve local tooling files and use no
-monkeypatching. Read ALIGNMENT_PLAN.md, AGENTS.md, and the matching plan step.
-Run the full gate in plan/LINT.md for each step. A separate checkout should start
-from the shared commit above unless the local Step 06 changes have been shared.
-Avoid concurrent edits to explore/harness.py, explore/install.py, explore/reaper.py,
-explore/selfheal.py, explore/finalize.py, explore/service.py, and
-explore/tests/test_destroy_confirmation.py while Step 06 is being handed off.
+The 41 tracked Markdown files match baseline b41beda. Keep them byte-for-byte
+intact, preserve local tooling files, and add no monkeypatches. Coordinate
+shared files on Hackbus before writing. Operate on integration-alignment-0-22,
+with main used as the upstream merge source. Read ALIGNMENT_PLAN.md, AGENTS.md,
+and the matching plan step and run the gate in plan/LINT.md.
 
 Task status
 
@@ -56,10 +70,11 @@ Task status
 05  Jobs proxy and admission  [baseline implemented]
     Git intake, job proxy, limits, and overload responses are covered locally.
 
-06  Microsandbox lifecycle and watchdog  [current, partial]
-    msb create/destroy and host/worker reaping are implemented. The local removal
-    confirmation fix is described above. Real VX1 validation of expiry, the
-    aligned Ubuntu image, telemetry flush, and host resource teardown is open.
+06  Microsandbox lifecycle and watchdog  [implemented in code, real acceptance open]
+    msb create/destroy and host/worker reaping are implemented. The shared
+    branch has confirmed-only teardown, deadline guards, and receipt recovery.
+    Real VX1 validation of expiry, the aligned Ubuntu image, telemetry flush,
+    and host resource teardown is still open.
 
 07  Exec, copy, and IPC  [partial]
     msb exec and server-owned copy paths are implemented. Bounded guest-to-host
@@ -136,7 +151,6 @@ Task status
 
 Suggested handoff boundary
 
-On a separate workspace, start from shared commit 1894a2f and pick an independent
-open component that avoids the Step 06 files listed above. If taking over
-Step 06 itself, use this working tree after coordination and verify real msb
-teardown and expiry before marking the task complete.
+Use the current shared integration commit when starting a separate checkout.
+Check the board for ownership before picking a component. Record real msb
+acceptance separately from fixture-based unit tests and local browser checks.

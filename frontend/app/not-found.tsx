@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { KillhubLogo } from "@/components/KillhubLogo";
+import { SiteNav } from "@/components/SiteNav";
 
 export const metadata: Metadata = {
   title: "Not found",
@@ -10,25 +10,7 @@ export const metadata: Metadata = {
 export default function NotFound() {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-6 pb-24">
-      <nav className="flex items-center justify-between gap-4 py-6">
-        <Link href="/" className="no-underline" aria-label="Killhub home">
-          <KillhubLogo size={28} withWordmark />
-        </Link>
-        <div className="flex items-center gap-1 sm:gap-2">
-          <Link
-            href="/features"
-            className="rounded-md px-2.5 py-1.5 text-sm text-(--muted) no-underline transition hover:text-(--ink)"
-          >
-            Features
-          </Link>
-          <Link
-            href="/hubs"
-            className="rounded-md px-2.5 py-1.5 text-sm text-(--muted) no-underline transition hover:text-(--ink)"
-          >
-            Hubs
-          </Link>
-        </div>
-      </nav>
+      <SiteNav />
 
       <section className="feed-hero mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center py-16 text-center sm:py-24">
         <p
@@ -54,7 +36,7 @@ export default function NotFound() {
             href="/"
             className="inline-flex min-h-11 items-center justify-center rounded-lg bg-(--accent) px-5 text-sm font-medium text-(--paper) no-underline transition hover:brightness-110"
           >
-            Back to feed
+            Back
           </Link>
           <Link
             href="/hubs"

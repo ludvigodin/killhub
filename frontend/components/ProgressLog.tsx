@@ -3,6 +3,10 @@ export type ProgressLogEntry = {
   type: string;
   message: string;
   timestamp?: string;
+  /** Structured log kind from SSE payload (sandbox_replace, repair_attempt, …). */
+  kind?: string;
+  /** Extra detail for findings / structured evidence. */
+  detail?: string;
 };
 
 const EVIDENCE_TYPES = new Set([
@@ -13,6 +17,8 @@ const EVIDENCE_TYPES = new Set([
   "lifecycle",
   "gap",
   "error",
+  "status",
+  "progress",
 ]);
 
 type ProgressLogProps = {
@@ -24,7 +30,12 @@ export function isProgressLogType(type: string): boolean {
 }
 
 export function ProgressLog({ entries }: ProgressLogProps) {
-  const lines = entries.filter((e) => isProgressLogType(e.type));
+  // Show status/progress steps, but hide D81 liveness pulses (kind=heartbeat).
+  const lines = entries.filter(
+    (e) =>
+      isProgressLogType(e.type) &&
+      !(e.type === "progress" && e.kind === "heartbeat"),
+  );
   return (
     <section aria-label="Job event log">
       <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
@@ -43,7 +54,15 @@ export function ProgressLog({ entries }: ProgressLogProps) {
                 {line.type}
               </span>
               <span className="min-w-0 wrap-break-word text-(--ink)">
+                {line.kind ? (
+                  <span className="mr-1.5 text-(--muted)">[{line.kind}]</span>
+                ) : null}
                 {line.message}
+                {line.detail ? (
+                  <span className="mt-0.5 block text-(--muted)">
+                    {line.detail}
+                  </span>
+                ) : null}
               </span>
             </li>
           ))
@@ -67,6 +86,9 @@ function typeColor(type: string): string {
       return "var(--muted)";
     case "gap":
       return "var(--warn)";
+    case "status":
+    case "progress":
+      return "var(--ink)";
     default:
       return "var(--accent)";
   }

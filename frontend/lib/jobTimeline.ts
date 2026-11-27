@@ -74,7 +74,7 @@ function containmentHitDetail(
     return "∞ loop absorbed · guest still alive";
   }
   if (timeout?.timed_out === true) {
-    return "loop timed out — check guest liveness";
+    return "loop timed out - check guest liveness";
   }
   const claim = containment.claim;
   if (typeof claim === "string" && claim.length > 0) {
@@ -187,7 +187,7 @@ export function buildJobTimeline(
     if (isDone) {
       state = "done";
     } else if (terminalOk) {
-      // Completed without every marker (e.g. no containment event yet) —
+      // Completed without every marker (e.g. no containment event yet) -
       // leave unfinished stages visible as pending, not fake-done.
       state = "pending";
     } else if (terminalFail) {

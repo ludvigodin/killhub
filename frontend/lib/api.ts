@@ -33,6 +33,8 @@ type VerificationInfo = {
     | null;
 };
 
+export type SafetyOutcome = "safe" | "high_risk" | "review" | "unknown";
+
 export type JobSummary = {
   job_id: string;
   github_url: string;
@@ -46,6 +48,8 @@ export type JobSummary = {
   screenshot_url?: string | null;
   error?: string | null;
   verification?: VerificationInfo | null;
+  /** Slim security stamp for feed cards; null while running / no receipt. */
+  safety?: SafetyOutcome | null;
 };
 
 export type JobListResponse = {
@@ -173,6 +177,8 @@ type EnvironmentGen = {
     | "destroy_failed"
     | "failed";
   expires_at: string;
+  image?: string | null;
+  destroyed_at?: string | null;
 };
 
 // The existing worker stores bootstrap and runtime profiles under the same
@@ -180,6 +186,7 @@ type EnvironmentGen = {
 type LegacyEnvironmentProfile = {
   schema_version: "1";
   intent: "bootstrap" | EnvironmentProfile["intent"];
+  phase?: string;
   source?: { type: "git"; url: string; ref?: string; commit?: string };
   runtime?: string;
   os_image?: string;
@@ -237,6 +244,7 @@ export type JobSnapshot = {
   inference_usage:
     | (InferenceCounts & {
         budget_tokens: number;
+        wall_ms?: number;
         // Older jobs and unscoped optional calls only have the aggregate counters.
         by_role?: Partial<
           Record<"planner" | "review", InferenceCounts & { model: string }>
