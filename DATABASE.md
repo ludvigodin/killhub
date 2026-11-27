@@ -14,7 +14,7 @@ Related: [API.md](API.md) · [DECISIONS.md](DECISIONS.md) · [ARCHITECTURE.md](A
 2. **Plane 2 (disposable Microsandbox) holds no Killhub database.** It is ephemeral compute; any state needed after destroy must already be copied into Plane 1 artifacts / receipt (D49).
 3. **Job lifetime ≠ client presence.** Rows/records remain until terminal state + TTL cleanup (or explicit cancel cleanup).
 4. **Do not store secrets** (API keys, SSH private keys) in job JSON, event payloads, or screenshot captions. Redact before persist. Canaries (D44) are fake credentials tracked separately.
-5. **Public github.com URLs only** in `source` / create payload validation.
+5. **Public allowlisted git URLs only** in `source` / create payload validation (D78: `github.com`, `gitlab.com`, `bitbucket.org`, `codeberg.org`). Wire field name remains `github_url`.
 6. When changing ledger engine (SQLite ↔ Postgres), preserve field names below and document the migration in [DECISIONS.md](DECISIONS.md).
 7. **Screenshots are optional** (D31); an empty screenshot list is valid.
 8. **Readiness ≠ completion** (D37). `readiness.passed` is probe evidence; terminal success is `status=completed` after report + cleanup. Destroy the sandbox on terminal states / absolute expiry — **not** merely when readiness passes. Gate outcomes may fail the job without clearing readiness (D66).
@@ -117,7 +117,7 @@ erDiagram
 | Field | Type | Rules |
 |-------|------|-------|
 | `job_id` | string (UUID) | Immutable PK |
-| `github_url` | string | Validated public HTTPS `github.com` |
+| `github_url` | string | Validated public HTTPS git URL on an allowlisted host (D78); field name retained for API stability |
 | `resolved_commit` | string \| null | Full SHA after first successful clone; **required** before provision/install and on every re-clone (D62). Null only pre-clone / preflight-fail |
 | `status` | enum | `pending` → `queued`? → `analyzing` → `planning` → `provisioning` → `installing` → `verifying` ⇄ `repairing` → `scanning` → `finalizing` → `completed` \| `failed` \| `cancelled` |
 | `progress` | int 0–100 | Monotonic non-decreasing except on documented repair resets |

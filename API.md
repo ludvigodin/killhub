@@ -50,13 +50,14 @@ Next.js public `/api/jobs*` and `/health` **proxy** to these routes (mapping `/h
 
 ### `GET /api/jobs`
 
-Recent job summaries for the home feed (D69). Newest first.
+Recent job summaries for the home feed (D69 / D77). Newest first. Server-side pagination via `limit` + `offset`.
 
 **Query**
 
 | Param | Default | Max | Purpose |
 |-------|---------|-----|---------|
-| `limit` | `48` | `200` | Cap rows returned |
+| `limit` | `48` | `200` | Page size |
+| `offset` | `0` | — | Rows to skip (newest-first) |
 
 **Response `200`**
 
@@ -76,11 +77,14 @@ Recent job summaries for the home feed (D69). Newest first.
       "error": null,
       "verification": null
     }
-  ]
+  ],
+  "total": 128,
+  "limit": 12,
+  "offset": 0
 }
 ```
 
-`screenshot_id` is the latest still when present; otherwise `null`. `screenshot_url` is an absolute Vultr CDN URL when Object Storage + `OBJECT_STORAGE_CDN_BASE_URL` are configured (D76); otherwise the relative `/api/jobs/{id}/screenshots/{screenshot_id}` path when a still exists; otherwise `null`. Full dossier stays on `GET /api/jobs/{id}`.
+`total` is the full job count in the ledger (not just the page). `screenshot_id` is the latest still when present; otherwise `null`. `screenshot_url` is an absolute Vultr CDN URL when Object Storage + `OBJECT_STORAGE_CDN_BASE_URL` are configured (D76); otherwise the relative `/api/jobs/{id}/screenshots/{screenshot_id}` path when a still exists; otherwise `null`. Full dossier stays on `GET /api/jobs/{id}`.
 
 ---
 
@@ -94,6 +98,8 @@ Create a job (admission — D40; pre-flight — D45).
 { "github_url": "https://github.com/org/repo" }
 ```
 
+`github_url` is the historical field name for the source repo URL (D78). Accepted values: public HTTPS git URLs on `github.com`, `gitlab.com`, `bitbucket.org`, or `codeberg.org` (optional `.git` suffix).
+
 **Response `201`**
 
 ```json
@@ -104,7 +110,7 @@ Create a job (admission — D40; pre-flight — D45).
 
 | Code | When |
 |------|------|
-| `400` | Invalid URL (not public HTTPS github.com) |
+| `400` | Invalid URL (not a public HTTPS git URL on an allowlisted host — D78) |
 | `429` | Rate limit exceeded or inference budget exhausted |
 | `503` | Global concurrency full and queue full |
 

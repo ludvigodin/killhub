@@ -160,7 +160,7 @@ export async function createJob(githubUrl: string): Promise<CreateJobResponse> {
 }
 
 export async function listJobs(
-  limit = 12,
+  limit = 9,
   offset = 0,
 ): Promise<JobListResponse> {
   const params = new URLSearchParams({

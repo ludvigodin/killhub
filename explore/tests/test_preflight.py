@@ -170,6 +170,62 @@ def test_archived_is_soft(client: TestClient, auth_header, monkeypatch) -> None:
     get_settings.cache_clear()
 
 
+def test_gitlab_not_found_hard_fail(monkeypatch) -> None:
+    monkeypatch.setenv("PREFLIGHT_ENABLED", "true")
+    from config import get_settings
+
+    get_settings.cache_clear()
+
+    def fake_urlopen(req: object, timeout: float = 0) -> Any:
+        _ = timeout
+        raise HTTPError(
+            url="https://gitlab.com/missing/project",
+            code=404,
+            msg="Not Found",
+            hdrs=None,  # type: ignore[arg-type]
+            fp=io.BytesIO(b"{}"),
+        )
+
+    monkeypatch.setattr("preflight.urllib.request.urlopen", fake_urlopen)
+
+    # build_opener().open also needs the same failure path
+    class _Opener:
+        def open(self, req: object, timeout: float = 0) -> Any:
+            return fake_urlopen(req, timeout)
+
+    monkeypatch.setattr(
+        "preflight.urllib.request.build_opener",
+        lambda *_a, **_k: _Opener(),
+    )
+    result = run_preflight("https://gitlab.com/missing/project")
+    assert result.ok_to_bootstrap is False
+    assert any(f.code == "repo_not_found" and f.hard for f in result.findings)
+    get_settings.cache_clear()
+
+
+def test_gitlab_unreachable_is_soft(monkeypatch) -> None:
+    monkeypatch.setenv("PREFLIGHT_ENABLED", "true")
+    from urllib.error import URLError
+
+    from config import get_settings
+
+    get_settings.cache_clear()
+
+    class _Opener:
+        def open(self, req: object, timeout: float = 0) -> Any:
+            _ = req, timeout
+            raise URLError("timed out")
+
+    monkeypatch.setattr(
+        "preflight.urllib.request.build_opener",
+        lambda *_a, **_k: _Opener(),
+    )
+    result = run_preflight("https://gitlab.com/org/repo")
+    assert result.ok_to_bootstrap is True
+    assert any(f.code == "host_unreachable" and not f.hard for f in result.findings)
+    get_settings.cache_clear()
+
+
 def test_apply_hard_fail_marks_terminal(client, auth_header, monkeypatch) -> None:
     _ = client, auth_header
     monkeypatch.setenv("PREFLIGHT_ENABLED", "true")

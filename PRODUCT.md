@@ -2,9 +2,9 @@
 
 ## What
 
-**Killhub** turns a **public GitHub repository URL** into a **verified running environment** plus an **intake dossier** (durable receipt of how it ran and what risk was found):
+**Killhub** turns a **public git repository URL** (allowlisted hosts — GitHub, GitLab, Bitbucket, Codeberg) into a **verified running environment** plus an **intake dossier** (durable receipt of how it ran and what risk was found):
 
-1. User pastes one or many public GitHub URLs on the home **feed** (video-site entry grid · status · report).
+1. User pastes one or many public git URLs on the home **feed** (video-site entry grid · status · report).
 2. Plane 1 runs **pre-flight** (URL, admission, cheap risk) before spending a sandbox when hard-fail applies.
 3. The **control plane** (Next.js edge + Python `explore/` sidecar) runs an **Environment Agent Plan Loop**. The agent **proposes** how to demonstrate the repo and writes a **versioned executable** **`environment_profile.json`** (`git_mcp`, `webapp`, or `demo`); **deterministic gates** decide readiness and terminal outcomes from evidence. Invented demos are labeled `generated_demo` and must retain visible original setup failures.
 4. A **single disposable Microsandbox** microVM on Vultr VX1 is created from a **bootstrap** image (with canary secrets + network policy), then provisioned from the discovered runtime profile (explore + test are the same sandbox; image replace keeps one live VM).
@@ -25,11 +25,11 @@ Standing up someone else’s repo is slow, brittle, and unsafe if done on a shar
 
 ## Who it is for
 
-Operators, security-minded engineers, and internal teams who need to quickly and safely “bring up” (or invent a minimal demo of) public GitHub repos — MCP servers, webapps, or oddball content — with a clear environment profile and audit trail.
+Operators, security-minded engineers, and internal teams who need to quickly and safely “bring up” (or invent a minimal demo of) public git repos — MCP servers, webapps, or oddball content — with a clear environment profile and audit trail.
 
 ## Success looks like
 
-A user pastes public GitHub URL(s) into the home feed and, without refreshing, sees entries appear, then for each job:
+A user pastes public git URL(s) into the home feed and, without refreshing, sees entries appear, then for each job:
 
 - Live status, progress, and structured evidence events (with keep-alives on long steps)  
 - A validated `environment_profile.json`  

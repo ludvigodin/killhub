@@ -214,7 +214,31 @@ def test_reconcile_startup_flags_expired_generations(db_path: Path) -> None:
         assert any("ghost-vm" in n for n in report.orphan_notes)
 
 
-def test_reject_non_github_url(db_path: Path) -> None:
+def test_reject_non_allowlisted_git_url(db_path: Path) -> None:
     with Ledger(db_path) as ledger:
-        with pytest.raises(ValueError, match="github.com"):
-            ledger.create_job("https://gitlab.com/org/repo", env_ttl_seconds=60)
+        with pytest.raises(ValueError, match="github.com|gitlab.com|bitbucket.org|codeberg.org"):
+            ledger.create_job("https://example.com/org/repo", env_ttl_seconds=60)
+
+
+def test_accept_allowlisted_git_urls(db_path: Path) -> None:
+    with Ledger(db_path) as ledger:
+        gh = ledger.create_job(
+            "https://github.com/org/repo.git",
+            env_ttl_seconds=60,
+        )
+        assert gh.github_url == "https://github.com/org/repo"
+        gl = ledger.create_job(
+            "https://gitlab.com/group/sub/project",
+            env_ttl_seconds=60,
+        )
+        assert gl.github_url == "https://gitlab.com/group/sub/project"
+        bb = ledger.create_job(
+            "https://bitbucket.org/team/repo/",
+            env_ttl_seconds=60,
+        )
+        assert bb.github_url == "https://bitbucket.org/team/repo"
+        cb = ledger.create_job(
+            "https://codeberg.org/user/repo",
+            env_ttl_seconds=60,
+        )
+        assert cb.github_url == "https://codeberg.org/user/repo"

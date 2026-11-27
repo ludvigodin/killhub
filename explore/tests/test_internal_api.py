@@ -106,10 +106,27 @@ def test_invalid_github_url(client: TestClient, auth_header: dict[str, str]) -> 
     res = client.post(
         "/internal/jobs",
         headers=auth_header,
-        json={"github_url": "https://gitlab.com/org/repo"},
+        json={"github_url": "https://example.com/org/repo"},
     )
     assert res.status_code == 400
     assert res.json()["detail"]["code"] == "invalid_url"
+
+
+def test_accept_gitlab_url(client: TestClient, auth_header: dict[str, str], monkeypatch) -> None:
+    monkeypatch.setenv("PREFLIGHT_ENABLED", "false")
+    from config import get_settings
+
+    get_settings.cache_clear()
+    res = client.post(
+        "/internal/jobs",
+        headers=auth_header,
+        json={"github_url": "https://gitlab.com/org/repo.git"},
+    )
+    assert res.status_code == 201
+    job_id = res.json()["job_id"]
+    snap = client.get(f"/internal/jobs/{job_id}", headers=auth_header).json()
+    assert snap["github_url"] == "https://gitlab.com/org/repo"
+    get_settings.cache_clear()
 
 
 def test_health_unauthenticated(client: TestClient) -> None:

@@ -6,7 +6,7 @@ import { type BatchResult, BatchUrlForm } from "./BatchUrlForm";
 import { JobEntryCard } from "./JobEntryCard";
 
 const POLL_MS = 4000;
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 9;
 
 export function JobFeed() {
   const [jobs, setJobs] = useState<JobSummary[]>([]);
@@ -81,8 +81,8 @@ export function JobFeed() {
           Killhub
         </p>
         <p className="mb-8 max-w-xl text-lg leading-relaxed text-(--muted)">
-          Drop public GitHub URLs into the feed. Each entry is a disposable
-          sandbox — watch it verify, then keep the receipt.
+          Drop public git URLs into the feed. Each entry is a disposable sandbox
+          — watch it verify, then keep the receipt.
         </p>
         <BatchUrlForm onCreated={onCreated} />
       </header>
@@ -119,7 +119,7 @@ export function JobFeed() {
               Your feed is empty
             </p>
             <p className="mx-auto max-w-md text-(--muted)">
-              Paste the first public GitHub URL above — or a whole list — and
+              Paste the first public git URL above — or a whole list — and
               entries appear here as Killhub claims each job.
             </p>
           </div>
@@ -150,9 +150,7 @@ export function JobFeed() {
                   type="button"
                   className="rounded-md border border-(--line) bg-white/60 px-3 py-1.5 text-sm text-(--ink) transition enabled:hover:border-(--accent) enabled:hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
                   disabled={page + 1 >= pageCount || loading}
-                  onClick={() =>
-                    setPage((p) => Math.min(pageCount - 1, p + 1))
-                  }
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
                 >
                   Next
                 </button>

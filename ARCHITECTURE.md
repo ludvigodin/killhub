@@ -129,7 +129,7 @@ flowchart LR
 
 | Window | Contents |
 |--------|----------|
-| **Input** | Public GitHub URL + start |
+| **Input** | Public git URL (allowlisted hosts — D78) + start |
 | **Status** | Live `status`, `progress`, `current_step`, execution log, optional screenshot timeline |
 | **Report** | **Intake dossier / receipt** (D49): profile, readiness proof, SCA (+ optional MCP assessment), canary/containment/network evidence, sandbox lifecycle, gated outcome |
 
@@ -390,7 +390,7 @@ flowchart LR
 
 SSE: `status` · `progress` · `log` · `screenshot` · `error` · `span` · `finding` · `containment` · `lifecycle` (+ keep-alives — D49, D50)
 
-GitHub URLs: public HTTPS `github.com` only; else `400`. Pre-flight may reject before sandbox create (D45).
+Public git URLs: HTTPS on allowlisted hosts only (`github.com`, `gitlab.com`, `bitbucket.org`, `codeberg.org` — D78); else `400`. Pre-flight may reject before sandbox create (D45).
 
 ---
 

@@ -1,6 +1,6 @@
 # Killhub
 
-**Paste a public GitHub URL. Get a verified running environment — and a receipt that outlives the sandbox.**
+**Paste a public git URL. Get a verified running environment — and a receipt that outlives the sandbox.**
 
 **Try it live → [https://killhub.pro](https://killhub.pro)**
 
@@ -13,7 +13,7 @@ Built on **Vultr** end-to-end — Cloud Compute control plane, [Serverless Infer
 ## Try Killhub
 
 1. Open **[killhub.pro](https://killhub.pro)**
-2. Paste a **public** `https://github.com/...` URL
+2. Paste a **public** git HTTPS URL (`github.com`, `gitlab.com`, `bitbucket.org`, or `codeberg.org`)
 3. Watch live status, readiness evidence, and the intake receipt — then the disposable sandbox is destroyed
 
 Public demo is anonymous and admission-limited (rate / concurrency / queue). Prefer small getting-started or MCP repos for a first run.
@@ -22,11 +22,11 @@ Public demo is anonymous and admission-limited (rate / concurrency / queue). Pre
 
 ## The problem
 
-Bringing up a stranger’s GitHub repo is slow, brittle, and unsafe on a shared laptop or production host.
+Bringing up a stranger’s git repo is slow, brittle, and unsafe on a shared laptop or production host.
 
 ```mermaid
 flowchart LR
-  A["Public GitHub repo"] --> B{"Run it where?"}
+  A["Public git repo"] --> B{"Run it where?"}
   B -->|"Your laptop"| C["Risk · pollution · no audit trail"]
   B -->|"Shared host"| D["Blast radius · secret leakage"]
   B -->|"Killhub"| E["Isolated microVM · readiness · receipt"]
@@ -60,7 +60,7 @@ One public URL in. One disposable microVM. One durable receipt out.
 
 ```mermaid
 flowchart TB
-  U["Paste public GitHub URL"] --> P["Pre-flight<br/>URL · admission · cheap risk"]
+  U["Paste public git URL"] --> P["Pre-flight<br/>URL · admission · cheap risk"]
   P --> V["Bootstrap Microsandbox on VX1"]
   V --> A["Environment Agent inspect / discover<br/>OpenCode → Vultr Inference"]
   A --> F["runtime environment_profile.json<br/>git_mcp · webapp · demo"]
@@ -215,7 +215,7 @@ Pinned commits live in fixture config ([DECISIONS.md](DECISIONS.md) D53).
 
 ## Who it’s for
 
-Operators, security-minded engineers, and internal teams who need to quickly and safely bring up — or invent a minimal demo of — public GitHub repos (MCP servers, webapps, oddball content) with a clear environment profile and audit trail.
+Operators, security-minded engineers, and internal teams who need to quickly and safely bring up — or invent a minimal demo of — public git repos (MCP servers, webapps, oddball content) with a clear environment profile and audit trail.
 
 ---
 
@@ -251,7 +251,7 @@ Operators, security-minded engineers, and internal teams who need to quickly and
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/api/jobs` | Recent job summaries (feed) |
+| `GET` | `/api/jobs` | Recent job summaries (feed; `?limit=&offset=`) |
 | `POST` | `/api/jobs` | Create `{ github_url }` → `{ job_id }` |
 | `GET` | `/api/jobs/{id}` | Snapshot |
 | `GET` | `/api/jobs/{id}/events` | SSE stream |
@@ -271,4 +271,4 @@ Private repos / OAuth · multi-user billing · long-lived customer sandboxes · 
 
 ## Definition of done
 
-On **[killhub.pro](https://killhub.pro)** (or a local control plane), a user pastes a public GitHub URL and, without refreshing, sees live status, a validated profile, verifiable readiness with an honest label, and a cited intake receipt — while one Microsandbox absorbs the work and is destroyed on completion, with Killhub secrets never entering the guest.
+On **[killhub.pro](https://killhub.pro)** (or a local control plane), a user pastes a public git URL and, without refreshing, sees live status, a validated profile, verifiable readiness with an honest label, and a cited intake receipt — while one Microsandbox absorbs the work and is destroyed on completion, with Killhub secrets never entering the guest.

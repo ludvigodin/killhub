@@ -6,7 +6,6 @@ Supports SQLite (default) and PostgreSQL via ``LEDGER_URL`` (D41, D73).
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -37,10 +36,10 @@ def utc_now() -> str:
 
 
 def validate_github_url(url: str) -> str:
-    cleaned = url.strip().rstrip("/")
-    if not re.match(r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", cleaned):
-        raise ValueError("github_url must be a public https://github.com/org/repo URL")
-    return cleaned
+    """Validate create payload; field name is historical (D78 allowlisted git hosts)."""
+    from git_url import validate_public_git_url
+
+    return validate_public_git_url(url)
 
 
 TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})

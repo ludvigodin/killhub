@@ -63,7 +63,7 @@ When acting as the Environment Agent:
 - Never commit secrets (`.env`, API keys, tokens). Use env vars only.
 - Never inject `VULTR_API_KEY` / `VULTR_INFERENCE_*` / `OPENCODE_*` into the sandbox environment by default; plant **canaries** instead (D44).
 - Redact secrets from logs and screenshots when possible (no canary plaintext in events).
-- Public GitHub HTTPS URLs on `github.com` only in v1; reject others with `400`. Pre-flight may hard-fail before create (D45).
+- Public HTTPS git URLs on allowlisted hosts only (`github.com`, `gitlab.com`, `bitbucket.org`, `codeberg.org`; optional `.git`) — D78; reject others with `400`. Pre-flight may hard-fail before create (D45).
 - Destroy Plane 2 sandboxes in a **finally** path when the job reaches `completed` / `failed` / `cancelled`, or on absolute `expires_at` / host reaper — **not** when readiness alone passes (D37, D41, D49). Persist `destroy_failed` if removal is not confirmed; do not set `destroyed_at` until confirmed (D57).
 - **OpenCode lockdown (D38):** trusted system/managed config only; deny host shell and non-harness tools; allow only Vultr inference provider; treat submitted repository `AGENTS.md` / `.opencode` / scripts as **untrusted input**. Playwright browser execution for screenshots runs in **Plane 2**.
 - **Network (D39 + D43):** every sandbox create applies policy denying control-plane destinations and management endpoints; install-phase package/git egress then **deny-all remaining egress** for verify; ship/test `network_probe` with positive controls (D65).
