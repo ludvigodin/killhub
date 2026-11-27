@@ -8,10 +8,13 @@ Host-side entry (`python -m reaper --host`): scan msb labels and destroy past
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import re
 import sys
 from datetime import datetime, timezone
 from typing import Any
+from uuid import UUID
 
 from config import Settings, get_settings
 from harness import (
@@ -196,6 +199,45 @@ def reap_expired_from_host(
     return actions
 
 
+def reap_terminal_checkpoints(settings: Settings, cli: MsbCli) -> list[dict[str, Any]]:
+    """Collect only transient install checkpoints for confirmed, finished jobs."""
+    listed = cli.run(["snapshot", "list", "--format", "json"], timeout=60, check=True)
+    groups = json.loads(listed.stdout)
+    if not isinstance(groups, list):
+        raise ValueError("unexpected snapshot inventory")
+    if not groups:
+        return []
+    # Require an exact JSON inventory before removing a checkpoint.
+    inventory = cli.run(["list", "--format", "json"], timeout=60, check=True)
+    rows = json.loads(inventory.stdout)
+    if not isinstance(rows, list) or not all(isinstance(r, dict) and r.get("name") for r in rows):
+        raise ValueError("unexpected sandbox inventory")
+    live_names = {r["name"] for r in rows}
+    ledger = get_ledger(settings)
+    actions = []
+    for group in groups:
+        name = group.get("name", "") if isinstance(group, dict) else ""
+        match = re.fullmatch(r"kh-snap-([0-9a-f]{32})", name)
+        if not match:
+            continue
+        job_id = str(UUID(match[1]))
+        job = ledger.get_job(job_id)
+        if (
+            not job
+            or job.status not in {"completed", "cancelled", "failed"}
+            or not job.destroyed_at
+        ):
+            continue
+        receipt = ledger.get_receipt(job_id) or {}
+        if (receipt.get("lifecycle") or {}).get("confirmed") is not True:
+            continue
+        if f"kh-{job_id}" in live_names:
+            continue
+        removed = cli.snapshot_remove_group(name)
+        actions.append({"job_id": job_id, "checkpoint": name, "removed": removed.ok})
+    return actions
+
+
 def _destroy_for_reaper(
     job_id: str,
     environment_id: str,
@@ -292,7 +334,9 @@ def main(argv: list[str] | None = None) -> int:
 
     def pass_once() -> list[dict[str, Any]]:
         if args.host:
-            return reap_expired_from_host(settings=cfg)
+            actions = reap_expired_from_host(settings=cfg)
+            actions.extend(reap_terminal_checkpoints(cfg, MsbCli(cfg)))
+            return actions
         return reap_expired_from_ledger(settings=cfg)
 
     if args.once or args.host:
