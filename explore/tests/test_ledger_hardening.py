@@ -9,7 +9,6 @@ import pytest
 
 from ledger import Ledger
 from ledger.migrations import LedgerVersionError, Migration, latest_version, migrate
-from ledger.schema import SCHEMA_SQL
 
 URL = "https://github.com/heroku/node-js-getting-started"
 
@@ -46,42 +45,48 @@ def test_reopen_keeps_data_and_version(db_path: Path) -> None:
 def test_pending_migrations_apply_in_order_with_backup(db_path: Path) -> None:
     with Ledger(db_path) as ledger:
         job = ledger.create_job(URL, env_ttl_seconds=60)
+    baseline = latest_version()
 
     applied: list[int] = []
+    next_a = baseline + 1
+    next_b = baseline + 2
 
     def add_column(conn: sqlite3.Connection) -> None:
-        applied.append(2)
+        applied.append(next_a)
         conn.execute("ALTER TABLE jobs ADD COLUMN target_type TEXT NOT NULL DEFAULT 'github_repo'")
 
     def add_index(conn: sqlite3.Connection) -> None:
-        applied.append(3)
+        applied.append(next_b)
         conn.execute("CREATE INDEX idx_jobs_status ON jobs(status)")
 
-    migrations = [Migration(3, "index", add_index), Migration(2, "column", add_column)]
+    migrations = [
+        Migration(next_b, "index", add_index),
+        Migration(next_a, "column", add_column),
+    ]
     conn = sqlite3.connect(db_path, isolation_level=None)
     try:
-        assert migrate(conn, db_path, migrations) == 3
+        assert migrate(conn, db_path, migrations) == next_b
         row = conn.execute(
             "SELECT target_type FROM jobs WHERE job_id = ?", (job.job_id,)
         ).fetchone()
     finally:
         conn.close()
 
-    assert applied == [2, 3]
+    assert applied == [next_a, next_b]
     assert row is not None
     assert row[0] == "github_repo"
-    assert _meta(db_path, "schema_version") == "3"
-    backup = db_path.with_name(f"{db_path.name}.pre-v2.bak")
+    assert _meta(db_path, "schema_version") == str(next_b)
+    backup = db_path.with_name(f"{db_path.name}.pre-v{next_a}.bak")
     assert backup.exists()
     with sqlite3.connect(backup) as bconn:
-        assert (
-            bconn.execute("SELECT value FROM ledger_meta WHERE key='schema_version'").fetchone()[0]
-            == "1"
-        )
+        assert bconn.execute("SELECT value FROM ledger_meta WHERE key='schema_version'").fetchone()[
+            0
+        ] == str(baseline)
 
 
 def test_failed_migration_rolls_back_and_keeps_version(db_path: Path) -> None:
     Ledger(db_path).close()
+    baseline = latest_version()
 
     def boom(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN half_done TEXT")
@@ -90,12 +95,12 @@ def test_failed_migration_rolls_back_and_keeps_version(db_path: Path) -> None:
     conn = sqlite3.connect(db_path, isolation_level=None)
     try:
         with pytest.raises(RuntimeError, match="migration failed"):
-            migrate(conn, db_path, [Migration(2, "boom", boom)])
+            migrate(conn, db_path, [Migration(baseline + 1, "boom", boom)])
         cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
     finally:
         conn.close()
     assert "half_done" not in cols
-    assert _meta(db_path, "schema_version") == "1"
+    assert _meta(db_path, "schema_version") == str(baseline)
 
 
 def test_newer_ledger_is_refused(db_path: Path) -> None:
@@ -106,14 +111,108 @@ def test_newer_ledger_is_refused(db_path: Path) -> None:
         Ledger(db_path)
 
 
-def test_legacy_ledger_without_meta_is_treated_as_v1(db_path: Path) -> None:
+_V1_JOBS_DDL = """
+CREATE TABLE IF NOT EXISTS jobs (
+    job_id TEXT PRIMARY KEY,
+    github_url TEXT NOT NULL,
+    resolved_commit TEXT,
+    status TEXT NOT NULL,
+    progress INTEGER NOT NULL DEFAULT 0,
+    current_step TEXT NOT NULL DEFAULT '',
+    steps_completed TEXT NOT NULL DEFAULT '[]',
+    error TEXT,
+    readiness TEXT,
+    verification TEXT,
+    verify_result TEXT,
+    sandbox_id TEXT,
+    current_profile_revision INTEGER,
+    current_sandbox_generation INTEGER,
+    inference_model TEXT,
+    inference_usage TEXT,
+    event_cursor TEXT,
+    expires_at TEXT NOT NULL,
+    cleanup TEXT NOT NULL,
+    destroyed_at TEXT,
+    cancel_requested_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS job_events (
+    job_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    message TEXT NOT NULL,
+    payload TEXT NOT NULL DEFAULT '{}',
+    timestamp TEXT NOT NULL,
+    byte_size INTEGER NOT NULL,
+    PRIMARY KEY (job_id, event_id)
+);
+"""
+
+
+def test_legacy_ledger_without_meta_is_treated_as_v1_then_migrates(db_path: Path) -> None:
+    """Pre-versioning DBs (no ledger_meta) are treated as v1, then real migrations apply."""
     db_path.parent.mkdir(parents=True)
     with sqlite3.connect(db_path) as conn:
-        conn.executescript(SCHEMA_SQL)
-        conn.execute("DROP TABLE ledger_meta")
+        conn.executescript(_V1_JOBS_DDL)
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                job_id, github_url, status, progress, current_step,
+                expires_at, cleanup, created_at, updated_at
+            ) VALUES (
+                'legacy-1', ?, 'pending', 0, 'accepted',
+                '2099-01-01T00:00:00Z', '{"status":"pending","attempts":0}',
+                '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'
+            )
+            """,
+            (URL,),
+        )
     with Ledger(db_path) as ledger:
-        assert ledger.schema_version == 1
-    assert _meta(db_path, "schema_version") == "1"
+        assert ledger.schema_version == latest_version()
+        job = ledger.get_job("legacy-1")
+        assert job is not None
+        assert job.git_url == URL
+    assert _meta(db_path, "schema_version") == str(latest_version())
+    with sqlite3.connect(db_path) as conn:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
+    assert "git_url" in cols
+    assert "github_url" not in cols
+
+
+def test_rename_github_url_to_git_url_migration(db_path: Path) -> None:
+    """v1 ledger with github_url becomes git_url at schema_version 2."""
+    from ledger.migrations import MIGRATIONS
+
+    db_path.parent.mkdir(parents=True)
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(_V1_JOBS_DDL)
+        conn.execute("CREATE TABLE ledger_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        conn.execute("INSERT INTO ledger_meta (key, value) VALUES ('schema_version', '1')")
+        conn.execute("INSERT INTO ledger_meta (key, value) VALUES ('engine', 'sqlite')")
+        conn.execute(
+            """
+            INSERT INTO jobs (
+                job_id, github_url, status, progress, current_step,
+                expires_at, cleanup, created_at, updated_at
+            ) VALUES (
+                'v1-job', ?, 'pending', 0, 'accepted',
+                '2099-01-01T00:00:00Z', '{"status":"pending","attempts":0}',
+                '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'
+            )
+            """,
+            (URL,),
+        )
+    conn = sqlite3.connect(db_path, isolation_level=None)
+    try:
+        assert migrate(conn, db_path, MIGRATIONS) == 2
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
+        row = conn.execute("SELECT git_url FROM jobs WHERE job_id = 'v1-job'").fetchone()
+    finally:
+        conn.close()
+    assert "git_url" in cols and "github_url" not in cols
+    assert row is not None and row[0] == URL
+    assert _meta(db_path, "schema_version") == "2"
 
 
 def test_migration_versions_must_be_unique(db_path: Path) -> None:

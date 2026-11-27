@@ -21,7 +21,7 @@ Short definitions used across PRODUCT, ARCHITECTURE, DATABASE, and API. Code anc
 | **`verification.kind`** | Honesty label: `original_application` \| `generated_demo` \| `setup_failed` (D54). |
 | **Canary** | Fake secret planted in Plane 2; real Killhub keys never injected (D19, D44). |
 | **Admission** | Global concurrency, queue, rate limits, inference/disk budgets on the public demo (D40). Split: edge in frontend, concurrency in explore. |
-| **`github_url`** | Wire/DB field name for the public git HTTPS URL. Hosts are allowlisted (D78); user-facing copy says “public git URL.” |
+| **`git_url`** | Wire/DB field name for the public git HTTPS URL. Hosts are allowlisted (D78); user-facing copy says “public git URL.” |
 | **SSE `event_cursor`** | Last durable `event_id` on the snapshot; clients subscribe with `Last-Event-ID` / `?after=` (D55, D67). |
 | **Install phase vs verify phase** | Install: package/git egress allowed, CP/management denied. Verify/containment: **deny-all remaining guest egress** (D43). |
 | **Host reaper vs in-process reaper** | In-process: `reaper_loop` in explore. Host: `python -m reaper --host` on VX1 for absolute `expires_at` if Plane 1 is down (D41). Stall/timeout terminalization: D83. |

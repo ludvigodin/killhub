@@ -303,7 +303,7 @@ def test_admission_capacity_released_after_jobs_finish(client, scenario_run) -> 
     ]
     assert not non_terminal, non_terminal
     cheap = next(sc for sc in SCENARIOS if sc.name == "setup_failed")
-    r = post_job(client, {"github_url": cheap.url}, budget=120)
+    r = post_job(client, {"git_url": cheap.url}, budget=120)
     assert r.status_code in (200, 201), (
         f"create refused with capacity that should be free: {r.status_code} {r.text[:200]}"
     )

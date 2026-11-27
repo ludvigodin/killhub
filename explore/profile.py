@@ -106,7 +106,7 @@ def profiles_root(settings: Settings | None = None) -> Path:
 
 def bootstrap_profile(
     *,
-    github_url: str,
+    git_url: str,
     oci_image: str,
     ref: str | None = None,
 ) -> dict[str, Any]:
@@ -116,7 +116,7 @@ def bootstrap_profile(
         "intent": "bootstrap",
         "source": {
             "type": "git",
-            "url": github_url,
+            "url": git_url,
             "ref": ref or "HEAD",
         },
         "runtime": "bootstrap",

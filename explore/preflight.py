@@ -60,9 +60,9 @@ class PreflightResult:
         return [f for f in self.findings if not f.hard]
 
 
-def parse_github_owner_repo(github_url: str) -> tuple[str, str]:
+def parse_github_owner_repo(git_url: str) -> tuple[str, str]:
     """Compatibility wrapper — parses any allowlisted public git URL (D78)."""
-    parsed = parse_public_git_url(github_url)
+    parsed = parse_public_git_url(git_url)
     return parsed.owner, parsed.repo
 
 
@@ -276,20 +276,20 @@ def _host_reachability(
 
 
 def run_preflight(
-    github_url: str,
+    git_url: str,
     *,
     settings: Settings | None = None,
 ) -> PreflightResult:
     """Execute cheap Plane-1 checks. Does not create a sandbox."""
     cfg = settings or get_settings()
     findings: list[PreflightFinding] = []
-    meta: dict[str, Any] = {"github_url": github_url}
+    meta: dict[str, Any] = {"git_url": git_url}
 
     if not getattr(cfg, "preflight_enabled", True):
         return PreflightResult(ok_to_bootstrap=True, findings=[], meta={"skipped": True})
 
     try:
-        parsed = parse_public_git_url(github_url)
+        parsed = parse_public_git_url(git_url)
     except ValueError as exc:
         findings.append(
             PreflightFinding(

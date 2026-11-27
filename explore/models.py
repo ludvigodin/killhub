@@ -74,7 +74,7 @@ class CleanupState:
 @dataclass
 class Job:
     job_id: str
-    github_url: str
+    git_url: str
     status: JobStatus
     progress: int
     current_step: str
@@ -100,7 +100,7 @@ class Job:
     def to_snapshot(self) -> dict[str, Any]:
         return {
             "job_id": self.job_id,
-            "github_url": self.github_url,
+            "git_url": self.git_url,
             "resolved_commit": self.resolved_commit,
             "status": self.status,
             "progress": self.progress,

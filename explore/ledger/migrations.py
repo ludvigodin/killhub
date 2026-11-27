@@ -36,8 +36,14 @@ class LedgerVersionError(RuntimeError):
     """The ledger was written by a newer schema than this build knows."""
 
 
+def _rename_github_url_to_git_url(db: Any) -> None:
+    db.execute("ALTER TABLE jobs RENAME COLUMN github_url TO git_url")
+
+
 # v1 is the baseline created by SCHEMA_SQL; later versions are appended here.
-MIGRATIONS: tuple[Migration, ...] = ()
+MIGRATIONS: tuple[Migration, ...] = (
+    Migration(2, "rename jobs.github_url to git_url", _rename_github_url_to_git_url),
+)
 BASELINE_VERSION = 1
 
 

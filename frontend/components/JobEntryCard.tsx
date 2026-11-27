@@ -4,10 +4,10 @@ import Link from "next/link";
 import { useState } from "react";
 import type { JobSummary } from "@/lib/api";
 import {
-  hostFromGithubUrl,
-  hostLabelFromGithubUrl,
-  ownerRepoFromGithubUrl,
-} from "@/lib/github";
+  hostFromGitUrl,
+  hostLabelFromGitUrl,
+  ownerRepoFromGitUrl,
+} from "@/lib/git";
 import { formatQueueLine } from "@/lib/queue";
 import { resolveScreenshotSrc, screenshotFallbackSrc } from "@/lib/screenshots";
 import { formatJobWhen, isJobStalled } from "@/lib/time";
@@ -130,16 +130,16 @@ export function JobEntryCard({
   runCount,
   emphasizeRun = false,
 }: JobEntryCardProps) {
-  const title = ownerRepoFromGithubUrl(job.github_url) ?? job.github_url;
-  const host = hostFromGithubUrl(job.github_url);
-  const hostLabel = hostLabelFromGithubUrl(job.github_url);
+  const title = ownerRepoFromGitUrl(job.git_url) ?? job.git_url;
+  const host = hostFromGitUrl(job.git_url);
+  const hostLabel = hostLabelFromGitUrl(job.git_url);
   const when = formatJobWhen(job.created_at);
   const updated =
     job.updated_at && job.updated_at !== job.created_at
       ? formatJobWhen(job.updated_at)
       : null;
   const delay = Math.min(index, 12) * 35;
-  const repoHref = job.github_url;
+  const repoHref = job.git_url;
   const cardHref = href ?? `/jobs/${encodeURIComponent(job.job_id)}`;
   const runsLabel =
     runCount != null && runCount > 1

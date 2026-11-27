@@ -937,7 +937,7 @@ def run_mcp_assessment_if_planned(
         return None
     ledger = get_ledger(settings)
     job = ledger.get_job(job_id)
-    fixture = match_fixture(job.github_url) if job else None
+    fixture = match_fixture(job.git_url) if job else None
     transport = mcp.get("transport")
     detail = {
         "enabled": True,

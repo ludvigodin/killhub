@@ -418,9 +418,9 @@ flowchart LR
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/api/jobs` | Recent job summaries; server-side `limit`/`offset`; optional `github_url` filter (D69, D77, D79) |
-| `GET` | `/api/repos` | Repo-grouped feed rows (`github_url`, `run_count`, `latest`) (D79) |
-| `POST` | `/api/jobs` | Create job `{ github_url }` → `{ job_id }` (`429`/`503` on admission - D40) |
+| `GET` | `/api/jobs` | Recent job summaries; server-side `limit`/`offset`; optional `git_url` filter (D69, D77, D79) |
+| `GET` | `/api/repos` | Repo-grouped feed rows (`git_url`, `run_count`, `latest`) (D79) |
+| `POST` | `/api/jobs` | Create job `{ git_url }` → `{ job_id }` (`429`/`503` on admission - D40) |
 | `GET` | `/api/jobs/{id}` | Snapshot (receipt, active checks, readiness, …) |
 | `GET` | `/api/jobs/{id}/events` | SSE |
 | `GET` | `/api/jobs/{id}/events/recent` | Bounded recent events (Operator MCP `tail_events`) |

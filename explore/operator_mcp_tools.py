@@ -240,8 +240,8 @@ class KillhubJobsClient:
     def fixture_catalog(self) -> dict[str, Any]:
         return self._request("GET", "/api/fixtures")
 
-    def create_job(self, github_url: str) -> dict[str, Any]:
-        data = self._request("POST", "/api/jobs", json={"github_url": github_url})
+    def create_job(self, git_url: str) -> dict[str, Any]:
+        data = self._request("POST", "/api/jobs", json={"git_url": git_url})
         if not isinstance(data, dict):
             raise KillhubApiError("create_job: expected object response", body=data)
         return data
@@ -257,11 +257,11 @@ class KillhubJobsClient:
         *,
         limit: int = 48,
         offset: int = 0,
-        github_url: str | None = None,
+        git_url: str | None = None,
     ) -> dict[str, Any]:
         params: dict[str, Any] = {"limit": limit, "offset": offset}
-        if github_url:
-            params["github_url"] = github_url
+        if git_url:
+            params["git_url"] = git_url
         data = self._request("GET", "/api/jobs", params=params)
         if not isinstance(data, dict):
             raise KillhubApiError("list_jobs: expected object response", body=data)
@@ -343,12 +343,12 @@ def tools_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "github_url": {
+                    "git_url": {
                         "type": "string",
                         "description": "Public allowlisted git HTTPS URL",
                     },
                 },
-                "required": ["github_url"],
+                "required": ["git_url"],
                 "additionalProperties": False,
             },
         },
@@ -361,14 +361,14 @@ def tools_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "github_urls": {
+                    "git_urls": {
                         "type": "array",
                         "items": {"type": "string"},
                         "minItems": 1,
                         "maxItems": MAX_CREATE_JOBS,
                     },
                 },
-                "required": ["github_urls"],
+                "required": ["git_urls"],
                 "additionalProperties": False,
             },
         },
@@ -384,7 +384,7 @@ def tools_list() -> list[dict[str, Any]]:
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "github_url": {"type": "string"},
+                    "git_url": {"type": "string"},
                     "timeout_seconds": {
                         "type": "number",
                         "minimum": 1,
@@ -396,7 +396,7 @@ def tools_list() -> list[dict[str, Any]]:
                         "default": DEFAULT_POLL_SECONDS,
                     },
                 },
-                "required": ["github_url"],
+                "required": ["git_url"],
                 "additionalProperties": False,
             },
         },
@@ -439,13 +439,13 @@ def tools_list() -> list[dict[str, Any]]:
         },
         {
             "name": "list_jobs",
-            "description": "List recent job summaries (newest first). Optional github_url filter.",
+            "description": "List recent job summaries (newest first). Optional git_url filter.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 48},
                     "offset": {"type": "integer", "minimum": 0, "default": 0},
-                    "github_url": {"type": "string"},
+                    "git_url": {"type": "string"},
                 },
                 "additionalProperties": False,
             },
@@ -454,7 +454,7 @@ def tools_list() -> list[dict[str, Any]]:
             "name": "list_repos",
             "description": (
                 "List distinct repos with their latest run (home feed grouping). "
-                "Optional q filters by github_url or job_id substring."
+                "Optional q filters by git_url or job_id substring."
             ),
             "inputSchema": {
                 "type": "object",
@@ -464,7 +464,7 @@ def tools_list() -> list[dict[str, Any]]:
                     "q": {
                         "type": "string",
                         "maxLength": 200,
-                        "description": "Optional substring match on github_url or job_id.",
+                        "description": "Optional substring match on git_url or job_id.",
                     },
                 },
                 "additionalProperties": False,
@@ -585,37 +585,37 @@ def _format_screenshots(
 
 def call_tool(client: KillhubJobsClient, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     if name == "create_job":
-        url = str(arguments.get("github_url") or "").strip()
+        url = str(arguments.get("git_url") or "").strip()
         if not url:
-            raise KillhubApiError("github_url is required")
+            raise KillhubApiError("git_url is required")
         return client.create_job(url)
 
     if name == "create_jobs":
-        urls = arguments.get("github_urls")
+        urls = arguments.get("git_urls")
         if not isinstance(urls, list) or not urls:
-            raise KillhubApiError("github_urls must be a non-empty array")
+            raise KillhubApiError("git_urls must be a non-empty array")
         if len(urls) > MAX_CREATE_JOBS:
-            raise KillhubApiError(f"github_urls max is {MAX_CREATE_JOBS}")
+            raise KillhubApiError(f"git_urls max is {MAX_CREATE_JOBS}")
         jobs: list[dict[str, Any]] = []
         for raw in urls:
-            github_url = str(raw or "").strip()
-            if not github_url:
-                jobs.append({"github_url": raw, "error": "empty url"})
+            git_url = str(raw or "").strip()
+            if not git_url:
+                jobs.append({"git_url": raw, "error": "empty url"})
                 continue
             try:
-                created = client.create_job(github_url)
-                jobs.append({"github_url": github_url, "job_id": created.get("job_id")})
+                created = client.create_job(git_url)
+                jobs.append({"git_url": git_url, "job_id": created.get("job_id")})
             except KillhubApiError as exc:
-                entry: dict[str, Any] = {"github_url": github_url, "error": str(exc)}
+                entry: dict[str, Any] = {"git_url": git_url, "error": str(exc)}
                 if exc.status_code is not None:
                     entry["status_code"] = exc.status_code
                 jobs.append(entry)
         return {"jobs": jobs}
 
     if name == "create_and_wait":
-        url = str(arguments.get("github_url") or "").strip()
+        url = str(arguments.get("git_url") or "").strip()
         if not url:
-            raise KillhubApiError("github_url is required")
+            raise KillhubApiError("git_url is required")
         http_mode = mcp_http_mode.get() or (
             os.environ.get("KILLHUB_MCP_TRANSPORT", "").strip().lower() == "http"
         )
@@ -654,9 +654,9 @@ def call_tool(client: KillhubJobsClient, name: str, arguments: dict[str, Any]) -
     if name == "list_jobs":
         limit = int(arguments.get("limit") or 48)
         offset = int(arguments.get("offset") or 0)
-        github_url = arguments.get("github_url")
-        github = str(github_url).strip() if github_url else None
-        return client.list_jobs(limit=limit, offset=offset, github_url=github or None)
+        git_url = arguments.get("git_url")
+        filtered = str(git_url).strip() if git_url else None
+        return client.list_jobs(limit=limit, offset=offset, git_url=filtered or None)
 
     if name == "list_repos":
         limit = int(arguments.get("limit") or 48)
@@ -670,10 +670,10 @@ def call_tool(client: KillhubJobsClient, name: str, arguments: dict[str, Any]) -
 
     if name == "run_fixture":
         fixture = resolve_public_fixture(str(arguments.get("name") or ""), client)
-        created = client.create_job(str(fixture["github_url"]))
+        created = client.create_job(str(fixture["git_url"]))
         return {
             "fixture": fixture["id"],
-            "github_url": fixture["github_url"],
+            "git_url": fixture["git_url"],
             "job_id": created.get("job_id"),
             "expected_intent": fixture.get("expected_intent"),
             "verification_kind": fixture.get("verification_kind"),

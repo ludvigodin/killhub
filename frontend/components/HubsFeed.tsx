@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { listRepos, type RepoSummary } from "@/lib/api";
-import { repoPathFromGithubUrl } from "@/lib/github";
+import { repoPathFromGitUrl } from "@/lib/git";
 import { JobEntryCard } from "./JobEntryCard";
 import { SiteNav } from "./SiteNav";
 
@@ -138,11 +138,11 @@ export function HubsFeed() {
             <div className="overflow-hidden rounded-lg border border-(--line) bg-(--paper-deep)/40">
               {repos.map((repo, i) => {
                 const href =
-                  repoPathFromGithubUrl(repo.github_url) ??
+                  repoPathFromGitUrl(repo.git_url) ??
                   `/jobs/${encodeURIComponent(repo.latest.job_id)}`;
                 return (
                   <JobEntryCard
-                    key={repo.github_url}
+                    key={repo.git_url}
                     job={repo.latest}
                     index={i}
                     href={href}

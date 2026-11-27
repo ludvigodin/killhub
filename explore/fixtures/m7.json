@@ -8,7 +8,7 @@
   "fixtures": {
     "webapp_success": {
       "id": "webapp_success",
-      "github_url": "https://github.com/heroku/nodejs-getting-started",
+      "git_url": "https://github.com/heroku/nodejs-getting-started",
       "aliases": [
         "https://github.com/heroku/node-js-getting-started"
       ],
@@ -22,7 +22,7 @@
     },
     "webapp_image_replace": {
       "id": "webapp_image_replace",
-      "github_url": "https://github.com/heroku/nodejs-getting-started",
+      "git_url": "https://github.com/heroku/nodejs-getting-started",
       "commit": "d33649d5edae61fc766fe6d47e530c475c05a7a0",
       "ref": "main",
       "match_by_url": false,
@@ -35,7 +35,7 @@
     },
     "git_mcp_filesystem": {
       "id": "git_mcp_filesystem",
-      "github_url": "https://github.com/modelcontextprotocol/servers",
+      "git_url": "https://github.com/modelcontextprotocol/servers",
       "commit": "b502fd9fc711de7285977396db3b8a732d1c9f64",
       "ref": "v2.6.0",
       "expected_intent": "git_mcp",
@@ -54,7 +54,7 @@
     },
     "setup_failed": {
       "id": "setup_failed",
-      "github_url": "https://github.com/octocat/Hello-World",
+      "git_url": "https://github.com/octocat/Hello-World",
       "commit": "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
       "ref": "master",
       "expected_intent": null,
@@ -67,21 +67,21 @@
     },
     "sca_npm_affected": {
       "id": "sca_npm_affected",
-      "github_url": "https://github.com/mokafari/killhub-sca-npm-affected-20261127",
+      "git_url": "https://github.com/mokafari/killhub-sca-npm-affected-20261127",
       "commit": "753dc89a6b45ed29aafd373acb186af858159b8a",
       "ref": "main",
       "public_demo": true
     },
     "sca_npm_control": {
       "id": "sca_npm_control",
-      "github_url": "https://github.com/mokafari/killhub-sca-npm-control-20261127",
+      "git_url": "https://github.com/mokafari/killhub-sca-npm-control-20261127",
       "commit": "43549c389fc4fa3801abd778de8843a196a788cc",
       "ref": "main",
       "public_demo": true
     },
     "sca_python_affected": {
       "id": "sca_python_affected",
-      "github_url": "https://github.com/mokafari/killhub-sca-python-affected-20261127",
+      "git_url": "https://github.com/mokafari/killhub-sca-python-affected-20261127",
       "commit": "93c6de467d9b99492804da441ca019cb531a4a12",
       "ref": "main",
       "public_demo": true

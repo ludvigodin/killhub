@@ -3,11 +3,7 @@
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState, useTransition } from "react";
 import { createJob } from "@/lib/api";
-import {
-  isPublicGithubUrl,
-  parseGithubUrlLines,
-  validateGithubUrl,
-} from "@/lib/github";
+import { isPublicGitUrl, parseGitUrlLines, validateGitUrl } from "@/lib/git";
 import { ConnectMcpPanel } from "./ConnectMcpPanel";
 import { ErrorBanner } from "./ErrorBanner";
 
@@ -47,7 +43,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
 
   const [catalog, setCatalog] = useState<{
     restricted: boolean;
-    fixtures: { id: string; github_url: string }[];
+    fixtures: { id: string; git_url: string }[];
   } | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -59,13 +55,13 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
     return () => controller.abort();
   }, []);
 
-  const lines = parseGithubUrlLines(text);
-  const invalidPreview = lines.filter((u) => !isPublicGithubUrl(u));
+  const lines = parseGitUrlLines(text);
+  const invalidPreview = lines.filter((u) => !isPublicGitUrl(u));
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBatchError(null);
-    const urls = parseGithubUrlLines(text);
+    const urls = parseGitUrlLines(text);
     if (urls.length === 0) {
       setBatchError("Paste a public git URL.");
       return;
@@ -75,7 +71,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
       const out: BatchResult[] = [];
       const draftRetry: string[] = [];
       for (const raw of urls) {
-        if (!isPublicGithubUrl(raw)) {
+        if (!isPublicGitUrl(raw)) {
           out.push({
             url: raw,
             ok: false,
@@ -87,7 +83,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
           continue;
         }
         try {
-          const cleaned = validateGithubUrl(raw);
+          const cleaned = validateGitUrl(raw);
           const { job_id } = await createJob(cleaned);
           out.push({ url: cleaned, ok: true, job_id });
         } catch (err) {
@@ -133,7 +129,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-stretch">
           <input
             id="github-urls"
-            name="github_urls"
+            name="git_urls"
             type="url"
             inputMode="url"
             autoComplete="url"
@@ -142,7 +138,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
             onChange={(e) => setText(e.target.value)}
             placeholder={
               catalog?.restricted
-                ? catalog.fixtures[0]?.github_url
+                ? catalog.fixtures[0]?.git_url
                 : "https://github.com/org/repo"
             }
             disabled={pending}
@@ -184,7 +180,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
               key={f.id}
               type="button"
               disabled={pending}
-              onClick={() => setText(f.github_url)}
+              onClick={() => setText(f.git_url)}
               className="rounded border border-(--line) px-2 py-1 text-sm"
             >
               {f.id}

@@ -87,7 +87,7 @@ def test_same_image_discover_skips_replace(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr("discover.replace_environment", _boom)
     monkeypatch.setattr("discover.destroy_job_environment", lambda *a, **k: None)
 
-    job = create_job(web["github_url"])
+    job = create_job(web["git_url"])
     ledger = get_ledger()
     ledger.append_sandbox_generation(
         job.job_id,
@@ -294,7 +294,7 @@ def test_image_replace_fixture_triggers_replace(monkeypatch: pytest.MonkeyPatch)
     # Same public URL as webapp_success; force the replace-only fixture by id.
     monkeypatch.setattr("discover.match_fixture", lambda _url: fx)
 
-    job = create_job(fx["github_url"])
+    job = create_job(fx["git_url"])
     ledger = get_ledger()
     ledger.append_sandbox_generation(
         job.job_id,

@@ -835,7 +835,7 @@ def replace_environment(
         clone_and_resolve_commit(
             new_gen.environment_id,
             job_id=job_id,
-            github_url=job.github_url,
+            git_url=job.git_url,
             commit=resolved,
             settings=cfg,
         )

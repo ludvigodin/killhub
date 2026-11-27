@@ -23,7 +23,7 @@ def list_fixtures() -> dict[str, dict[str, Any]]:
     return dict(load_m7_fixtures()["fixtures"])
 
 
-def normalize_github_url(url: str) -> str:
+def normalize_git_url(url: str) -> str:
     cleaned = url.strip().rstrip("/")
     parsed = urlparse(cleaned)
     if parsed.hostname and parsed.hostname.lower() == "github.com":
@@ -32,21 +32,21 @@ def normalize_github_url(url: str) -> str:
 
 
 def _fixture_urls(fixture: dict[str, Any]) -> list[str]:
-    urls = [str(fixture.get("github_url") or "")]
+    urls = [str(fixture.get("git_url") or "")]
     aliases = fixture.get("aliases") or []
     if isinstance(aliases, list):
         urls.extend(str(a) for a in aliases)
     return [u for u in urls if u]
 
 
-def match_fixture(github_url: str) -> dict[str, Any] | None:
+def match_fixture(git_url: str) -> dict[str, Any] | None:
     """Match a public URL to a URL-facing fixture (skips match_by_url=false)."""
-    target = normalize_github_url(github_url).lower()
+    target = normalize_git_url(git_url).lower()
     for fixture in list_fixtures().values():
         if fixture.get("match_by_url") is False:
             continue
         for candidate in _fixture_urls(fixture):
-            if normalize_github_url(candidate).lower() == target:
+            if normalize_git_url(candidate).lower() == target:
                 return fixture
     return None
 
@@ -68,7 +68,7 @@ def intake_catalog(*, restricted: bool) -> dict[str, Any]:
         catalog.append(
             {
                 key: fixture.get(key)
-                for key in ("id", "github_url", "expected_intent", "verification_kind")
+                for key in ("id", "git_url", "expected_intent", "verification_kind")
             }
         )
     return {"restricted": restricted, "fixtures": catalog}

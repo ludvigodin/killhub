@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { listRepos, type RepoSummary } from "@/lib/api";
-import { repoPathFromGithubUrl } from "@/lib/github";
+import { repoPathFromGitUrl } from "@/lib/git";
 import { type BatchResult, BatchUrlForm } from "./BatchUrlForm";
 import { JobEntryCard } from "./JobEntryCard";
 import { KillhubLogo } from "./KillhubLogo";
@@ -133,11 +133,11 @@ export function JobFeed() {
             <div className="overflow-hidden rounded-lg border border-(--line) bg-(--paper-deep)/40">
               {repos.map((repo, i) => {
                 const href =
-                  repoPathFromGithubUrl(repo.github_url) ??
+                  repoPathFromGitUrl(repo.git_url) ??
                   `/jobs/${encodeURIComponent(repo.latest.job_id)}`;
                 return (
                   <JobEntryCard
-                    key={repo.github_url}
+                    key={repo.git_url}
                     job={repo.latest}
                     index={i}
                     href={href}

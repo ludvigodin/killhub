@@ -150,7 +150,7 @@ def clone_and_resolve_commit(
     environment_id: str,
     *,
     job_id: str,
-    github_url: str,
+    git_url: str,
     commit: str | None,
     settings: Settings,
     exec_fn: ExecFn = exec_command,
@@ -208,14 +208,14 @@ def clone_and_resolve_commit(
     if commit:
         clone_script = (
             f"set -eu; "
-            f"git clone --filter=blob:none --no-checkout {json.dumps(github_url)} "
+            f"git clone --filter=blob:none --no-checkout {json.dumps(git_url)} "
             f"{GUEST_REPO_ROOT}; "
             f"cd {GUEST_REPO_ROOT}; "
             f"git fetch --depth 1 origin {json.dumps(commit)}; "
             f"git checkout {json.dumps(commit)}"
         )
     else:
-        clone_script = f"set -eu; git clone --depth 1 {json.dumps(github_url)} {GUEST_REPO_ROOT}"
+        clone_script = f"set -eu; git clone --depth 1 {json.dumps(git_url)} {GUEST_REPO_ROOT}"
     cloned = with_heartbeat(
         job_id,
         settings=settings,
@@ -489,7 +489,7 @@ def _cmd(argv: list[str], *, timeout: int = 120, cwd: str | None = None) -> dict
 
 def infer_runtime_profile(
     *,
-    github_url: str,
+    git_url: str,
     commit: str,
     inspect: dict[str, Any],
     fixture: dict[str, Any] | None,
@@ -510,11 +510,11 @@ def infer_runtime_profile(
         if python_mcp:
             intent = "git_mcp"
         elif inspect.get("has_filesystem_mcp") or (
-            inspect.get("mentions_mcp") and "servers" in github_url
+            inspect.get("mentions_mcp") and "servers" in git_url
         ):
             intent = "git_mcp"
         elif inspect.get("has_package_json") and (
-            inspect.get("mentions_express") or "getting-started" in github_url
+            inspect.get("mentions_express") or "getting-started" in git_url
         ):
             intent = "webapp"
         elif forbid_demo:
@@ -533,7 +533,7 @@ def infer_runtime_profile(
 
     source = {
         "type": "git",
-        "url": github_url,
+        "url": git_url,
         "commit": commit,
         "ref": (fixture or {}).get("ref") or "HEAD",
     }
@@ -811,12 +811,12 @@ def discover_runtime_profile(
     if job is None:
         raise DiscoverError(f"unknown job_id: {job_id}", code="not_found")
 
-    fixture = match_fixture(job.github_url)
+    fixture = match_fixture(job.git_url)
     pin = str(fixture["commit"]) if fixture and fixture.get("commit") else None
     oci_image = (cfg.msb_default_image or "debian").strip()
 
     boot = bootstrap_profile(
-        github_url=job.github_url,
+        git_url=job.git_url,
         oci_image=oci_image,
         ref=(fixture or {}).get("ref"),
     )
@@ -878,7 +878,7 @@ def discover_runtime_profile(
         resolved = clone_and_resolve_commit(
             environment_id,
             job_id=job_id,
-            github_url=job.github_url,
+            git_url=job.git_url,
             commit=pin,
             settings=cfg,
             exec_fn=exec_fn,
@@ -917,7 +917,7 @@ def discover_runtime_profile(
         _span(job_id, "infer_profile", settings=cfg, status="start")
         try:
             runtime = infer_runtime_profile(
-                github_url=job.github_url,
+                git_url=job.git_url,
                 commit=resolved,
                 inspect=inspect,
                 fixture=fixture,
@@ -954,7 +954,7 @@ def discover_runtime_profile(
             inspect=inspect,
             fixture=fixture,
             facts=TrustedFacts(
-                github_url=job.github_url,
+                git_url=job.git_url,
                 commit=resolved,
                 ref=str((fixture or {}).get("ref") or "HEAD"),
                 oci_image=str(runtime.get("oci_image") or oci_image),
@@ -1078,7 +1078,7 @@ def discover_fixture_profile(
 
     cfg = settings or get_settings()
     fixture = require_fixture(fixture_id)
-    job = create_job(str(fixture["github_url"]), settings=cfg)
+    job = create_job(str(fixture["git_url"]), settings=cfg)
     return discover_runtime_profile(
         job.job_id,
         settings=cfg,

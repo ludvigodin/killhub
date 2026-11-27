@@ -49,7 +49,7 @@ def test_fastmcp_module_server_is_detected() -> None:
 
 def test_vultr_like_repo_gets_python_git_mcp_profile() -> None:
     profile = infer_runtime_profile(
-        github_url="https://github.com/vultr/vultr-mcp",
+        git_url="https://github.com/vultr/vultr-mcp",
         commit=SHA,
         inspect={"python_mcp": python_mcp_signal(VULTR_LIKE)},
         fixture=None,
@@ -75,7 +75,7 @@ def test_console_script_preferred_when_declared() -> None:
     assert sig["kind"] == "script" and sig["name"] == "weather-mcp"
     assert sig["uv_lock"] is False
     profile = infer_runtime_profile(
-        github_url="https://github.com/example/weather",
+        git_url="https://github.com/example/weather",
         commit=SHA,
         inspect={"python_mcp": sig},
         fixture=None,

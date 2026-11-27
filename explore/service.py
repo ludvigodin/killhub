@@ -223,7 +223,7 @@ def _attach_queue_fields(
 
 
 def create_job(
-    github_url: str,
+    git_url: str,
     *,
     settings: Settings | None = None,
     client_ip: str | None = None,
@@ -233,8 +233,8 @@ def create_job(
 
     cfg = settings or get_settings()
     if cfg.public_demo_fixtures_only:
-        github_url = validate_public_git_url(github_url)
-        fixture = match_fixture(github_url)
+        git_url = validate_public_git_url(git_url)
+        fixture = match_fixture(git_url)
         if not fixture or not fixture.get("public_demo") or not fixture.get("commit"):
             raise AdmissionError(
                 "Demo intake accepts only pinned repositories listed at /api/fixtures.",
@@ -253,7 +253,7 @@ def create_job(
         initial_step = "accepted"
     try:
         job = ledger.create_job(
-            github_url,
+            git_url,
             env_ttl_seconds=cfg.env_ttl_seconds,
             status=initial_status,
             current_step=initial_step,
@@ -262,7 +262,7 @@ def create_job(
         # Undo Valkey queue reservation if ledger create fails.
         release_admission_slot(was_running=False, settings=cfg)
         raise
-    result = run_preflight(job.github_url, settings=cfg)
+    result = run_preflight(job.git_url, settings=cfg)
     if not result.meta.get("skipped"):
         apply_preflight_to_job(job.job_id, result, settings=cfg)
     refreshed = ledger.get_job(job.job_id)
@@ -307,7 +307,7 @@ def _job_summary_dict(
     receipt, vuln_report = ledger.report_for_display(job.job_id)
     summary = {
         "job_id": job.job_id,
-        "github_url": job.github_url,
+        "git_url": job.git_url,
         "status": job.status,
         "progress": job.progress,
         "current_step": job.current_step,
@@ -332,14 +332,14 @@ def list_job_summaries(
     *,
     limit: int = 48,
     offset: int = 0,
-    github_url: str | None = None,
+    git_url: str | None = None,
     settings: Settings | None = None,
 ) -> list[dict[str, Any]]:
-    """Recent jobs — summary fields only (D69 / D77). Optional github_url filter (D79)."""
+    """Recent jobs — summary fields only (D69 / D77). Optional git_url filter (D79)."""
     cfg = settings or get_settings()
     ledger = get_ledger(cfg)
-    if github_url is not None:
-        jobs = ledger.list_jobs_for_url(github_url, limit=limit, offset=offset)
+    if git_url is not None:
+        jobs = ledger.list_jobs_for_url(git_url, limit=limit, offset=offset)
     else:
         jobs = ledger.list_recent_jobs(limit=limit, offset=offset)
     return [_job_summary_dict(job, ledger=ledger, settings=cfg) for job in jobs]
@@ -349,22 +349,22 @@ def list_jobs_page(
     *,
     limit: int = 48,
     offset: int = 0,
-    github_url: str | None = None,
+    git_url: str | None = None,
     settings: Settings | None = None,
 ) -> dict[str, Any]:
-    """Paginated job list with total count (D77). Optional github_url filter (D79)."""
+    """Paginated job list with total count (D77). Optional git_url filter (D79)."""
     cfg = settings or get_settings()
     capped_limit = max(1, min(int(limit), 200))
     capped_offset = max(0, int(offset))
     ledger = get_ledger(cfg)
-    if github_url is not None:
-        total = ledger.count_jobs_for_url(github_url)
+    if git_url is not None:
+        total = ledger.count_jobs_for_url(git_url)
     else:
         total = ledger.count_jobs()
     jobs = list_job_summaries(
         limit=capped_limit,
         offset=capped_offset,
-        github_url=github_url,
+        git_url=git_url,
         settings=cfg,
     )
     return {
@@ -382,9 +382,9 @@ def list_repos_page(
     q: str | None = None,
     settings: Settings | None = None,
 ) -> dict[str, Any]:
-    """Paginated repo groups: one latest job + run_count per github_url (D79).
+    """Paginated repo groups: one latest job + run_count per git_url (D79).
 
-    Optional ``q`` filters by github_url / job_id substring (server-side).
+    Optional ``q`` filters by git_url / job_id substring (server-side).
     """
     cfg = settings or get_settings()
     capped_limit = max(1, min(int(limit), 200))
@@ -398,7 +398,7 @@ def list_repos_page(
     ):
         repos.append(
             {
-                "github_url": job.github_url,
+                "git_url": job.git_url,
                 "run_count": run_count,
                 "latest": _job_summary_dict(job, ledger=ledger, settings=cfg),
             }

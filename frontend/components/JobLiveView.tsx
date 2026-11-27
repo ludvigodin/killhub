@@ -548,9 +548,7 @@ export function JobLiveView({
   );
 
   const githubUrl = snapshot?.git_url;
-  const repoTitle = githubUrl
-    ? (ownerRepoFromGitUrl(githubUrl) ?? null)
-    : null;
+  const repoTitle = githubUrl ? (ownerRepoFromGitUrl(githubUrl) ?? null) : null;
   const started = snapshot?.created_at
     ? formatJobWhen(snapshot.created_at)
     : null;

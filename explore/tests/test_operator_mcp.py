@@ -66,7 +66,7 @@ def test_create_and_get_job_roundtrip() -> None:
             job_id = "job-1"
             jobs[job_id] = {
                 "job_id": job_id,
-                "github_url": body["github_url"],
+                "git_url": body["git_url"],
                 "status": "queued",
                 "progress": 0,
             }
@@ -79,7 +79,7 @@ def test_create_and_get_job_roundtrip() -> None:
         created = call_tool(
             client,
             "create_job",
-            {"github_url": "https://github.com/heroku/nodejs-getting-started"},
+            {"git_url": "https://github.com/heroku/nodejs-getting-started"},
         )
         assert created == {"job_id": "job-1"}
         status = call_tool(client, "get_job_status", {"job_id": "job-1"})
@@ -153,7 +153,7 @@ def test_create_and_wait() -> None:
             client,
             "create_and_wait",
             {
-                "github_url": "https://github.com/org/repo",
+                "git_url": "https://github.com/org/repo",
                 "timeout_seconds": 5,
                 "poll_seconds": 0.01,
             },
@@ -193,7 +193,7 @@ def test_create_and_wait_http_mode_caps_timeout() -> None:
                 client,
                 "create_and_wait",
                 {
-                    "github_url": "https://github.com/org/repo",
+                    "git_url": "https://github.com/org/repo",
                     "timeout_seconds": 900,
                     "poll_seconds": 0.01,
                 },
@@ -208,7 +208,7 @@ def test_create_and_wait_http_mode_caps_timeout() -> None:
 def test_create_jobs_cap_and_partial_errors() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content.decode())
-        url = body["github_url"]
+        url = body["git_url"]
         if "bad" in url:
             return httpx.Response(400, json={"error": "nope", "code": "invalid_url"})
         return httpx.Response(201, json={"job_id": "ok-1"})
@@ -218,7 +218,7 @@ def test_create_jobs_cap_and_partial_errors() -> None:
             client,
             "create_jobs",
             {
-                "github_urls": [
+                "git_urls": [
                     "https://github.com/a/b",
                     "https://github.com/bad/repo",
                 ]
@@ -230,7 +230,7 @@ def test_create_jobs_cap_and_partial_errors() -> None:
             call_tool(
                 client,
                 "create_jobs",
-                {"github_urls": [f"https://github.com/a/{i}" for i in range(MAX_CREATE_JOBS + 1)]},
+                {"git_urls": [f"https://github.com/a/{i}" for i in range(MAX_CREATE_JOBS + 1)]},
             )
 
 
@@ -244,7 +244,7 @@ def test_fixtures_catalog_and_run(restricted: bool) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/fixtures":
             return httpx.Response(200, json=catalog)
-        assert json.loads(request.content)["github_url"] == fixture["github_url"]
+        assert json.loads(request.content)["git_url"] == fixture["git_url"]
         return httpx.Response(201, json={"job_id": "fix-1"})
 
     with KillhubJobsClient("https://killhub.pro", transport=_transport(handler)) as client:
@@ -347,7 +347,7 @@ def test_api_error_and_unknown_tool() -> None:
 
     with KillhubJobsClient("https://killhub.pro", transport=_transport(handler)) as client:
         with pytest.raises(KillhubApiError) as ei:
-            call_tool(client, "create_job", {"github_url": "https://github.com/a/b"})
+            call_tool(client, "create_job", {"git_url": "https://github.com/a/b"})
         assert ei.value.status_code == 429
         with pytest.raises(KillhubApiError, match="unknown tool"):
             call_tool(client, "explode", {})

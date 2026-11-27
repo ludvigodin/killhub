@@ -22,14 +22,14 @@ def test_queue_full_returns_503(
     first = client.post(
         "/internal/jobs",
         headers=auth_header,
-        json={"github_url": "https://github.com/heroku/node-js-getting-started"},
+        json={"git_url": "https://github.com/heroku/node-js-getting-started"},
     )
     assert first.status_code == 201
 
     second = client.post(
         "/internal/jobs",
         headers=auth_header,
-        json={"github_url": "https://github.com/modelcontextprotocol/servers"},
+        json={"git_url": "https://github.com/modelcontextprotocol/servers"},
     )
     assert second.status_code == 503
     assert second.json()["detail"]["code"] == "queue_full"
@@ -57,14 +57,14 @@ def test_valkey_queue_full_via_store(
     first = client.post(
         "/internal/jobs",
         headers=auth_header,
-        json={"github_url": "https://github.com/heroku/node-js-getting-started"},
+        json={"git_url": "https://github.com/heroku/node-js-getting-started"},
     )
     assert first.status_code == 201
 
     second = client.post(
         "/internal/jobs",
         headers=auth_header,
-        json={"github_url": "https://github.com/modelcontextprotocol/servers"},
+        json={"git_url": "https://github.com/modelcontextprotocol/servers"},
     )
     assert second.status_code == 503
     assert second.json()["detail"]["code"] == "queue_full"

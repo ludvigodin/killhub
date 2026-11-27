@@ -173,7 +173,7 @@ def post_job(client: httpx.Client, body: dict[str, Any], *, budget: float = 900)
 
 def submit(client: httpx.Client, url: str, label: str | None = None) -> str:
     """Create a job; ``label`` registers it for host cleanup verification + artifacts."""
-    r = post_job(client, {"github_url": url})
+    r = post_job(client, {"git_url": url})
     assert r.status_code in (200, 201), f"submit {url}: {r.status_code} {r.text[:300]}"
     job_id = r.json()["job_id"]
     if label:
@@ -376,7 +376,7 @@ def _job_artifact(job_id: str) -> dict[str, Any]:
     return {
         "job_id": job_id,
         "status": snap.get("status"),
-        "github_url": snap.get("github_url"),
+        "git_url": snap.get("git_url"),
         "resolved_commit": snap.get("resolved_commit"),
         "sandbox_id": snap.get("sandbox_id"),
         "cleanup": snap.get("cleanup"),

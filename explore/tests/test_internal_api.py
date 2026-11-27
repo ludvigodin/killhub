@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 
 def test_auth_required(client: TestClient) -> None:
-    res = client.post("/internal/jobs", json={"github_url": "https://github.com/a/b"})
+    res = client.post("/internal/jobs", json={"git_url": "https://github.com/a/b"})
     assert res.status_code == 401
 
 
@@ -16,7 +16,7 @@ def test_create_snapshot_sse_cancel_flow(client: TestClient, auth_header: dict[s
     create = client.post(
         "/internal/jobs",
         headers=auth_header,
-        json={"github_url": "https://github.com/heroku/node-js-getting-started"},
+        json={"git_url": "https://github.com/heroku/node-js-getting-started"},
     )
     assert create.status_code == 201
     job_id = create.json()["job_id"]
@@ -73,7 +73,7 @@ def test_ordinary_writers_rejected_after_cancel(
     create = client.post(
         "/internal/jobs",
         headers=auth_header,
-        json={"github_url": "https://github.com/modelcontextprotocol/servers"},
+        json={"git_url": "https://github.com/modelcontextprotocol/servers"},
     )
     job_id = create.json()["job_id"]
     client.delete(f"/internal/jobs/{job_id}", headers=auth_header)
@@ -92,7 +92,7 @@ def test_events_recent_last_n(client: TestClient, auth_header: dict[str, str]) -
     create = client.post(
         "/internal/jobs",
         headers=auth_header,
-        json={"github_url": "https://github.com/heroku/node-js-getting-started"},
+        json={"git_url": "https://github.com/heroku/node-js-getting-started"},
     )
     job_id = create.json()["job_id"]
     ledger = get_ledger()
@@ -142,7 +142,7 @@ def test_cursor_expired_returns_410(client: TestClient, auth_header: dict[str, s
     create = client.post(
         "/internal/jobs",
         headers=auth_header,
-        json={"github_url": "https://github.com/heroku/node-js-getting-started"},
+        json={"git_url": "https://github.com/heroku/node-js-getting-started"},
     )
     job_id = create.json()["job_id"]
     res = client.get(
@@ -154,11 +154,11 @@ def test_cursor_expired_returns_410(client: TestClient, auth_header: dict[str, s
     assert res.json()["code"] == "cursor_expired"
 
 
-def test_invalid_github_url(client: TestClient, auth_header: dict[str, str]) -> None:
+def test_invalid_git_url(client: TestClient, auth_header: dict[str, str]) -> None:
     res = client.post(
         "/internal/jobs",
         headers=auth_header,
-        json={"github_url": "https://example.com/org/repo"},
+        json={"git_url": "https://example.com/org/repo"},
     )
     assert res.status_code == 400
     assert res.json()["detail"]["code"] == "invalid_url"
@@ -172,12 +172,12 @@ def test_accept_gitlab_url(client: TestClient, auth_header: dict[str, str], monk
     res = client.post(
         "/internal/jobs",
         headers=auth_header,
-        json={"github_url": "https://gitlab.com/org/repo.git"},
+        json={"git_url": "https://gitlab.com/org/repo.git"},
     )
     assert res.status_code == 201
     job_id = res.json()["job_id"]
     snap = client.get(f"/internal/jobs/{job_id}", headers=auth_header).json()
-    assert snap["github_url"] == "https://gitlab.com/org/repo"
+    assert snap["git_url"] == "https://gitlab.com/org/repo"
     get_settings.cache_clear()
 
 
@@ -203,7 +203,7 @@ def test_worker_claims_pending_when_pipeline_enabled(
         create = client.post(
             "/internal/jobs",
             headers=auth_header,
-            json={"github_url": "https://github.com/heroku/node-js-getting-started"},
+            json={"git_url": "https://github.com/heroku/node-js-getting-started"},
         )
         job_id = create.json()["job_id"]
 
@@ -241,7 +241,7 @@ def test_claim_without_pipeline_flags_skips(
         create = client.post(
             "/internal/jobs",
             headers=auth_header,
-            json={"github_url": "https://github.com/heroku/node-js-getting-started"},
+            json={"git_url": "https://github.com/heroku/node-js-getting-started"},
         )
         job_id = create.json()["job_id"]
 

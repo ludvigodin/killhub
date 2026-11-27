@@ -42,7 +42,7 @@ def test_tls_and_security_headers(client) -> None:
     ],
 )
 def test_job_create_rejects_invalid_urls(client, bad_url: str) -> None:
-    r = post_job(client, {"github_url": bad_url}, budget=180)
+    r = post_job(client, {"git_url": bad_url}, budget=180)
     assert r.status_code == 400, f"{bad_url!r} → {r.status_code} {r.text[:200]}"
     body = r.json()
     assert body.get("code") in {"invalid_url", "preflight_blocked"}, body
@@ -65,7 +65,7 @@ def test_job_list_shape(client) -> None:
     body = r.json()
     assert isinstance(body.get("jobs"), list)
     for job in body["jobs"]:
-        assert {"job_id", "github_url", "status"} <= set(job), job.keys()
+        assert {"job_id", "git_url", "status"} <= set(job), job.keys()
 
 
 @pytest.mark.parametrize("path", ["/internal/jobs", "/internal/health", "/internal/mcp"])
@@ -73,7 +73,7 @@ def test_internal_api_not_exposed_publicly(client, path: str) -> None:
     """Plane-1 internal API (token-guarded sidecar) must never answer through the edge."""
     for method in ("GET", "POST"):
         r = client.request(
-            method, path, json={"github_url": "https://github.com/octocat/Hello-World"}
+            method, path, json={"git_url": "https://github.com/octocat/Hello-World"}
         )
         ctype = r.headers.get("content-type", "")
         assert "application/json" not in ctype or "job_id" not in r.text, (

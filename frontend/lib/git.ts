@@ -1,4 +1,4 @@
-/** Public allowlisted HTTPS git URL validation (D78). Field name remains github_url. */
+/** Public allowlisted HTTPS git URL validation (D78). Wire field is git_url. */
 
 const ALLOWED_HOSTS = new Set([
   "github.com",
@@ -57,6 +57,7 @@ function parsePublicGitUrl(raw: string): {
   repo: string;
   pathSegments: string[];
 } | null {
+  if (typeof raw !== "string") return null;
   const trimmed = raw.trim();
   if (!trimmed) return null;
   let parsed: URL;
@@ -98,11 +99,11 @@ function parsePublicGitUrl(raw: string): {
   };
 }
 
-export function isPublicGithubUrl(raw: string): boolean {
+export function isPublicGitUrl(raw: string): boolean {
   return parsePublicGitUrl(raw) !== null;
 }
 
-export function validateGithubUrl(raw: string): string {
+export function validateGitUrl(raw: string): string {
   const parsed = parsePublicGitUrl(raw);
   if (!parsed) {
     throw new Error(
@@ -113,20 +114,20 @@ export function validateGithubUrl(raw: string): string {
 }
 
 /** `owner/repo` (or nested GitLab path) from a public git URL, or null. */
-export function ownerRepoFromGithubUrl(raw: string): string | null {
+export function ownerRepoFromGitUrl(raw: string): string | null {
   const parsed = parsePublicGitUrl(raw);
   if (!parsed) return null;
   return parsed.pathSegments.join("/");
 }
 
 /** Allowlisted host from a public git URL, or null. */
-export function hostFromGithubUrl(raw: string): string | null {
+export function hostFromGitUrl(raw: string): string | null {
   return parsePublicGitUrl(raw)?.host ?? null;
 }
 
 /** Short host label for UI chrome (GitHub / GitLab / Bitbucket / Codeberg). */
-export function hostLabelFromGithubUrl(raw: string): string {
-  const host = hostFromGithubUrl(raw);
+export function hostLabelFromGitUrl(raw: string): string {
+  const host = hostFromGitUrl(raw);
   switch (host) {
     case "github.com":
       return "GitHub";
@@ -142,14 +143,14 @@ export function hostLabelFromGithubUrl(raw: string): string {
 }
 
 /** App path for the repo history page, e.g. `/repos/github.com/org/repo`. */
-export function repoPathFromGithubUrl(raw: string): string | null {
+export function repoPathFromGitUrl(raw: string): string | null {
   const parsed = parsePublicGitUrl(raw);
   if (!parsed) return null;
   return `/repos/${parsed.host}/${parsed.pathSegments.join("/")}`;
 }
 
 /** Reconstruct canonical git URL from `/repos/[...slug]` segments. */
-export function githubUrlFromRepoSlug(slug: string[]): string | null {
+export function gitUrlFromRepoSlug(slug: string[]): string | null {
   if (slug.length < 3) return null;
   const joined = slug.map((s) => s.trim()).filter(Boolean);
   if (joined.length < 3) return null;
@@ -205,7 +206,7 @@ export function githubUrlFromOwnerRepo(
 }
 
 /** Split textarea / paste input into candidate URL lines (trim, drop blanks). */
-export function parseGithubUrlLines(raw: string): string[] {
+export function parseGitUrlLines(raw: string): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const line of raw.split(/\r?\n/)) {

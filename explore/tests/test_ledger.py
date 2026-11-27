@@ -49,7 +49,7 @@ def test_create_job_append_event_and_snapshot_atomic(db_path: Path) -> None:
         assert snap is not None
         assert snap["job_id"] == job.job_id
         assert snap["event_cursor"] == "2"
-        assert snap["github_url"] == "https://github.com/heroku/node-js-getting-started"
+        assert snap["git_url"] == "https://github.com/heroku/node-js-getting-started"
         assert ledger.list_events(job.job_id)[0].type == "status"
 
 
@@ -226,19 +226,19 @@ def test_accept_allowlisted_git_urls(db_path: Path) -> None:
             "https://github.com/org/repo.git",
             env_ttl_seconds=60,
         )
-        assert gh.github_url == "https://github.com/org/repo"
+        assert gh.git_url == "https://github.com/org/repo"
         gl = ledger.create_job(
             "https://gitlab.com/group/sub/project",
             env_ttl_seconds=60,
         )
-        assert gl.github_url == "https://gitlab.com/group/sub/project"
+        assert gl.git_url == "https://gitlab.com/group/sub/project"
         bb = ledger.create_job(
             "https://bitbucket.org/team/repo/",
             env_ttl_seconds=60,
         )
-        assert bb.github_url == "https://bitbucket.org/team/repo"
+        assert bb.git_url == "https://bitbucket.org/team/repo"
         cb = ledger.create_job(
             "https://codeberg.org/user/repo",
             env_ttl_seconds=60,
         )
-        assert cb.github_url == "https://codeberg.org/user/repo"
+        assert cb.git_url == "https://codeberg.org/user/repo"

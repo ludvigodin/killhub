@@ -15,7 +15,7 @@ from api.auth import require_internal_token
 from config import get_settings
 from fixtures import intake_catalog
 from jobs import get_ledger
-from ledger.store import validate_github_url
+from ledger.store import validate_git_url
 from service import (
     AdmissionError,
     cancel_job,
@@ -32,7 +32,7 @@ router = APIRouter(
 
 
 class CreateJobBody(BaseModel):
-    github_url: str = Field(min_length=1)
+    git_url: str = Field(min_length=1)
 
 
 def _error(status_code: int, message: str, code: str) -> HTTPException:
@@ -55,7 +55,7 @@ def post_job(
     x_client_ip: Optional[str] = Header(default=None),
 ) -> Dict[str, str]:
     try:
-        validate_github_url(body.github_url)
+        validate_git_url(body.git_url)
     except ValueError as exc:
         raise _error(400, str(exc), "invalid_url") from exc
     client_ip: Optional[str] = None
@@ -66,7 +66,7 @@ def post_job(
     elif x_forwarded_for:
         client_ip = x_forwarded_for.split(",")[0].strip()
     try:
-        job = create_job(body.github_url, client_ip=client_ip)
+        job = create_job(body.git_url, client_ip=client_ip)
     except AdmissionError as exc:
         raise _error(exc.status_code, exc.message, exc.code) from exc
     except ValueError as exc:
@@ -78,16 +78,16 @@ def post_job(
 def list_jobs(
     limit: int = Query(default=48, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    github_url: Optional[str] = Query(default=None),
+    git_url: Optional[str] = Query(default=None),
 ) -> Dict[str, Any]:
-    """Recent jobs newest-first (D69 / D77). Optional github_url filter (D79)."""
+    """Recent jobs newest-first (D69 / D77). Optional git_url filter (D79)."""
     filtered: Optional[str] = None
-    if github_url is not None and github_url.strip():
+    if git_url is not None and git_url.strip():
         try:
-            filtered = validate_github_url(github_url)
+            filtered = validate_git_url(git_url)
         except ValueError as exc:
             raise _error(400, str(exc), "invalid_url") from exc
-    return list_jobs_page(limit=limit, offset=offset, github_url=filtered)
+    return list_jobs_page(limit=limit, offset=offset, git_url=filtered)
 
 
 @router.get("/repos")
@@ -96,7 +96,7 @@ def list_repos(
     offset: int = Query(default=0, ge=0),
     q: Optional[str] = Query(default=None, max_length=200),
 ) -> Dict[str, Any]:
-    """Distinct github_url groups for the home/hubs feed (D79). Optional q search."""
+    """Distinct git_url groups for the home/hubs feed (D79). Optional q search."""
     return list_repos_page(limit=limit, offset=offset, q=q)
 
 

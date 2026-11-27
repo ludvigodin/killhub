@@ -285,7 +285,7 @@ def test_generated_demo_keeps_original_failure(monkeypatch: pytest.MonkeyPatch) 
 
 def test_setup_failed_short_circuit_no_demo() -> None:
     fail = require_fixture("setup_failed")
-    job = create_job(fail["github_url"])
+    job = create_job(fail["git_url"])
     ledger = get_ledger()
     # Sandbox stays alive for setup_failed evidence (plan 14); mark terminal after.
     ledger.append_sandbox_generation(

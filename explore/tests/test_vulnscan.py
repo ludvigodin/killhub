@@ -190,10 +190,10 @@ def test_pinned_read_assessment_receipt(case, monkeypatch):
     from operator_mcp_tools import summarize_receipt
 
     fixture = require_fixture("git_mcp_filesystem")
-    job = create_job(fixture["github_url"])
+    job = create_job(fixture["git_url"])
     ledger = get_ledger()
     profile = infer_runtime_profile(
-        github_url=job.github_url,
+        git_url=job.git_url,
         commit=fixture["commit"],
         inspect={},
         fixture=fixture,

@@ -144,7 +144,7 @@ def llm(monkeypatch: pytest.MonkeyPatch) -> FakeLLM:
 
 
 def _facts(**over: str) -> TrustedFacts:
-    base = {"github_url": GO_URL, "commit": SHA, "ref": "HEAD", "oci_image": "debian"}
+    base = {"git_url": GO_URL, "commit": SHA, "ref": "HEAD", "oci_image": "debian"}
     base.update(over)
     return TrustedFacts(**base)
 
@@ -435,7 +435,7 @@ def test_pinned_fixture_stays_deterministic_without_inference(llm: FakeLLM, sand
 
     web = require_fixture("webapp_success")
     _, result = _discover(
-        web["github_url"],
+        web["git_url"],
         "---TREE---\n./package.json\n"
         '---PACKAGE_JSON---\n{"dependencies":{"express":"4"}}\n---README---\nx\n',
         commit=web["commit"],

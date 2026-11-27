@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createJob } from "@/lib/api";
-import { githubUrlFromOwnerRepo, validateGithubUrl } from "@/lib/github";
+import { githubUrlFromOwnerRepo, validateGitUrl } from "@/lib/git";
 import { ErrorBanner } from "./ErrorBanner";
 
 type DeepLinkStartProps = {
@@ -59,7 +59,7 @@ export function DeepLinkStart({ owner, repo }: DeepLinkStartProps) {
       let pending = inFlight.get(key);
       if (!pending) {
         pending = (async () => {
-          const cleaned = validateGithubUrl(built);
+          const cleaned = validateGitUrl(built);
           const { job_id } = await createJob(cleaned);
           return job_id;
         })();

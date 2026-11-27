@@ -9,7 +9,7 @@ stay the same.
 _TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS jobs (
     job_id TEXT PRIMARY KEY,
-    github_url TEXT NOT NULL,
+    git_url TEXT NOT NULL,
     resolved_commit TEXT,
     status TEXT NOT NULL,
     progress INTEGER NOT NULL DEFAULT 0,

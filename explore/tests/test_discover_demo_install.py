@@ -40,7 +40,7 @@ def test_repo_without_manifests_installs_nothing() -> None:
 
 def test_demo_profile_carries_repo_install_and_keeps_honest_label() -> None:
     profile = infer_runtime_profile(
-        github_url="https://github.com/example/lib",
+        git_url="https://github.com/example/lib",
         commit=SHA,
         inspect={"has_package_json": True, **_inspect("./package.json")},
         fixture=None,

@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   githubUrlFromOwnerRepo,
-  hostFromGithubUrl,
-  hostLabelFromGithubUrl,
+  hostFromGitUrl,
+  hostLabelFromGitUrl,
   isReservedAppSegment,
-  validateGithubUrl,
-} from "./github.ts";
+  validateGitUrl,
+} from "./git.ts";
 
 describe("isReservedAppSegment", () => {
   it("blocks Killhub app routes", () => {
@@ -64,41 +64,35 @@ describe("githubUrlFromOwnerRepo", () => {
     assert.equal(githubUrlFromOwnerRepo("owner", ""), null);
   });
 
-  it("produces URLs that pass D78 validateGithubUrl", () => {
+  it("produces URLs that pass D78 validateGitUrl", () => {
     const url = githubUrlFromOwnerRepo("heroku", "node-js-getting-started");
     assert.ok(url);
-    assert.equal(validateGithubUrl(url), url);
+    assert.equal(validateGitUrl(url), url);
   });
 });
 
-describe("hostFromGithubUrl / hostLabelFromGithubUrl", () => {
+describe("hostFromGitUrl / hostLabelFromGitUrl", () => {
   it("extracts allowlisted hosts", () => {
+    assert.equal(hostFromGitUrl("https://github.com/org/repo"), "github.com");
     assert.equal(
-      hostFromGithubUrl("https://github.com/org/repo"),
-      "github.com",
-    );
-    assert.equal(
-      hostFromGithubUrl("https://gitlab.com/group/project"),
+      hostFromGitUrl("https://gitlab.com/group/project"),
       "gitlab.com",
     );
-    assert.equal(hostFromGithubUrl("not-a-url"), null);
+    assert.equal(hostFromGitUrl("not-a-url"), null);
   });
 
   it("labels hosts for UI chrome", () => {
+    assert.equal(hostLabelFromGitUrl("https://github.com/org/repo"), "GitHub");
     assert.equal(
-      hostLabelFromGithubUrl("https://github.com/org/repo"),
-      "GitHub",
-    );
-    assert.equal(
-      hostLabelFromGithubUrl("https://gitlab.com/group/project"),
+      hostLabelFromGitUrl("https://gitlab.com/group/project"),
       "GitLab",
     );
     assert.equal(
-      hostLabelFromGithubUrl("https://bitbucket.org/team/repo"),
+      hostLabelFromGitUrl("https://bitbucket.org/team/repo"),
       "Bitbucket",
     );
     assert.equal(
-      hostLabelFromGithubUrl("https://codeberg.org/user/repo"),
+      hostLabelFromGitUrl("https://codeberg.org/user/repo"),
       "Codeberg",
     );
   });

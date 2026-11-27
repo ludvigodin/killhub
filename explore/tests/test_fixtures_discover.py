@@ -51,7 +51,7 @@ def test_m7_fixtures_have_full_shas() -> None:
         commit = fixture["commit"]
         assert isinstance(commit, str) and len(commit) == 40
         assert all(c in "0123456789abcdef" for c in commit)
-        assert fixture["github_url"].startswith("https://github.com/")
+        assert fixture["git_url"].startswith("https://github.com/")
     mcp = require_fixture("git_mcp_filesystem")["mcp"]
     assert mcp["entrypoint"] == "src/filesystem"
     assert mcp["transport"] == "stdio"
@@ -73,14 +73,14 @@ def test_match_fixture_by_url() -> None:
 
 def test_bootstrap_and_runtime_validation() -> None:
     boot = bootstrap_profile(
-        github_url="https://github.com/heroku/node-js-getting-started",
+        git_url="https://github.com/heroku/node-js-getting-started",
         oci_image="debian",
     )
     validate_profile(boot, phase="bootstrap")
 
     web = require_fixture("webapp_success")
     profile = infer_runtime_profile(
-        github_url=web["github_url"],
+        git_url=web["git_url"],
         commit=web["commit"],
         inspect={"has_package_json": True, "mentions_express": True},
         fixture=web,
@@ -92,7 +92,7 @@ def test_bootstrap_and_runtime_validation() -> None:
 
     mcp_fix = require_fixture("git_mcp_filesystem")
     mcp_profile = infer_runtime_profile(
-        github_url=mcp_fix["github_url"],
+        git_url=mcp_fix["git_url"],
         commit=mcp_fix["commit"],
         inspect={"has_filesystem_mcp": True, "mentions_mcp": True},
         fixture=mcp_fix,
@@ -106,7 +106,7 @@ def test_bootstrap_and_runtime_validation() -> None:
 def test_runtime_missing_commit_rejected() -> None:
     web = require_fixture("webapp_success")
     profile = infer_runtime_profile(
-        github_url=web["github_url"],
+        git_url=web["git_url"],
         commit=web["commit"],
         inspect={"has_package_json": True, "mentions_express": True},
         fixture=web,
@@ -125,7 +125,7 @@ def test_setup_failed_fixture_forbids_demo() -> None:
     fail = require_fixture("setup_failed")
     with pytest.raises(DiscoverError) as err:
         infer_runtime_profile(
-            github_url=fail["github_url"],
+            git_url=fail["git_url"],
             commit=fail["commit"],
             inspect={},
             fixture=fail,
@@ -200,7 +200,7 @@ def test_discover_webapp_fixture_emits_runtime_profile(
     monkeypatch.setattr("discover.wait_until_ready", lambda *a, **k: None)
     monkeypatch.setattr("discover.destroy_job_environment", lambda *a, **k: None)
 
-    job = create_job(web["github_url"])
+    job = create_job(web["git_url"])
     result = discover_runtime_profile(
         job.job_id,
         exec_fn=fake,
@@ -249,7 +249,7 @@ def test_discover_mcp_fixture_emits_git_mcp_profile(
     )
     monkeypatch.setattr("discover.wait_until_ready", lambda *a, **k: None)
 
-    job = create_job(mcp["github_url"])
+    job = create_job(mcp["git_url"])
     result = discover_runtime_profile(
         job.job_id, exec_fn=fake, create=True, destroy_on_failure=False
     )
@@ -261,7 +261,7 @@ def test_discover_mcp_fixture_emits_git_mcp_profile(
 def test_persist_profile_revision_writes_storage(tmp_path: Path) -> None:
     job = create_job("https://github.com/heroku/node-js-getting-started")
     boot = bootstrap_profile(
-        github_url=job.github_url,
+        git_url=job.git_url,
         oci_image="debian",
     )
     rev = persist_profile_revision(job.job_id, boot, phase="bootstrap")

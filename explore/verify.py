@@ -994,7 +994,7 @@ def _repair_verify_plan(
         return profile, None
     source = profile.get("source") or {}
     facts = TrustedFacts(
-        github_url=str(source.get("url") or job.github_url),
+        git_url=str(source.get("url") or job.git_url),
         commit=job.resolved_commit,
         ref=str(source.get("ref") or "HEAD"),
         oci_image=str(profile.get("oci_image") or settings.msb_default_image or "debian"),

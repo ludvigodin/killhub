@@ -37,10 +37,10 @@ def init_ledger(settings: Settings | None = None) -> Ledger:
     return ledger
 
 
-def create_job(github_url: str, *, settings: Settings | None = None) -> Job:
+def create_job(git_url: str, *, settings: Settings | None = None) -> Job:
     from service import create_job as _create
 
-    return _create(github_url, settings=settings)
+    return _create(git_url, settings=settings)
 
 
 def append_event(

@@ -41,8 +41,8 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def validate_github_url(url: str) -> str:
-    """Validate create payload; field name is historical (D78 allowlisted git hosts)."""
+def validate_git_url(url: str) -> str:
+    """Validate create payload git_url (D78 allowlisted hosts)."""
     from git_url import validate_public_git_url
 
     return validate_public_git_url(url)
@@ -165,14 +165,14 @@ class Ledger:
 
     def create_job(
         self,
-        github_url: str,
+        git_url: str,
         *,
         env_ttl_seconds: int,
         job_id: str | None = None,
         status: JobStatus = "pending",
         current_step: str = "accepted",
     ) -> Job:
-        github_url = validate_github_url(github_url)
+        git_url = validate_git_url(git_url)
         now = utc_now()
         expires = (
             (datetime.now(timezone.utc) + timedelta(seconds=env_ttl_seconds))
@@ -188,7 +188,7 @@ class Ledger:
             self._conn.execute(
                 """
                 INSERT INTO jobs (
-                    job_id, github_url, resolved_commit, status, progress,
+                    job_id, git_url, resolved_commit, status, progress,
                     current_step, steps_completed, error, readiness, verification,
                     verify_result, sandbox_id, current_profile_revision,
                     current_sandbox_generation, inference_model, inference_usage,
@@ -202,7 +202,7 @@ class Ledger:
                 """,
                 (
                     jid,
-                    github_url,
+                    git_url,
                     status,
                     current_step,
                     expires,
@@ -215,7 +215,7 @@ class Ledger:
                 jid,
                 typ="status",
                 message=f"job created ({status})",
-                payload={"status": status, "github_url": github_url},
+                payload={"status": status, "git_url": git_url},
                 timestamp=now,
             )
             self._conn.commit()
@@ -270,20 +270,20 @@ class Ledger:
         return f"%{escaped.lower()}%"
 
     def count_repos(self, *, q: str | None = None) -> int:
-        """Distinct canonical github_url values in the ledger (D79).
+        """Distinct canonical git_url values in the ledger (D79).
 
-        Optional ``q`` filters to URLs that match ``github_url`` or any ``job_id``
+        Optional ``q`` filters to URLs that match ``git_url`` or any ``job_id``
         substring (case-insensitive).
         """
         pattern = self._repo_search_pattern(q)
         if pattern is None:
-            row = self._conn.execute("SELECT COUNT(DISTINCT github_url) AS n FROM jobs").fetchone()
+            row = self._conn.execute("SELECT COUNT(DISTINCT git_url) AS n FROM jobs").fetchone()
         else:
             row = self._conn.execute(
                 """
                 SELECT COUNT(*) AS n FROM (
-                    SELECT DISTINCT github_url FROM jobs
-                    WHERE LOWER(github_url) LIKE ? ESCAPE '\\'
+                    SELECT DISTINCT git_url FROM jobs
+                    WHERE LOWER(git_url) LIKE ? ESCAPE '\\'
                        OR LOWER(job_id) LIKE ? ESCAPE '\\'
                 )
                 """,
@@ -296,9 +296,9 @@ class Ledger:
     def list_recent_repos(
         self, *, limit: int = 48, offset: int = 0, q: str | None = None
     ) -> list[tuple[Job, int]]:
-        """One latest job per github_url, newest activity first (D79).
+        """One latest job per git_url, newest activity first (D79).
 
-        Optional ``q`` keeps only repos whose ``github_url`` or any run ``job_id``
+        Optional ``q`` keeps only repos whose ``git_url`` or any run ``job_id``
         matches (case-insensitive substring). ``run_count`` stays the full run
         count for that URL.
 
@@ -318,10 +318,10 @@ class Ledger:
                     SELECT jobs.*,
                         jobs.{tie} AS _tie,
                         ROW_NUMBER() OVER (
-                            PARTITION BY github_url
+                            PARTITION BY git_url
                             ORDER BY created_at DESC, {tie} DESC
                         ) AS rn,
-                        COUNT(*) OVER (PARTITION BY github_url) AS run_count
+                        COUNT(*) OVER (PARTITION BY git_url) AS run_count
                     FROM jobs
                 )
                 SELECT * FROM ranked
@@ -333,20 +333,20 @@ class Ledger:
         else:
             sql = f"""
                 WITH matched AS (
-                    SELECT DISTINCT github_url FROM jobs
-                    WHERE LOWER(github_url) LIKE ? ESCAPE '\\'
+                    SELECT DISTINCT git_url FROM jobs
+                    WHERE LOWER(git_url) LIKE ? ESCAPE '\\'
                        OR LOWER(job_id) LIKE ? ESCAPE '\\'
                 ),
                 ranked AS (
                     SELECT jobs.*,
                         jobs.{tie} AS _tie,
                         ROW_NUMBER() OVER (
-                            PARTITION BY jobs.github_url
+                            PARTITION BY jobs.git_url
                             ORDER BY created_at DESC, {tie} DESC
                         ) AS rn,
-                        COUNT(*) OVER (PARTITION BY jobs.github_url) AS run_count
+                        COUNT(*) OVER (PARTITION BY jobs.git_url) AS run_count
                     FROM jobs
-                    INNER JOIN matched ON matched.github_url = jobs.github_url
+                    INNER JOIN matched ON matched.git_url = jobs.git_url
                 )
                 SELECT * FROM ranked
                 WHERE rn = 1
@@ -360,24 +360,24 @@ class Ledger:
             out.append((self._row_to_job(row), int(row["run_count"])))
         return out
 
-    def count_jobs_for_url(self, github_url: str) -> int:
-        """Jobs for one canonical github_url (D79)."""
+    def count_jobs_for_url(self, git_url: str) -> int:
+        """Jobs for one canonical git_url (D79)."""
         row = self._conn.execute(
-            "SELECT COUNT(*) AS n FROM jobs WHERE github_url = ?",
-            (github_url,),
+            "SELECT COUNT(*) AS n FROM jobs WHERE git_url = ?",
+            (git_url,),
         ).fetchone()
         if row is None:
             return 0
         return int(row["n"])
 
-    def list_jobs_for_url(self, github_url: str, *, limit: int = 48, offset: int = 0) -> list[Job]:
-        """Newest-first jobs for one canonical github_url (D79)."""
+    def list_jobs_for_url(self, git_url: str, *, limit: int = 48, offset: int = 0) -> list[Job]:
+        """Newest-first jobs for one canonical git_url (D79)."""
         capped = max(1, min(int(limit), 200))
         skip = max(0, int(offset))
         order = self._jobs_newest_order()
         rows = self._conn.execute(
-            f"SELECT * FROM jobs WHERE github_url = ? {order} LIMIT ? OFFSET ?",
-            (github_url, capped, skip),
+            f"SELECT * FROM jobs WHERE git_url = ? {order} LIMIT ? OFFSET ?",
+            (git_url, capped, skip),
         ).fetchall()
         return [self._row_to_job(r) for r in rows]
 
@@ -420,7 +420,7 @@ class Ledger:
         receipt, report = self.report_for_display(job_id)
         return {
             "job_id": job.job_id,
-            "github_url": job.github_url,
+            "git_url": job.git_url,
             "status": job.status,
             "progress": job.progress,
             "current_step": job.current_step,
@@ -1479,7 +1479,7 @@ class Ledger:
     def _row_to_job(self, row: Row) -> Job:
         return Job(
             job_id=row["job_id"],
-            github_url=row["github_url"],
+            git_url=row["git_url"],
             resolved_commit=row["resolved_commit"],
             status=row["status"],
             progress=int(row["progress"]),

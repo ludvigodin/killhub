@@ -679,7 +679,7 @@ def _repair_install_plan(
     failed = [s for s in steps if not s.ok]
     source = profile.get("source") or {}
     facts = TrustedFacts(
-        github_url=str(source.get("url") or job.github_url),
+        git_url=str(source.get("url") or job.git_url),
         commit=str(job.resolved_commit or source.get("commit") or ""),
         ref=str(source.get("ref") or "HEAD"),
         oci_image=str(profile.get("oci_image") or settings.msb_default_image or "debian"),

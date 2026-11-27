@@ -1,7 +1,7 @@
 import { connection } from "next/server";
 import { checkPostJobsRateLimitAsync } from "@/lib/admission";
 import { exploreFetch, mapExploreError } from "@/lib/explore";
-import { validateGithubUrl } from "@/lib/github";
+import { validateGitUrl } from "@/lib/git";
 
 function clientIp(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for");
@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   const params = new URLSearchParams();
   const limit = url.searchParams.get("limit");
   const offset = url.searchParams.get("offset");
-  const githubUrl = url.searchParams.get("github_url");
+  const githubUrl = url.searchParams.get("git_url");
   if (limit != null && limit.length > 0) {
     params.set("limit", limit);
   }
@@ -25,7 +25,7 @@ export async function GET(request: Request) {
     params.set("offset", offset);
   }
   if (githubUrl != null && githubUrl.length > 0) {
-    params.set("github_url", githubUrl);
+    params.set("git_url", githubUrl);
   }
   const qs = params.toString();
   const path = qs.length > 0 ? `/internal/jobs?${qs}` : "/internal/jobs";
@@ -53,9 +53,9 @@ export async function POST(request: Request) {
     return Response.json(limited.body, { status: limited.status });
   }
 
-  let body: { github_url?: string };
+  let body: { git_url?: string };
   try {
-    body = (await request.json()) as { github_url?: string };
+    body = (await request.json()) as { git_url?: string };
   } catch {
     return Response.json(
       { error: "Invalid JSON body", code: "invalid_url" },
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
 
   let githubUrl: string;
   try {
-    githubUrl = validateGithubUrl(body.github_url ?? "");
+    githubUrl = validateGitUrl(body.git_url ?? "");
   } catch (error) {
     return Response.json(
       {
@@ -78,7 +78,7 @@ export async function POST(request: Request) {
 
   const upstream = await exploreFetch("/internal/jobs", {
     method: "POST",
-    body: JSON.stringify({ github_url: githubUrl }),
+    body: JSON.stringify({ git_url: githubUrl }),
     headers: {
       "X-Client-IP": clientIp(request),
     },

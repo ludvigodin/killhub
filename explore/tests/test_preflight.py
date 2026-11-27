@@ -48,7 +48,7 @@ def test_deny_list_hard_fail_no_msb(client: TestClient, auth_header, monkeypatch
     res = client.post(
         "/internal/jobs",
         headers=auth_header,
-        json={"github_url": "https://github.com/evil/malware"},
+        json={"git_url": "https://github.com/evil/malware"},
     )
     assert res.status_code == 201
     job_id = res.json()["job_id"]

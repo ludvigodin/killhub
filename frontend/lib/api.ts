@@ -39,7 +39,7 @@ export type ActiveChecks = {
 export type JobSummary = {
   active_checks?: ActiveChecks | null;
   job_id: string;
-  github_url: string;
+  git_url: string;
   status: string;
   progress: number;
   current_step: string;
@@ -66,7 +66,7 @@ export type JobListResponse = {
 };
 
 export type RepoSummary = {
-  github_url: string;
+  git_url: string;
   run_count: number;
   latest: JobSummary;
 };
@@ -161,7 +161,7 @@ export type JobSnapshot = {
   error: string | null;
   cancel_requested_at: string | null;
   updated_at: string;
-  github_url?: string;
+  git_url?: string;
   created_at?: string;
   screenshot_ids?: string[];
   profile?: Record<string, unknown> | null;
@@ -221,11 +221,11 @@ async function parseJson<T>(res: Response): Promise<T> {
   }
 }
 
-export async function createJob(githubUrl: string): Promise<CreateJobResponse> {
+export async function createJob(gitUrl: string): Promise<CreateJobResponse> {
   const res = await fetch("/api/jobs", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ github_url: githubUrl }),
+    body: JSON.stringify({ git_url: gitUrl }),
   });
   const body = await parseJson<CreateJobResponse & ApiError>(res);
   if (!res.ok) {
@@ -240,14 +240,14 @@ export async function createJob(githubUrl: string): Promise<CreateJobResponse> {
 export async function listJobs(
   limit = 9,
   offset = 0,
-  githubUrl?: string,
+  gitUrl?: string,
 ): Promise<JobListResponse> {
   const params = new URLSearchParams({
     limit: String(limit),
     offset: String(Math.max(0, offset)),
   });
-  if (githubUrl) {
-    params.set("github_url", githubUrl);
+  if (gitUrl) {
+    params.set("git_url", gitUrl);
   }
   const res = await fetch(`/api/jobs?${params.toString()}`, {
     headers: { Accept: "application/json" },

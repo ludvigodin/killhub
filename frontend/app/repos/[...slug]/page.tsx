@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { RepoHistory } from "@/components/RepoHistory";
 import { SiteNav } from "@/components/SiteNav";
-import { githubUrlFromRepoSlug, ownerRepoFromGithubUrl } from "@/lib/github";
+import { gitUrlFromRepoSlug, ownerRepoFromGitUrl } from "@/lib/git";
 import { noindexRobots } from "@/lib/seo";
 
 export const metadata: Metadata = {
@@ -12,11 +12,11 @@ export const metadata: Metadata = {
 
 async function RepoShell({ params }: { params: Promise<{ slug: string[] }> }) {
   const { slug } = await params;
-  const githubUrl = githubUrlFromRepoSlug(slug);
+  const githubUrl = gitUrlFromRepoSlug(slug);
   if (!githubUrl) {
     notFound();
   }
-  const title = ownerRepoFromGithubUrl(githubUrl) ?? githubUrl;
+  const title = ownerRepoFromGitUrl(githubUrl) ?? githubUrl;
 
   return <RepoHistory githubUrl={githubUrl} title={title} />;
 }

@@ -75,7 +75,7 @@ class PlanLLMError(Exception):
 class TrustedFacts:
     """Values the model is never allowed to choose."""
 
-    github_url: str
+    git_url: str
     commit: str
     ref: str
     oci_image: str
@@ -509,7 +509,7 @@ def sanitize_profile(
         "intent": intent,
         "source": {
             "type": "git",
-            "url": facts.github_url,
+            "url": facts.git_url,
             "commit": facts.commit,
             "ref": facts.ref,
         },
@@ -635,7 +635,7 @@ def _untrusted(label: str, text: str, limit: int) -> str:
 
 def _facts_dict(facts: TrustedFacts) -> dict[str, str]:
     return {
-        "github_url": facts.github_url,
+        "git_url": facts.git_url,
         "resolved_commit": facts.commit,
         "oci_image": facts.oci_image,
         "workdir": GUEST_REPO_ROOT,

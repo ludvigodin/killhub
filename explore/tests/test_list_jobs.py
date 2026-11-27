@@ -9,13 +9,13 @@ def test_list_jobs_newest_first(client: TestClient, auth_header: dict[str, str])
     first = client.post(
         "/internal/jobs",
         headers=auth_header,
-        json={"github_url": "https://github.com/heroku/node-js-getting-started"},
+        json={"git_url": "https://github.com/heroku/node-js-getting-started"},
     )
     assert first.status_code == 201
     second = client.post(
         "/internal/jobs",
         headers=auth_header,
-        json={"github_url": "https://github.com/octocat/Hello-World"},
+        json={"git_url": "https://github.com/octocat/Hello-World"},
     )
     assert second.status_code == 201
 
@@ -35,7 +35,7 @@ def test_list_jobs_newest_first(client: TestClient, auth_header: dict[str, str])
     row = body["jobs"][0]
     assert set(row.keys()) >= {
         "job_id",
-        "github_url",
+        "git_url",
         "status",
         "progress",
         "current_step",
@@ -51,12 +51,12 @@ def test_list_jobs_limit(client: TestClient, auth_header: dict[str, str]) -> Non
     a = client.post(
         "/internal/jobs",
         headers=auth_header,
-        json={"github_url": "https://github.com/heroku/node-js-getting-started"},
+        json={"git_url": "https://github.com/heroku/node-js-getting-started"},
     )
     b = client.post(
         "/internal/jobs",
         headers=auth_header,
-        json={"github_url": "https://github.com/octocat/Hello-World"},
+        json={"git_url": "https://github.com/octocat/Hello-World"},
     )
     assert a.status_code == 201 and b.status_code == 201
     listed = client.get("/internal/jobs?limit=1", headers=auth_header)
@@ -74,7 +74,7 @@ def test_list_jobs_offset_page(client: TestClient, auth_header: dict[str, str]) 
         res = client.post(
             "/internal/jobs",
             headers=auth_header,
-            json={"github_url": f"https://github.com/octocat/{slug}"},
+            json={"git_url": f"https://github.com/octocat/{slug}"},
         )
         assert res.status_code == 201
         created.append(res.json()["job_id"])
