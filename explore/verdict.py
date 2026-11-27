@@ -78,8 +78,15 @@ def policy_bypass_reason(event_type: str, payload: Mapping[str, Any]) -> str | N
     """Select the gate reason from classified Plane 1 observation records."""
     if event_type == "containment" and containment_reports_bypass(payload):
         return "containment_policy_bypass"
+    # Host activity analysis reports planted marker leakage as a policy bypass.
+    activity_canary = (
+        payload.get("source") == "activity" and payload.get("code") == "canary_exfiltration"
+    )
     if payload.get("classification") == "policy_bypass" and (
-        (event_type == "finding" and payload.get("source") in (None, "network", "containment"))
+        (
+            event_type == "finding"
+            and (payload.get("source") in (None, "network", "containment") or activity_canary)
+        )
         or (event_type == "log" and payload.get("probe_session") == "install_cp_deny")
     ):
         return "policy_bypass"
