@@ -77,6 +77,7 @@ class Settings(BaseSettings):
         default="",
         alias="CONTROL_PLANE_DENY_HOSTS",
     )
+    management_probe_address: str = Field(default="", alias="MANAGEMENT_PROBE_ADDRESS")
     msb_ready_timeout_seconds: int = Field(
         default=120,
         alias="MSB_READY_TIMEOUT_SECONDS",

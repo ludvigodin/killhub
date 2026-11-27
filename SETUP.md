@@ -419,6 +419,10 @@ WantedBy=multi-user.target
 
 Create a dedicated system account with a private home at `/var/lib/killhub-worker` and supplementary group `kvm`. Install the trusted Microsandbox binary and matching library in a root-owned directory readable by this account. Set `MSB_BIN` to that executable. Give the worker ownership of the five writable application directories above with mode `0700`. Configure absolute storage paths in the worker environment. Run the host reaper under the same identity, home, and Microsandbox installation so it sees the worker's inventory. During migration, drain existing jobs and confirm the old runtime inventory is empty. Restrict legacy environment files, backup copies, and ledger directories as well as the active files.
 
+On a systemd VX1 host, install the files in `ops/offline/` as root. Place `killhub-msb`, `serve-restore`, and `disable-guest-links.py` beside the trusted binary at `/opt/killhub-msb/bin/`. Install the template under `/etc/systemd/system/` and the Polkit rule under `/etc/polkit-1/rules.d/`. Reload systemd and set `MSB_BIN=/opt/killhub-msb/bin/killhub-msb`. The wrapper delegates a canonical job's verify restore to its own systemd network namespace and disables guest non-loopback links before acknowledging readiness. The VM supervisor has only namespace-local loopback and the worker controls the guest over vsock.
+
+Set `MANAGEMENT_PROBE_ADDRESS` to the operator-owned VX1 management address and TCP port to test from both sides (for example `192.0.2.10:22` for SSH). The host HTTP listener on that address and the configured install-egress destination are also checked during verification. Unreachable positive controls remain inconclusive. Temporarily enabling `PUBLIC_DEMO_FIXTURES_ONLY=true` limits admission to the three pinned SCA demo commits.
+
 Build frontend once before `pnpm start`:
 
 ```bash

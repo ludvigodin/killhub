@@ -1,0 +1,21 @@
+[Unit]
+Description=Killhub offline microVM for job %i
+
+[Service]
+Type=notify
+NotifyAccess=all
+User=killhub-worker
+Group=killhub-worker
+SupplementaryGroups=kvm
+Environment=HOME=/var/lib/killhub-worker
+UMask=0077
+PrivateNetwork=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+RestrictNamespaces=yes
+ReadWritePaths=/var/lib/killhub-worker
+TimeoutStartSec=240
+ExecStart=/opt/killhub-msb/bin/serve-restore %i

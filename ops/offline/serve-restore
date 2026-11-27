@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+job=$1
+name=kh-$job
+group=kh-snap-$(printf '%s' "$job" | tr -d '-')
+msb=/opt/killhub-msb/bin/msb
+# Fail closed if the service has inherited a host interface.
+test "$(ls -1 /sys/class/net)" = lo
+"$msb" snapshot restore "$group" --name "$name" --no-net
+# Control traffic uses vsock. Disable the virtual NIC before the checkout is launched.
+"$msb" exec --no-tty --no-stdin "$name" -- python3 -I -S -c "$(cat /opt/killhub-msb/bin/disable-guest-links.py)"
+systemd-notify --ready
+if ! "$msb" wait "$name"; then
+    # Finalization can remove the guest between the last poll and its exit.
+    inventory=$("$msb" list --format json)
+    printf '%s' "$inventory" | python3 -I -c 'import json,sys
+if any(row["name"] == sys.argv[1] for row in json.load(sys.stdin)):
+    sys.exit(1)' "$name"
+fi

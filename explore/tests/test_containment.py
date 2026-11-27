@@ -158,7 +158,7 @@ def test_run_containment_matrix_incomplete_without_live_msb(
             return ExecResult("tools_ok\n", "", 0)
         if "http.server" in joined:
             return ExecResult("1234\n", "", 0)
-        if "127.0.0.1:8080" in joined:
+        if "172.16.0.99:8080" in joined:
             return ExecResult("ok\n", "", 0)
         if "tooling_missing" in joined:
             return ExecResult("tooling_missing\n", "", 3)
@@ -179,6 +179,8 @@ def test_run_containment_matrix_incomplete_without_live_msb(
         "containment.list_live_environment_ids",
         lambda **k: {"env-contain"},
     )
+
+    monkeypatch.setattr("containment._tcp_positive_control", lambda url: (url, "connected"))
 
     # Sibling create/remove via fake CLI.
     cli = MagicMock()
@@ -222,7 +224,8 @@ def test_run_containment_matrix_incomplete_without_live_msb(
 def test_missing_exact_host_control_prevents_proof(monkeypatch):
     job_id = _seed_job()
     monkeypatch.setattr(
-        "containment._host_fetch_ok", lambda url: (url.startswith("https:"), "control")
+        "containment._tcp_positive_control",
+        lambda url: (url if url.startswith("https:") else None, "control"),
     )
     monkeypatch.setattr("containment._guest_fetch", lambda *a, **k: ("denied", 0, "unreachable"))
     result = probe_host_access_denied(
