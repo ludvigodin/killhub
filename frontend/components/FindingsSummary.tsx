@@ -8,6 +8,7 @@ import {
   type SeverityLevel,
   securityVerdict,
 } from "@/lib/findings";
+import { ActiveCheckSummary } from "./ActiveCheckSummary";
 import { SectionHeader } from "./SectionHeader";
 import { SECTION_SCROLL_MT } from "./SectionNav";
 
@@ -49,6 +50,7 @@ export function FindingsSummary({ snapshot }: { snapshot: JobSnapshot }) {
           <p className="text-sm leading-relaxed wrap-anywhere">{summary}</p>
         ) : null}
 
+        <ActiveCheckSummary checks={snapshot.receipt?.dossier?.active_checks} />
         {counts.total > 0 ? (
           <ul className="flex flex-wrap gap-2" aria-label="Severity counts">
             {SEVERITY_ORDER.filter((sev) => counts[sev] > 0).map((sev) => (

@@ -22,7 +22,15 @@ type VerificationInfo = {
 
 export type SafetyOutcome = "safe" | "high_risk" | "review" | "unknown";
 
+export type ActiveChecks = {
+  install_trace: "full" | "partial" | "none" | null;
+  mcp_tools_reviewed: number | null;
+  finding_count: number;
+  leading_finding: VulnFinding | null;
+};
+
 export type JobSummary = {
+  active_checks?: ActiveChecks | null;
   job_id: string;
   github_url: string;
   status: string;
@@ -98,6 +106,7 @@ type ReceiptDossierGates = {
 
 /** Durable finalize dossier; `code` is set for D83 stall/timeout/expiry paths. */
 export type ReceiptDossier = {
+  active_checks?: ActiveChecks | null;
   code?: string;
   outcome?: string;
   gates?: ReceiptDossierGates;

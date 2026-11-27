@@ -45,7 +45,17 @@ def validate_github_url(url: str) -> str:
 TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 VULN_REPORT_STATUSES = frozenset({"ok", "partial", "failed"})
 FINDING_SOURCES = frozenset(
-    {"sca", "mcp_assessment", "intentional_app", "canary", "network", "containment", "preflight"}
+    {
+        "sca",
+        "mcp_assessment",
+        "intentional_app",
+        "canary",
+        "network",
+        "containment",
+        "preflight",
+        "activity",
+        "mcp_tool_review",
+    }
 )
 # Destroy lifecycle phases that prove teardown (D57); never pruned before a receipt exists.
 _PROTECTED_LIFECYCLE_PHASES = frozenset({"destroyed", "destroy_failed"})

@@ -18,8 +18,9 @@ from errors import HarnessError
 from fixtures import match_fixture
 from harness import copy_out, exec_command
 from jobs import get_ledger
-from ledger.store import utc_now
+from ledger.store import FINDING_SOURCES, utc_now
 from models import JobEvent
+from safety import review_priority
 
 logger = logging.getLogger("killhub.vulnscan")
 
@@ -449,7 +450,7 @@ def sca_findings_from_lockfiles(
             errors += 1
             logger.warning("SCA failed for %s: %s", path, exc)
     if findings and osv_endpoint == OSV_QUERYBATCH:
-        leading = min(findings, key=_review_priority)
+        leading = min(findings, key=review_priority)
         if _advisory_id_only(leading):
             _load_advisory_summary(leading, deadline - time.monotonic())
     if errors and scanned == 0:
@@ -467,21 +468,15 @@ def collect_stream_findings(job_id: str, settings: Settings) -> list[dict[str, A
             continue
         payload = event.payload or {}
         source = payload.get("source")
-        if source not in {
-            "canary",
-            "network",
-            "containment",
-            "preflight",
-            "mcp_assessment",
-            "intentional_app",
-            "sca",
-        }:
+        if source not in FINDING_SOURCES:
             continue
         finding = payload.get("finding")
         if isinstance(finding, dict) and finding.get("id"):
             out.append(finding)
             continue
         fid = str(payload.get("code") or f"{source}-{event.event_id}")
+        if source in {"activity", "mcp_tool_review"}:
+            fid = f"{fid}-{event.event_id}"
         out.append(
             {
                 "id": fid,
@@ -490,7 +485,7 @@ def collect_stream_findings(job_id: str, settings: Settings) -> list[dict[str, A
                 "title": event.message,
                 "advisory_url": payload.get("advisory_url"),
                 "source": source,
-                "detail": {k: v for k, v in payload.items() if k != "finding"},
+                "detail": {k: v for k, v in payload.items() if k not in {"finding", "excerpt"}},
             }
         )
     # Dedupe by id
@@ -642,7 +637,7 @@ def run_mcp_assessment_if_planned(
 
 
 def _checked_draft(findings: list[dict[str, Any]], draft: str) -> str | None:
-    priorities = {str(f["id"]): _review_priority(f) for f in findings if f.get("id")}
+    priorities = {str(f["id"]): review_priority(f) for f in findings if f.get("id")}
     if not priorities:
         return None
     highest = min(priorities.values())
@@ -666,7 +661,7 @@ def cite_checked_review(findings: list[dict[str, Any]], draft: str | None = None
     findings = [f for f in findings if f.get("id")]
     if not findings:
         return "The scan recorded findings without identifiers. Review the details below."
-    finding = min(findings, key=_review_priority)
+    finding = min(findings, key=review_priority)
     citation = f"[{finding['id']}]"
     if _advisory_id_only(finding):
         package = finding.get("package") or "a project dependency"
@@ -675,7 +670,7 @@ def cite_checked_review(findings: list[dict[str, Any]], draft: str | None = None
             "The scan did not establish how this affects the application. "
             "Check the advisory for a fixed version before running the project."
         )
-    if _review_priority(finding) == 5:
+    if review_priority(finding) == 5:
         if (
             finding.get("source") == "network"
             and (finding.get("detail") or {}).get("classification") == "policy_denied"
@@ -693,11 +688,6 @@ def cite_checked_review(findings: list[dict[str, Any]], draft: str | None = None
             "Check the advisory for a fixed version before running the project."
         )
     return f"The scan flagged the following issue: {title} {citation}."
-
-
-def _review_priority(finding: dict[str, Any]) -> int:
-    rank = {"critical": 0, "high": 1, "medium": 2, "moderate": 2, "low": 3, "info": 5}
-    return rank.get(str(finding.get("severity")).lower(), 4)
 
 
 def run_vuln_scan(
@@ -768,8 +758,8 @@ def run_vuln_scan(
     try:
         from inference_extras import draft_vuln_review, maybe_seed_embeddings_for_findings
 
-        ranked = sorted(all_findings, key=_review_priority)
-        if ranked and _review_priority(ranked[0]) != 5 and not _advisory_id_only(ranked[0]):
+        ranked = sorted(all_findings, key=review_priority)
+        if ranked and review_priority(ranked[0]) != 5 and not _advisory_id_only(ranked[0]):
             draft = draft_vuln_review([ranked[0]], job_id=job_id, settings=cfg)
         if draft := _checked_draft(ranked[:1], draft or ""):
             review_mode = "llm_rag" if (cfg.vultr_rag_collection or "").strip() else "llm"

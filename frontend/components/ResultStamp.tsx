@@ -4,7 +4,7 @@ const STAMP: Record<
   SafetyOutcome,
   { label: string; tone: "ok" | "danger" | "warn" }
 > = {
-  safe: { label: "Safe", tone: "ok" },
+  safe: { label: "No risks flagged", tone: "ok" },
   high_risk: { label: "High risk", tone: "danger" },
   review: { label: "Review", tone: "warn" },
   unknown: { label: "Unknown", tone: "warn" },

@@ -103,3 +103,8 @@ def summary_safety(
     if gaps:
         return "unknown"
     return "safe"
+
+
+def review_priority(finding: dict[str, Any]) -> int:
+    rank = {"critical": 0, "high": 1, "medium": 2, "moderate": 2, "low": 3, "info": 5}
+    return rank.get(str(finding.get("severity")).lower(), 4)

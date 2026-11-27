@@ -318,6 +318,7 @@ def _job_summary_dict(
         "screenshot_url": screenshot_url,
         "error": job.error,
         "verification": job.verification,
+        "active_checks": ((receipt or {}).get("dossier") or {}).get("active_checks"),
         "safety": summary_safety(
             status=job.status,
             verification=job.verification if isinstance(job.verification, dict) else None,

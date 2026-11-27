@@ -228,3 +228,65 @@ def test_finalize_reclaims_when_already_terminal_but_sandbox_live(
     assert job.status == "failed"
     assert job.destroyed_at is not None
     assert ledger.get_receipt(job_id) is not None
+
+
+def test_active_checks_reach_card_and_agent(monkeypatch):
+    from operator_mcp_tools import summarize_receipt
+    from service import list_job_summaries
+
+    job_id = _seed(with_sandbox=False)
+    ledger = get_ledger()
+    monkeypatch.setenv("ENABLE_VULN_REVIEW_LLM", "false")
+    get_settings.cache_clear()
+    for i in range(12):
+        ledger.append_event(
+            job_id,
+            typ="finding",
+            message="Routine observation",
+            payload={"source": "network", "severity": "info", "code": f"info-{i}"},
+        )
+    for code, source, severity in [
+        ("persistence_write", "activity", "high"),
+        ("install_network_tools", "activity", "low"),
+        ("mcp_tool_poisoning", "mcp_tool_review", "high"),
+        ("mcp_tool_poisoning", "mcp_tool_review", "medium"),
+        ("canary_exfiltration", "activity", "critical"),
+    ]:
+        ledger.append_event(
+            job_id,
+            typ="finding",
+            message=code,
+            payload={
+                "source": source,
+                "code": code,
+                "severity": severity,
+                "excerpt": "untrusted text",
+            },
+        )
+    ledger.append_event(
+        job_id,
+        typ="log",
+        message="Trace",
+        payload={"kind": "install_activity", "coverage": "partial"},
+    )
+    ledger.append_event(
+        job_id, typ="log", message="Review", payload={"kind": "mcp_tool_review", "tool_count": 3}
+    )
+    monkeypatch.setattr(
+        "finalize.destroy_job_environment",
+        lambda *a, **k: DestroyResult(confirmed=True, error=None),
+    )
+    finalize_job(job_id, settings=get_settings())
+    snapshot = ledger.get_snapshot(job_id)
+    agent = summarize_receipt(snapshot, base_url="https://example.test")
+    card = list_job_summaries()[0]
+    checks = card["active_checks"]
+    assert checks == agent["active_checks"] == snapshot["receipt"]["dossier"]["active_checks"]
+    assert checks["install_trace"] == "partial" and checks["mcp_tools_reviewed"] == 3
+    assert checks["finding_count"] == 5 and checks["leading_finding"]["severity"] == "critical"
+    assert agent["findings"][0]["id"] == checks["leading_finding"]["id"]
+    assert agent["finding_count"] == 17 and len(agent["findings"]) == 10
+    assert agent["scan_status"] == "partial"
+    assert agent["vuln_review"] == snapshot["vuln_report"]["summary"]
+    assert len({f["id"] for f in agent["findings"] if f["source"] == "mcp_tool_review"}) == 2
+    assert "untrusted text" not in str(snapshot["vuln_report"])

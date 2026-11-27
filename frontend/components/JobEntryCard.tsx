@@ -11,6 +11,7 @@ import {
 import { formatQueueLine } from "@/lib/queue";
 import { resolveScreenshotSrc, screenshotFallbackSrc } from "@/lib/screenshots";
 import { formatJobWhen, isJobStalled } from "@/lib/time";
+import { ActiveCheckSummary } from "./ActiveCheckSummary";
 import { ProgressBar } from "./ProgressBar";
 import { RepoThumbnail } from "./RepoThumbnail";
 import { ResultStamp } from "./ResultStamp";
@@ -251,6 +252,7 @@ export function JobEntryCard({
               </span>
             ) : null}
           </div>
+          {terminal && <ActiveCheckSummary checks={job.active_checks} />}
           <div className="mt-2">
             <ProgressBar progress={job.progress} active={active} />
           </div>

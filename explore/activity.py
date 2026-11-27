@@ -422,7 +422,7 @@ def collect_and_analyze(
             "TLS payloads are encrypted: only their destinations are checked",
         ],
     }
-    if not traced:
+    if not traced or not text:
         summary["coverage"] = "none"
     elif untraced:
         summary["coverage"] = "partial"
@@ -443,7 +443,7 @@ def collect_and_analyze(
         ledger.append_event(
             job_id,
             typ="finding",
-            message="Planted canary secrets were sent out of the sandbox during install",
+            message="The install trace matched a test secret in an outgoing network attempt",
             payload={
                 "source": "activity",
                 "code": "canary_exfiltration",
@@ -590,7 +590,8 @@ def review_mcp_tools(job_id: str, *, settings: Settings | None = None) -> list[d
             job_id,
             typ="finding",
             message=(
-                f"MCP tool '{f['tool']}' description looks poisoned ({', '.join(f['reasons'])})"
+                f"MCP tool '{f['tool']}' description was flagged for suspicious text "
+                f"({', '.join(f['reasons'])})"
             ),
             payload={"source": "mcp_tool_review", "code": "mcp_tool_poisoning", **f},
         )
