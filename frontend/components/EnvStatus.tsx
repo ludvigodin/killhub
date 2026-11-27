@@ -9,8 +9,9 @@ function labelFor(snapshot: JobSnapshot): string {
   if (snapshot.destroyed_at) return "destroyed";
   if (cleanup === "destroy_failed") return "destroy_failed";
   if (cleanup === "destroying") return "destroying";
-  if (snapshot.status === "completed")
-    return "completed (sandbox cleanup pending?)";
+  // Job status and sandbox lifecycle have independent evidence.
+  if (snapshot.environment?.state) return snapshot.environment.state;
+  if (snapshot.status === "completed") return "Cleanup unconfirmed";
   if (snapshot.readiness?.passed) return "readiness passed";
   if (snapshot.readiness && snapshot.readiness.passed === false) {
     return "readiness failed";
@@ -27,6 +28,8 @@ function labelFor(snapshot: JobSnapshot): string {
 export function EnvStatus({ snapshot }: EnvStatusProps) {
   const envId =
     snapshot.environment?.environment_id || snapshot.sandbox_id || "—";
+  const generation =
+    snapshot.current_sandbox_generation ?? snapshot.environment?.generation;
   const readiness = snapshot.readiness;
   const verification = snapshot.verification;
   const kind = verification?.kind;
@@ -48,6 +51,16 @@ export function EnvStatus({ snapshot }: EnvStatusProps) {
         <div>
           <dt className="text-(--muted)">Sandbox</dt>
           <dd className="font-mono text-xs break-all">{envId}</dd>
+        </div>
+        <div>
+          <dt className="text-(--muted)">Sandbox generation</dt>
+          <dd>{generation ?? "—"}</dd>
+        </div>
+        <div>
+          <dt className="text-(--muted)">Resolved commit</dt>
+          <dd className="break-all font-mono text-xs">
+            {snapshot.resolved_commit ?? "—"}
+          </dd>
         </div>
         <div>
           <dt className="text-(--muted)">Expires</dt>
@@ -84,13 +97,13 @@ export function EnvStatus({ snapshot }: EnvStatusProps) {
             {kind || "—"}
             {kind === "generated_demo" ? (
               <span className="mt-1 block text-xs font-normal text-(--muted)">
-                Generated demo — does not prove the original application works.
+                Readiness applies to the generated demo.
               </span>
             ) : null}
           </dd>
         </div>
       </dl>
-      {kind === "generated_demo" && verification?.original_failure != null ? (
+      {verification?.original_failure != null ? (
         <div className="border border-(--line) bg-white/50 px-3 py-2 text-sm">
           <p className="text-xs uppercase tracking-wide text-(--muted)">
             Original setup failure
@@ -102,10 +115,6 @@ export function EnvStatus({ snapshot }: EnvStatusProps) {
           </pre>
         </div>
       ) : null}
-      <p className="text-xs text-(--muted)">
-        Readiness is probe evidence only — it is not job completion, and it does
-        not destroy the sandbox by itself.
-      </p>
     </section>
   );
 }

@@ -1,4 +1,5 @@
 import type { JobSnapshot } from "@/lib/api";
+import { DetonationVerdictView } from "./DetonationVerdictView";
 import { EnvStatus } from "./EnvStatus";
 import { VulnReport } from "./VulnReport";
 
@@ -23,12 +24,21 @@ function containmentClaimLabel(
 
 export function JobReport({ snapshot }: JobReportProps) {
   const receipt = snapshot.receipt;
-  const dossier = (receipt?.dossier || {}) as Record<string, unknown>;
-  const gates = dossier.gates as Record<string, unknown> | undefined;
+  // Gate evidence is optional for jobs that exit before normal finalization.
+  const gates = receipt?.dossier?.gates;
   const containment = receipt?.containment;
   const lifecycle = receipt?.lifecycle;
-  const profile = snapshot.profile;
   const claim = containmentClaimLabel(containment);
+  // Older workers store the verdict inside the receipt dossier.
+  const verdict =
+    snapshot.detonation_verdict ??
+    receipt?.detonation_verdict ??
+    receipt?.dossier?.detonation_verdict;
+  const setupArtifacts = [
+    ["Environment profile", snapshot.profile],
+    ["Install specification", snapshot.install_spec],
+    ["Scenario plan", snapshot.scenario_plan],
+  ] as const;
 
   return (
     <section className="space-y-8" aria-label="Intake receipt">
@@ -42,12 +52,13 @@ export function JobReport({ snapshot }: JobReportProps) {
           Receipt
         </h2>
         <p className="mt-1 text-sm text-(--muted)">
-          Durable intake dossier — outlives the sandbox. Scan-based by default;
-          not a pentest suite.
+          Review the evidence and cleanup status for this job.
         </p>
       </div>
 
       <EnvStatus snapshot={snapshot} />
+
+      {verdict ? <DetonationVerdictView report={verdict} /> : null}
 
       <section aria-label="Outcome gates">
         <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
@@ -79,12 +90,15 @@ export function JobReport({ snapshot }: JobReportProps) {
         )}
       </section>
 
-      <VulnReport report={snapshot.vuln_report} />
+      <VulnReport
+        report={snapshot.vuln_report}
+        verdictFindings={verdict?.findings}
+      />
 
-      <section aria-label="Containment evidence">
-        <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
-          Containment
-        </p>
+      <details className="space-y-2">
+        <summary className="cursor-pointer text-sm font-medium">
+          Containment probe details
+        </summary>
         {containment ? (
           <div className="space-y-2 text-sm">
             {claim ? (
@@ -105,7 +119,7 @@ export function JobReport({ snapshot }: JobReportProps) {
             No containment matrix on this receipt.
           </p>
         )}
-      </section>
+      </details>
 
       <section aria-label="Lifecycle evidence">
         <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
@@ -120,24 +134,32 @@ export function JobReport({ snapshot }: JobReportProps) {
         )}
       </section>
 
-      <section aria-label="Environment profile">
-        <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
-          environment_profile.json
-        </p>
-        {profile ? (
-          <pre className="max-h-80 overflow-auto border border-(--line) bg-white/50 p-3 font-mono text-xs leading-relaxed">
-            {prettyJson(profile)}
-          </pre>
-        ) : (
-          <p className="text-sm text-(--muted)">
-            No runtime profile revision on this job yet.
-          </p>
-        )}
-        {snapshot.resolved_commit ? (
-          <p className="mt-2 font-mono text-xs text-(--muted)">
-            resolved_commit {snapshot.resolved_commit}
-          </p>
-        ) : null}
+      <section aria-labelledby="setup-artifacts" className="space-y-3">
+        <h3
+          id="setup-artifacts"
+          className="text-sm uppercase tracking-wide text-(--muted)"
+        >
+          Setup artifacts
+        </h3>
+        {setupArtifacts.map(([label, artifact]) => (
+          <details
+            key={label}
+            className="space-y-2 border border-(--line) bg-white/50 px-4 py-3"
+          >
+            <summary className="cursor-pointer text-sm font-medium">
+              {label}
+            </summary>
+            {artifact ? (
+              <pre className="max-h-80 overflow-auto font-mono text-xs leading-relaxed">
+                {prettyJson(artifact)}
+              </pre>
+            ) : (
+              <p className="text-sm text-(--muted)">
+                Not recorded for this job.
+              </p>
+            )}
+          </details>
+        ))}
       </section>
     </section>
   );

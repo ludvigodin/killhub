@@ -5,3 +5,5 @@ httpx==0.28.1
 redis==7.0.1
 psycopg[binary]==3.2.9
 boto3==1.40.74
+# Finalization validates the public verdict before writing the terminal receipt.
+jsonschema==4.23.0

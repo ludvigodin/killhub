@@ -1,5 +1,12 @@
 /** Browser client → same-origin `/api` (never holds INTERNAL_API_TOKEN). */
 
+import type {
+  DetonationVerdict,
+  DynamicInstallSpec,
+  EnvironmentProfile,
+  TestScenarioPlan,
+} from "./job-artifacts";
+
 type ApiError = {
   error: string;
   code: string;
@@ -8,16 +15,22 @@ type ApiError = {
 export type CreateJobResponse = { job_id: string };
 
 type CleanupState = {
-  status?: string;
-  attempts?: number;
-  last_error?: string | null;
-  updated_at?: string | null;
+  status: "pending" | "destroying" | "destroyed" | "destroy_failed";
+  attempts: number;
+  last_error: string | null;
+  updated_at: string | null;
 };
 
 type VerificationInfo = {
-  kind?: string;
-  original_failure?: unknown;
-  [key: string]: unknown;
+  kind: "original_application" | "generated_demo" | "setup_failed";
+  original_failure?:
+    | {
+        step?: string;
+        summary: string;
+        detail?: unknown;
+      }
+    | string
+    | null;
 };
 
 export type JobSummary = {
@@ -56,71 +69,193 @@ export type RepoListResponse = {
 };
 
 type ReadinessInfo = {
-  passed?: boolean;
-  probe?: string;
+  passed: boolean;
+  probe?: string | null;
   detail?: unknown;
   at?: string;
-  [key: string]: unknown;
 };
 
-export type VulnFinding = {
-  id?: string;
+// Older SCA and stream findings may omit the fields required by a v1 verdict.
+type VerdictFinding = DetonationVerdict["findings"][number];
+export type VulnFinding = Partial<
+  Omit<VerdictFinding, "severity" | "detail">
+> & {
   severity?: string;
   package?: string;
-  title?: string;
   advisory_url?: string;
-  source?: string;
   detail?: unknown;
 };
 
+type VulnReportStatus = "ok" | "partial" | "failed";
+
 export type VulnReportData = {
-  job_id?: string;
-  summary?: string;
-  findings?: VulnFinding[];
-  mcp_assessment?: Record<string, unknown> | null;
-  status?: string;
+  job_id: string;
+  summary: string;
+  findings: VulnFinding[];
+  mcp_assessment: {
+    enabled?: boolean;
+    status?: "ok" | "partial" | "skipped" | "failed";
+    transport?: "stdio" | "streamable_http" | null;
+    helper?: "present" | "missing";
+    finding_id?: string;
+    reason?: string;
+    note?: string;
+    at?: string;
+  } | null;
+  status: VulnReportStatus;
 };
 
+type TerminalStatus = "completed" | "failed" | "cancelled";
+
 type JobReceipt = {
-  job_id?: string;
-  verification?: VerificationInfo | null;
-  containment?: Record<string, unknown> | null;
-  lifecycle?: Record<string, unknown> | null;
-  dossier?: Record<string, unknown> | null;
+  job_id: string;
+  verification: VerificationInfo | null;
+  containment: {
+    claim?: "proven" | "incomplete" | "complete";
+    status?: "skipped";
+    reason?: string;
+    at?: string;
+    dimensions?: Record<string, unknown>;
+    network_probes?: unknown[];
+    canary_scan?: Record<string, unknown>;
+    install_cp_probe?: Record<string, unknown> | null;
+  } | null;
+  lifecycle: {
+    destroyed_at?: string | null;
+    cleanup?: CleanupState["status"];
+    destroy_error?: string | null;
+    confirmed?: boolean;
+    cancel?: boolean;
+  } | null;
+  // Early failure/cancel receipts can omit the normal finalizer's gate evidence.
+  dossier: {
+    outcome?: TerminalStatus | "setup_failed";
+    gates?: {
+      terminal: TerminalStatus;
+      reasons: string[];
+      hard_fail: boolean;
+      readiness_passed: boolean;
+    };
+    readiness?: ReadinessInfo | null;
+    verification?: VerificationInfo | null;
+    profile_revisions?: {
+      revision: number;
+      phase: "bootstrap" | "runtime";
+      schema_version: string;
+    }[];
+    sandbox_generations?: (EnvironmentGen & {
+      image: string;
+      destroyed_at: string | null;
+    })[];
+    finding_ids?: (string | null)[];
+    vuln_report_status?: VulnReportStatus | null;
+    vuln_review?: string | null;
+    scan_error?: string | null;
+    code?: string;
+    phase?: string;
+    cancel_requested_at?: string;
+    containment_at?: string;
+    at?: string;
+    detonation_verdict?: DetonationVerdict | null;
+  };
+  detonation_verdict?: DetonationVerdict | null;
 };
 
 type EnvironmentGen = {
-  environment_id?: string;
-  generation?: number;
-  state?: string;
-  expires_at?: string;
+  environment_id: string;
+  generation: number;
+  state:
+    | "provisioning"
+    | "running"
+    | "replaced"
+    | "destroying"
+    | "destroyed"
+    | "destroy_failed"
+    | "failed";
+  expires_at: string;
+};
+
+// The existing worker stores bootstrap and runtime profiles under the same
+// version string as the alignment schema. Legacy source.type is "git".
+type LegacyEnvironmentProfile = {
+  schema_version: "1";
+  intent: "bootstrap" | EnvironmentProfile["intent"];
+  source?: { type: "git"; url: string; ref?: string; commit?: string };
+  runtime?: string;
+  os_image?: string;
+  oci_image?: string;
+  workdir?: string;
+  services?: unknown[];
+  packages?: unknown[];
+  install_commands?: unknown[];
+  run_commands?: unknown[];
+  processes?: unknown[];
+  ports?: unknown[];
+  summary?: string;
+  verification_target?: EnvironmentProfile["verification_target"];
+  mcp?: Record<string, unknown>;
+  probes?: unknown[];
+  healthcheck?: Record<string, unknown>;
+  policy?: Record<string, unknown>;
+  original_failure?: VerificationInfo["original_failure"];
+};
+
+type NoVncInfo = { view_only: true } & (
+  | { available: true; ws_path: string }
+  | { available: false; ws_path?: null }
+);
+
+type InferenceCounts = {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  calls: number;
 };
 
 export type JobSnapshot = {
   job_id: string;
+  github_url: string;
   status: string;
   progress: number;
   current_step: string;
+  steps_completed: string[];
   event_cursor: string | null;
   error: string | null;
   cancel_requested_at: string | null;
   updated_at: string;
-  github_url?: string;
-  created_at?: string;
-  screenshot_ids?: string[];
-  profile?: Record<string, unknown> | null;
-  readiness?: ReadinessInfo | null;
-  verification?: VerificationInfo | null;
-  verify_result?: Record<string, unknown> | null;
-  sandbox_id?: string | null;
-  resolved_commit?: string | null;
-  expires_at?: string;
-  cleanup?: CleanupState | null;
-  destroyed_at?: string | null;
-  environment?: EnvironmentGen | null;
-  vuln_report?: VulnReportData | null;
-  receipt?: JobReceipt | null;
-  [key: string]: unknown;
+  created_at: string;
+  screenshot_ids: string[];
+  profile: EnvironmentProfile | LegacyEnvironmentProfile | null;
+  readiness: ReadinessInfo | null;
+  verification: VerificationInfo | null;
+  verify_result: Record<string, unknown> | null;
+  sandbox_id: string | null;
+  resolved_commit: string | null;
+  current_profile_revision: number | null;
+  current_sandbox_generation: number | null;
+  inference_model: string | null;
+  inference_usage:
+    | (InferenceCounts & {
+        budget_tokens: number;
+        // Older jobs and unscoped optional calls only have the aggregate counters.
+        by_role?: Partial<
+          Record<"planner" | "review", InferenceCounts & { model: string }>
+        >;
+      })
+    | null;
+  expires_at: string;
+  cleanup: CleanupState;
+  destroyed_at: string | null;
+  environment: EnvironmentGen | null;
+  vuln_report: VulnReportData | null;
+  receipt: JobReceipt | null;
+  // Alignment fields are absent from snapshots written by the legacy worker.
+  target_type?: DynamicInstallSpec["target"]["source_type"];
+  target_locator?: string | null;
+  install_spec?: DynamicInstallSpec | null;
+  scenario_plan?: TestScenarioPlan | null;
+  detonation_verdict?: DetonationVerdict | null;
+  novnc?: NoVncInfo | null;
 };
 
 export type ScreenshotMeta = {

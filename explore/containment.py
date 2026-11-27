@@ -908,6 +908,8 @@ def run_containment_probes(
         ledger.finalize_job(
             job_id,
             status="failed",
+            # The verdict carries the observed policy bypass without changing readiness.
+            include_verdict=True,
             receipt={},
             event_message="failed",
             event_payload={"reason": "containment_bypass"},

@@ -6,6 +6,7 @@ Supports SQLite (default) and PostgreSQL via ``LEDGER_URL`` (D41, D73).
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -336,6 +337,7 @@ class Ledger:
                     }
                     break
 
+        receipt = self.get_receipt(job_id)
         return {
             "job_id": job.job_id,
             "github_url": job.github_url,
@@ -364,7 +366,9 @@ class Ledger:
             "environment": environment,
             "vuln_report": self.get_vuln_report(job_id),
             "screenshot_ids": [s["screenshot_id"] for s in self.list_screenshots(job_id)],
-            "receipt": self.get_receipt(job_id),
+            "receipt": receipt,
+            # Historical receipts predate verdicts and remain readable.
+            "detonation_verdict": ((receipt or {}).get("dossier") or {}).get("detonation_verdict"),
         }
 
     class WriterFrozenError(RuntimeError):
@@ -477,6 +481,54 @@ class Ledger:
         job = self.get_job(job_id)
         assert job is not None
         return job
+
+    def add_inference_usage(
+        self,
+        job_id: str,
+        *,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        total_tokens: int,
+        budget_tokens: int,
+        role: str | None,
+    ) -> dict[str, Any]:
+        """Accumulate billed tokens without losing concurrent job or role updates."""
+        counts = {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "calls": 1,
+        }
+
+        def accumulate(previous: dict[str, Any]) -> dict[str, int]:
+            return {key: int(previous.get(key) or 0) + added for key, added in counts.items()}
+
+        # BEGIN IMMEDIATE serializes SQLite writers. PostgreSQL locks this job row.
+        query = "SELECT * FROM jobs WHERE job_id = ?"
+        if self.engine == "postgres":
+            query += " FOR UPDATE"
+        self._conn.begin()
+        try:
+            row = self._conn.execute(query, (job_id,)).fetchone()
+            if row is None:
+                raise KeyError(job_id)
+            job = self._row_to_job(row)
+            self._assert_ordinary_writable(job)
+            previous = job.inference_usage or {}
+            usage = {**previous, **accumulate(previous), "budget_tokens": budget_tokens}
+            if role is not None:
+                by_role = dict(previous.get("by_role") or {})
+                by_role[role] = {"model": model, **accumulate(by_role.get(role, {}))}
+                usage["by_role"] = by_role
+            self._write_job_fields_unlocked(
+                job_id, {"inference_model": model, "inference_usage": usage}
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        return usage
 
     # --- events ----------------------------------------------------------------
 
@@ -862,6 +914,48 @@ class Ledger:
         ).fetchall()
         return [self._row_to_generation(r) for r in rows]
 
+    def record_checkout_digest(
+        self, job_id: str, generation: int, *, before_install: bool, digest: str | None
+    ) -> bool:
+        """Record only for the active, writable generation. Preserve its first baseline."""
+        if digest is not None and not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError("invalid checkout SHA-256")
+        with self._conn:
+            # PostgreSQL serializes against cancel and generation updates on the job row.
+            lock = " FOR UPDATE" if self._conn.engine == "postgres" else ""
+            row = self._conn.execute("SELECT * FROM jobs WHERE job_id = ?" + lock, (job_id,))
+            raw = row.fetchone()
+            if raw is None:
+                return False
+            job = self._row_to_job(raw)
+            if (
+                job.current_sandbox_generation != generation
+                or job.sandbox_id is None
+                or job.cancel_requested_at is not None
+                or job.status in TERMINAL_STATUSES
+            ):
+                return False
+            if before_install:
+                # A retry invalidates the prior after reading while retaining its baseline.
+                self._conn.execute(
+                    """
+                    INSERT INTO sandbox_checkout_integrity (job_id, generation, digest_before)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT (job_id, generation) DO UPDATE SET
+                        digest_after = NULL
+                    """,
+                    (job_id, generation, digest),
+                )
+            else:
+                self._conn.execute(
+                    """
+                    UPDATE sandbox_checkout_integrity SET digest_after = ?
+                    WHERE job_id = ? AND generation = ?
+                    """,
+                    (digest, job_id, generation),
+                )
+        return True
+
     def mark_generation_state(
         self,
         job_id: str,
@@ -1008,6 +1102,7 @@ class Ledger:
         *,
         status: JobStatus,
         receipt: dict[str, Any],
+        include_verdict: bool = False,
         event_message: str | None = None,
         event_payload: dict[str, Any] | None = None,
         **fields: Any,
@@ -1035,6 +1130,24 @@ class Ledger:
                 key: receipt[key] if key in receipt else existing.get(key)
                 for key in ("verification", "containment", "lifecycle", "dossier")
             }
+            if include_verdict:
+                from verdict import build_verdict
+
+                # The current generation owns both readings, even when its VM is gone.
+                integrity = self._conn.execute(
+                    """
+                    SELECT digest_before, digest_after FROM sandbox_checkout_integrity
+                    WHERE job_id = ? AND generation = ?
+                    """,
+                    (job_id, job.current_sandbox_generation),
+                ).fetchone()
+                # Validate and persist the verdict in the same transaction as terminal state.
+                merged["dossier"] = {
+                    **(merged["dossier"] or {}),
+                    "detonation_verdict": build_verdict(
+                        job, status, merged, self.get_vuln_report(job_id), integrity=integrity
+                    ),
+                }
             self._conn.execute(
                 """
                 INSERT INTO job_receipts (job_id, verification, containment, lifecycle, dossier)

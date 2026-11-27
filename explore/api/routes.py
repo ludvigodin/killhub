@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from time import monotonic
 from typing import Any, AsyncIterator, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
@@ -14,6 +15,7 @@ from pydantic import BaseModel, Field
 from api.auth import require_internal_token
 from config import get_settings
 from jobs import get_ledger
+from ledger import Ledger
 from ledger.store import validate_github_url
 from service import (
     AdmissionError,
@@ -101,6 +103,19 @@ def get_job(job_id: str) -> Dict[str, Any]:
     return snap
 
 
+@router.get("/jobs/{job_id}/verdict")
+def get_verdict(job_id: str) -> Dict[str, Any]:
+    """Read the durable verdict. A legacy or unfinished job may be missing one."""
+    ledger = get_ledger()
+    if ledger.get_job(job_id) is None:
+        raise _error(404, "job not found", "not_found")
+    receipt = ledger.get_receipt(job_id) or {}
+    verdict = (receipt.get("dossier") or {}).get("detonation_verdict")
+    if verdict is None:
+        raise _error(404, "verdict not yet available", "verdict_not_ready")
+    return verdict
+
+
 @router.delete("/jobs/{job_id}")
 def delete_job(job_id: str) -> Dict[str, Any]:
     try:
@@ -179,38 +194,20 @@ def _sse_format(event_id: str, event_type: str, data: Dict[str, Any]) -> str:
 
 
 async def _event_stream(
+    ledger: Ledger,
     job_id: str,
     *,
     after: Optional[str],
     keepalive_seconds: int,
 ) -> AsyncIterator[str]:
-    ledger = get_ledger()
-    cursor = after
+    cursor = after or None
     terminal = frozenset({"completed", "failed", "cancelled"})
-
-    for event in ledger.list_events(job_id, after_event_id=cursor):
-        body: Dict[str, Any] = {
-            "event_id": event.event_id,
-            "type": event.type,
-            "message": event.message,
-            "payload": event.payload,
-            "timestamp": event.timestamp,
-        }
-        if event.type == "status" and "status" in event.payload:
-            body["status"] = event.payload["status"]
-        if event.type == "progress":
-            for key in ("progress", "current_step"):
-                if key in event.payload:
-                    body[key] = event.payload[key]
-        yield _sse_format(event.event_id, event.type, body)
-        cursor = event.event_id
-
-    job = ledger.get_job(job_id)
-    if job is not None and job.status in terminal:
-        return
+    heartbeat_interval = max(1, keepalive_seconds)
+    heartbeat_due = monotonic() + heartbeat_interval
 
     while True:
-        await asyncio.sleep(min(keepalive_seconds, 2))
+        # Read the status before the events so a terminal transition during the
+        # query cannot close the stream before its committed status event is sent.
         job = ledger.get_job(job_id)
         if job is None:
             yield _sse_format(
@@ -220,15 +217,8 @@ async def _event_stream(
             )
             return
 
-        new_events = ledger.list_events(job_id, after_event_id=cursor)
-        if not new_events:
-            yield ": keepalive\n\n"
-            if job.status in terminal:
-                return
-            await asyncio.sleep(max(keepalive_seconds - 2, 0))
-            continue
-
-        for event in new_events:
+        events = ledger.list_events(job_id, after_event_id=cursor)
+        for event in events:
             body = {
                 "event_id": event.event_id,
                 "type": event.type,
@@ -238,12 +228,24 @@ async def _event_stream(
             }
             if event.type == "status" and "status" in event.payload:
                 body["status"] = event.payload["status"]
+            # Replay and live delivery use the same shape expected by the browser.
+            if event.type == "progress":
+                for key in ("progress", "current_step"):
+                    if key in event.payload:
+                        body[key] = event.payload[key]
             yield _sse_format(event.event_id, event.type, body)
             cursor = event.event_id
 
-        job = ledger.get_job(job_id)
-        if job is not None and job.status in terminal:
+        if job.status in terminal:
             return
+
+        if events:
+            heartbeat_due = monotonic() + heartbeat_interval
+        elif monotonic() >= heartbeat_due:
+            yield ": keepalive\n\n"
+            heartbeat_due = monotonic() + heartbeat_interval
+        # Poll the durable ledger even between keep-alives to pick up other writers.
+        await asyncio.sleep(min(1.0, max(0.0, heartbeat_due - monotonic())))
 
 
 @router.get("/jobs/{job_id}/events/recent")
@@ -295,6 +297,7 @@ async def job_events(
     settings = get_settings()
     return StreamingResponse(
         _event_stream(
+            ledger,  # Continue from the same ledger that validated the cursor.
             job_id,
             after=cursor,
             keepalive_seconds=settings.sse_keepalive_seconds,

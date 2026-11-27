@@ -14,6 +14,7 @@ HELPER_CATALOG: dict[str, str] = {
     "mcp_stdio_verify": "mcp_stdio_verify.py",
     "tooling_probe": "tooling_probe.sh",
     "network_probe": "network_probe.sh",
+    "pkg_hash": "pkg_hash.py",
     "screenshot_capture": "screenshot_capture.py",
 }
 

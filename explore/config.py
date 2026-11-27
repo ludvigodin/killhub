@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     )
     vultr_inference_api_key: str = Field(default="", alias="VULTR_INFERENCE_API_KEY")
     vultr_inference_model: str = Field(default="", alias="VULTR_INFERENCE_MODEL")
+    # The Plane 1 model resolver falls back to the existing default (D74).
+    vultr_inference_model_planner: str = Field(default="", alias="VULTR_INFERENCE_MODEL_PLANNER")
+    vultr_inference_model_review: str = Field(default="", alias="VULTR_INFERENCE_MODEL_REVIEW")
     # Optional extras on the same Killhub subscription (D75 under D25).
     vultr_inference_embedding_model: str = Field(
         default="",

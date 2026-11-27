@@ -6,6 +6,7 @@ Does not mark the job completed. Readiness is plan 14.
 from __future__ import annotations
 
 import logging
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -13,8 +14,11 @@ from profile import GUEST_REPO_ROOT, assert_runtime_ready_for_provision
 from typing import Any
 
 from config import Settings, get_settings
+from errors import HarnessError
 from harness import MsbCli, copy_in, exec_command, wait_until_ready
 from jobs import get_ledger
+from ledger import Ledger
+from models import Job
 from net_policy import verify_phase_policy
 from paths import HELPER_CATALOG
 
@@ -470,6 +474,48 @@ def run_install_commands(
     return steps
 
 
+def record_checkout_integrity(
+    job: Job, *, before_install: bool, settings: Settings, cli: MsbCli
+) -> None:
+    """Measure the pinned checkout around install without exporting guest output."""
+    if not job.sandbox_id or job.current_sandbox_generation is None or not job.resolved_commit:
+        return
+    helper = f"{GUEST_HELPERS}/pkg_hash.py"
+    digest = None
+    try:
+        # Refresh the host-owned helper and skip Python site initialization in Plane 2.
+        copy_in(job.sandbox_id, "pkg_hash", helper, settings=settings, cli=cli)
+        result = exec_command(
+            job.sandbox_id,
+            ["/usr/bin/python3", "-I", "-S", helper, GUEST_REPO_ROOT, job.resolved_commit],
+            settings=settings,
+            cli=cli,
+            timeout=30,
+        )
+        candidate = result.stdout.strip()
+        if result.exit_code == 0 and re.fullmatch(r"[0-9a-f]{64}", candidate):
+            digest = candidate
+    except HarnessError:
+        # A missed measurement is unknown, never a pipeline failure or a clean result.
+        pass
+    ledger = get_ledger(settings)
+    if ledger.record_checkout_digest(
+        job.job_id, job.current_sandbox_generation, before_install=before_install, digest=digest
+    ):
+        try:
+            _log(
+                job.job_id,
+                "Checkout digest captured" if digest else "Checkout digest unavailable",
+                settings=settings,
+                kind="checkout_integrity",
+                phase="before_install" if before_install else "after_install",
+                generation=job.current_sandbox_generation,
+            )
+        except Ledger.WriterFrozenError:
+            # Cancel may take ownership between committing evidence and emitting the log.
+            pass
+
+
 def transition_to_verify_offline(
     environment_id: str,
     *,
@@ -646,6 +692,8 @@ def provision_and_go_offline(
             code="cp_bypass",
         )
 
+    # Compare the same pinned paths before target commands and after the last install attempt.
+    record_checkout_integrity(job, before_install=True, settings=cfg, cli=msb)
     max_attempts = max(int(cfg.max_repair_attempts or 1), 1)
     steps: list[StepResult] = []
     failures: list[str] = []
@@ -680,6 +728,7 @@ def provision_and_go_offline(
                 code="sandbox_lost",
             )
 
+    record_checkout_integrity(job, before_install=False, settings=cfg, cli=msb)
     offline_meta = transition_to_verify_offline(
         environment_id, job_id=job_id, settings=cfg, cli=msb
     )

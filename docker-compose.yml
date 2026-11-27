@@ -5,7 +5,8 @@ services:
       context: ./explore
       dockerfile: Dockerfile
     ports:
-      - "8100:8100"
+      # Keep the worker API on loopback while Compose peers use explore:8100.
+      - "127.0.0.1:8100:8100"
     volumes:
       - ./storage:/app/storage
     env_file:

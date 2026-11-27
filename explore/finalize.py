@@ -299,23 +299,22 @@ def finalize_job(
         "at": utc_now(),
     }
 
-    # Receipt BEFORE terminal status (D49, D61).
-    receipt = ledger.upsert_receipt(
+    # The verdict, receipt, evidence fields, and terminal event commit together.
+    ledger.finalize_job(
         job_id,
-        verification=job.verification,
-        containment=containment,
-        lifecycle={
-            "destroyed_at": destroyed_at,
-            "cleanup": cleanup_status,
-            "destroy_error": destroy_result.error,
-            "confirmed": destroy_result.confirmed,
+        status=terminal,  # type: ignore[arg-type]
+        include_verdict=True,
+        receipt={
+            "verification": job.verification,
+            "containment": containment,
+            "lifecycle": {
+                "destroyed_at": destroyed_at,
+                "cleanup": cleanup_status,
+                "destroy_error": destroy_result.error,
+                "confirmed": destroy_result.confirmed,
+            },
+            "dossier": dossier,
         },
-        dossier=dossier,
-    )
-
-    ledger.update_job_fields(
-        job_id,
-        finalizer=True,
         cleanup=CleanupState(
             status=cleanup_status,
             attempts=max(job.cleanup.attempts, 1),
@@ -325,29 +324,16 @@ def finalize_job(
         destroyed_at=destroyed_at,
         # readiness unchanged
         readiness=readiness_before or job.readiness,
-        current_step=f"terminal {terminal}",
-    )
-
-    ledger.update_job_fields(
-        job_id,
-        finalizer=True,
-        status=terminal,  # type: ignore[arg-type]
         progress=100,
         current_step=terminal,
         error=None if terminal == "completed" else (job.error or "; ".join(gates["reasons"])),
-    )
-    ledger.append_event(
-        job_id,
-        typ="status",
-        message=terminal,
-        payload={
-            "status": terminal,
+        event_payload={
             "gates": gates,
             "cleanup": cleanup_status,
             "destroyed_at": destroyed_at,
         },
-        finalizer=True,
     )
+    receipt = ledger.get_receipt(job_id)
     try:
         from service import release_admission_slot
 

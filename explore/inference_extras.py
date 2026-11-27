@@ -19,10 +19,13 @@ import httpx
 from agent import (
     AgentError,
     InferenceResult,
+    InferenceRole,
     ensure_inference_ready,
     load_trusted_config,
     record_inference_usage,
     resolve_inference_model,
+    role_completion_limit,
+    vultr_inference_credentials,
 )
 from config import Settings, get_settings
 
@@ -119,7 +122,8 @@ def _post_json(
 ) -> dict[str, Any]:
     """POST to Vultr Inference; path is relative to the /v1 base (e.g. /embeddings)."""
     load_trusted_config(settings)
-    base, api_key, _model = ensure_inference_ready(settings)
+    # RAG and embeddings supply their own models. Transport still requires Vultr auth.
+    base, api_key = vultr_inference_credentials(settings)
     url = f"{base.rstrip('/')}{path}"
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -263,6 +267,7 @@ def rag_chat_completion(
     job_id: str | None = None,
     settings: Settings | None = None,
     model: str | None = None,
+    role: InferenceRole | None = None,
     timeout: float = 60.0,
     client: httpx.Client | None = None,
 ) -> InferenceResult:
@@ -271,13 +276,16 @@ def rag_chat_completion(
     coll = (collection or "").strip()
     if not coll:
         raise AgentError("VULTR_RAG_COLLECTION unset", code="rag_disabled")
-    chat_model = (model or "").strip() or resolve_inference_model(cfg)
+    chat_model = (model or "").strip() or resolve_inference_model(cfg, role=role)
     payload = {
         "model": chat_model,
         "collection": coll,
         "messages": messages,
         "temperature": 0,
     }
+    if role is not None:
+        # Vultr's RAG endpoint names its completion limit max_tokens.
+        payload["max_tokens"] = role_completion_limit(role, job_id=job_id, settings=cfg)
     data = _post_json(
         "/chat/completions/RAG",
         payload,
@@ -287,7 +295,7 @@ def rag_chat_completion(
     )
     result = _parse_chat_response(data, fallback_model=chat_model)
     if job_id is not None:
-        record_inference_usage(job_id, result, settings=cfg)
+        record_inference_usage(job_id, result, settings=cfg, role=role)
     return result
 
 
@@ -402,7 +410,8 @@ def draft_vuln_review(
     if not findings:
         return None
     try:
-        ensure_inference_ready(cfg)
+        # Review-only deployments can use a dedicated model for both transports.
+        ensure_inference_ready(cfg, role="review")
     except AgentError:
         return None
 
@@ -429,6 +438,7 @@ def draft_vuln_review(
                 collection=collection,
                 job_id=job_id,
                 settings=cfg,
+                role="review",
                 client=client,
             )
         else:
@@ -438,6 +448,7 @@ def draft_vuln_review(
                 messages,
                 job_id=job_id,
                 settings=cfg,
+                role="review",
                 client=client,
             )
         draft = redact_inference_text(result.content).strip()

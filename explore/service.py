@@ -372,9 +372,28 @@ def _run_cancel_finalizer(ledger: Ledger, job_id: str) -> None:
     assert job is not None
     destroyed_at = utc_now() if destroy_result.confirmed else None
     cleanup_status = "destroyed" if destroy_result.confirmed else "destroy_failed"
-    ledger.update_job_fields(
+    prior_receipt = ledger.get_receipt(job_id) or {}
+    # Keep completed probes and persist the cancelled verdict with terminal state.
+    ledger.finalize_job(
         job_id,
-        finalizer=True,
+        status="cancelled",
+        include_verdict=True,
+        receipt={
+            "verification": job.verification,
+            "containment": prior_receipt.get("containment")
+            or {"status": "skipped", "reason": "cancel_before_probes"},
+            "lifecycle": {
+                "cancel": True,
+                "destroyed_at": destroyed_at,
+                "cleanup": cleanup_status,
+                "destroy_error": destroy_result.error,
+            },
+            "dossier": {
+                **(prior_receipt.get("dossier") or {}),
+                "outcome": "cancelled",
+                "cancel_requested_at": job.cancel_requested_at or now,
+            },
+        },
         cleanup=CleanupState(
             status=cleanup_status,
             attempts=1,
@@ -383,37 +402,7 @@ def _run_cancel_finalizer(ledger: Ledger, job_id: str) -> None:
         ),
         destroyed_at=destroyed_at,
         current_step="cancelled",
-    )
-
-    ledger.upsert_receipt(
-        job_id,
-        verification=job.verification,
-        containment={"status": "skipped", "reason": "cancel_before_probes"},
-        lifecycle={
-            "cancel": True,
-            "destroyed_at": destroyed_at,
-            "cleanup": cleanup_status,
-            "destroy_error": destroy_result.error,
-        },
-        dossier={
-            "outcome": "cancelled",
-            "cancel_requested_at": job.cancel_requested_at or now,
-        },
-    )
-
-    ledger.update_job_fields(
-        job_id,
-        finalizer=True,
-        status="cancelled",
         progress=100,
-        current_step="cancelled",
-    )
-    ledger.append_event(
-        job_id,
-        typ="status",
-        message="cancelled",
-        payload={"status": "cancelled"},
-        finalizer=True,
     )
     release_admission_slot(was_running=was_running)
 

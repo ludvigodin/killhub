@@ -707,6 +707,8 @@ def verify_readiness(
         ledger.finalize_job(
             job_id,
             status="failed",
+            # A failed readiness probe still yields an explicitly incomplete verdict.
+            include_verdict=True,
             receipt={
                 "verification": verification,
                 "dossier": {"outcome": "setup_failed", "readiness": readiness},

@@ -136,6 +136,15 @@ def test_finalize_receipt_before_terminal_and_keeps_readiness(
     assert receipt is not None
     assert receipt["dossier"]["outcome"] == "completed"
     assert get_ledger().get_vuln_report(job_id) is not None
+    # An SCA finding annotates coverage while absent runtime evidence stays unknown.
+    verdict = receipt["dossier"]["detonation_verdict"]
+    assert verdict["verdict"]["status"] == "INCONCLUSIVE"
+    assert verdict["verdict"]["risk_score"] is None
+    assert verdict["target"]["integrity_tampered"] is None
+    assert len(verdict["atlas_coverage_matrix"]) == 16
+    assert len(verdict["owasp_mcp_coverage"]) == 10
+    assert verdict["owasp_mcp_coverage"]["MCP04:2025"]["finding_ids"] == ["sca-1"]
+    assert not any(item["monitored"] for item in verdict["atlas_coverage_matrix"].values())
 
     # Receipt event ordering: receipt row exists; terminal status is completed.
     events = get_ledger().list_events(job_id)

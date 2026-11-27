@@ -192,6 +192,8 @@ def _fail_claimed_job(job_id: str, exc: Exception, *, ledger: Ledger, settings: 
         ledger.finalize_job(
             job_id,
             status="failed",
+            # Preserve failure evidence after upstream sandbox recovery is exhausted.
+            include_verdict=True,
             receipt={
                 "verification": job.verification
                 or {"kind": "setup_failed", "original_failure": {"summary": message}},

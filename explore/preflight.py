@@ -419,6 +419,7 @@ def apply_preflight_to_job(
     ledger.finalize_job(
         job_id,
         status="failed",
+        include_verdict=True,
         receipt={
             "verification": {"kind": "preflight_failed"},
             "containment": {"status": "skipped", "reason": "preflight_hard_fail"},

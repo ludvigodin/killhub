@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
+
+from api import routes
+from ledger import Ledger
 
 
 def test_auth_required(client: TestClient) -> None:
@@ -28,6 +34,11 @@ def test_create_snapshot_sse_cancel_flow(client: TestClient, auth_header: dict[s
     assert body["event_cursor"] == "1"
     assert body["status"] == "pending"
     assert body["screenshot_ids"] == []
+    # Verdicts become available with the terminal receipt, including on cancel.
+    verdict_url = f"/internal/jobs/{job_id}/verdict"
+    unavailable = client.get(verdict_url, headers=auth_header)
+    assert unavailable.status_code == 404
+    assert unavailable.json()["detail"]["code"] == "verdict_not_ready"
 
     cancel = client.delete(f"/internal/jobs/{job_id}", headers=auth_header)
     assert cancel.status_code == 200
@@ -37,6 +48,13 @@ def test_create_snapshot_sse_cancel_flow(client: TestClient, auth_header: dict[s
     assert cancelled["receipt"] is not None
     assert cancelled["cleanup"]["status"] == "destroyed"
     assert cancelled["destroyed_at"] is not None
+    assert client.get(verdict_url).status_code == 401
+    verdict = client.get(verdict_url, headers=auth_header)
+    assert verdict.status_code == 200
+    assert verdict.json() == cancelled["detonation_verdict"]
+    assert verdict.json() == cancelled["receipt"]["dossier"]["detonation_verdict"]
+    assert verdict.json()["verdict"]["status"] == "ABORTED"
+    assert verdict.json()["target"]["package_sha256_before"] is None
 
     # Replay SSE from the beginning of the retained window.
     with client.stream(
@@ -143,6 +161,40 @@ def test_cursor_expired_returns_410(client: TestClient, auth_header: dict[str, s
     )
     assert res.status_code == 410
     assert res.json()["code"] == "cursor_expired"
+
+
+def test_live_sse_progress_and_keepalive(tmp_path: Path) -> None:
+    """A progress event published after an empty poll should reach the client promptly."""
+    with Ledger(tmp_path / "events.db") as ledger:
+        job = ledger.create_job("https://github.com/a/b", env_ttl_seconds=60)
+        progress = {"progress": 40, "current_step": "installing"}
+
+        async def publish() -> None:
+            # Give the live tail at least one empty poll before publishing.
+            await asyncio.sleep(2.1)
+            ledger.append_event(job.job_id, typ="progress", message="installing", payload=progress)
+
+        async def read_stream() -> None:
+            stream = routes._event_stream(
+                ledger, job.job_id, after=job.event_cursor, keepalive_seconds=4
+            )
+            publisher = asyncio.create_task(publish())
+            try:
+                event = await asyncio.wait_for(anext(stream), timeout=3.8)
+                assert event.startswith("id: 2\nevent: progress\n")
+                live = json.loads(event.split("data: ", 1)[1])
+                assert live["progress"] == 40
+                assert live["current_step"] == "installing"
+                assert await asyncio.wait_for(anext(stream), timeout=6) == ": keepalive\n\n"
+                ledger.finalize_job(job.job_id, status="completed", receipt={})
+                assert "event: status\n" in await asyncio.wait_for(anext(stream), timeout=2)
+                with pytest.raises(StopAsyncIteration):
+                    await anext(stream)
+            finally:
+                await publisher
+                await stream.aclose()
+
+        asyncio.run(read_stream())
 
 
 def test_invalid_github_url(client: TestClient, auth_header: dict[str, str]) -> None:
