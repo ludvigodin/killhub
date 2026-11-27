@@ -7,6 +7,60 @@ type ApiError = {
 
 export type CreateJobResponse = { job_id: string };
 
+type CleanupState = {
+  status?: string;
+  attempts?: number;
+  last_error?: string | null;
+  updated_at?: string | null;
+};
+
+type VerificationInfo = {
+  kind?: string;
+  original_failure?: unknown;
+  [key: string]: unknown;
+};
+
+type ReadinessInfo = {
+  passed?: boolean;
+  probe?: string;
+  detail?: unknown;
+  at?: string;
+  [key: string]: unknown;
+};
+
+export type VulnFinding = {
+  id?: string;
+  severity?: string;
+  package?: string;
+  title?: string;
+  advisory_url?: string;
+  source?: string;
+  detail?: unknown;
+};
+
+export type VulnReportData = {
+  job_id?: string;
+  summary?: string;
+  findings?: VulnFinding[];
+  mcp_assessment?: Record<string, unknown> | null;
+  status?: string;
+};
+
+type JobReceipt = {
+  job_id?: string;
+  verification?: VerificationInfo | null;
+  containment?: Record<string, unknown> | null;
+  lifecycle?: Record<string, unknown> | null;
+  dossier?: Record<string, unknown> | null;
+};
+
+type EnvironmentGen = {
+  environment_id?: string;
+  generation?: number;
+  state?: string;
+  expires_at?: string;
+};
+
 export type JobSnapshot = {
   job_id: string;
   status: string;
@@ -16,7 +70,21 @@ export type JobSnapshot = {
   error: string | null;
   cancel_requested_at: string | null;
   updated_at: string;
+  github_url?: string;
+  created_at?: string;
   screenshot_ids?: string[];
+  profile?: Record<string, unknown> | null;
+  readiness?: ReadinessInfo | null;
+  verification?: VerificationInfo | null;
+  verify_result?: Record<string, unknown> | null;
+  sandbox_id?: string | null;
+  resolved_commit?: string | null;
+  expires_at?: string;
+  cleanup?: CleanupState | null;
+  destroyed_at?: string | null;
+  environment?: EnvironmentGen | null;
+  vuln_report?: VulnReportData | null;
+  receipt?: JobReceipt | null;
   [key: string]: unknown;
 };
 

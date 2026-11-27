@@ -97,7 +97,7 @@ Microsandbox defaults allow public-internet egress and deny host/private/metadat
 | Requirement | Behavior |
 |-------------|----------|
 | Sibling isolation | Inter-sandbox traffic denied |
-| Control plane | **Deny** egress to public demo hostname/IPs and Jobs API destinations |
+| Control plane | **Deny** egress to public demo hostname/IPs (`killhub.pro`) and Jobs API destinations |
 | Management | **Deny** Microsandbox / host management endpoints reachable from the guest |
 | Install egress | Allow documented package/git destinations (or tighter allowlist) **during install/provision only**; CP/management still denied |
 | Verify / containment | **Deny-all remaining guest egress** after install (loopback only — D43); denied attempts logged as findings |

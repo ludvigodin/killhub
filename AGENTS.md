@@ -75,7 +75,7 @@ When acting as the Environment Agent:
 - **Trust zones (D42):** respect the From→To boundary matrix in [ARCHITECTURE.md](ARCHITECTURE.md).
 - **Inference:** Environment Agent LLM calls must go through **Vultr Serverless Inference** (`https://api.vultrinference.com/v1`) only ([DECISIONS.md](DECISIONS.md) D25). Do not add alternate providers without a new decision.
 - **Containment:** Adversarial / containment / canary probes run only inside Plane 2; record timeout, host-access deny, sibling-access deny, and host-liveness evidence with policy-vs-infra classification (D58, D65); stream to the job stream (D26, D44, D49).
-- **Demo deploy:** Public control-plane demos run on **Vultr Cloud Compute** with app on `127.0.0.1` behind a reverse proxy (D24, D46). Durable ledger + host reaper required before public deploy (D41).
+- **Demo deploy:** Public control-plane demo is **[https://killhub.pro](https://killhub.pro)** on **Vultr Cloud Compute** with app on `127.0.0.1` behind a reverse proxy (D24, D46). Durable ledger + host reaper required before public deploy (D41). Include `killhub.pro` in `CONTROL_PLANE_DENY_HOSTS` / probe config on that host.
 - **Vultr tooling (D59):** Prefer Vultr MCP for inventory, `vultr-cli` for mutating Cloud Compute, `msb` CLI/SDK for sandboxes ([plan/VULTR.md](plan/VULTR.md)). Do not fake Plane 2 with Docker or mark sandbox work done without real `msb`.
 
 ---

@@ -166,19 +166,19 @@ Depends on [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md).
 
 ### E5 — Vulnerability scanning + optional MCP assessment + finalize
 
-**In scope:** SCA / lockfile / known-advisory scanners + AI `vuln_review`; optional **MCP Inspector/SDK** assessment when `mcp.security_assessment.enabled` (D35).  
+**In scope:** SCA / lockfile / known-advisory scanners + AI `vuln_review`; optional **MCP Inspector/SDK** assessment when `mcp.security_assessment.enabled` (D35).
 **Out of scope:** weaponizing CVEs or generic app/web exploit suites ([DECISIONS.md](DECISIONS.md) D11, D33).
 
-- [ ] `vulnscan.py` on Plane 1 against lockfiles copied to artifact dir (D43, D63)
-- [ ] When profile plans it: run **preinstalled** MCP Inspector and/or SDK probes in Plane 2 after readiness; stream `log.kind=mcp_assessment` / `finding`; attach `vuln_report.mcp_assessment`
-- [ ] `vuln_review.md` AI summary → job `vuln_report` with **citations to finding ids** (D48); drop uncited claims
-- [ ] Persist severity-grouped `VulnFinding[]` with `source` `sca` \| `mcp_assessment` \| `canary` \| `network` \| `containment` \| `preflight`; emit `finding` SSE
-- [ ] Best-effort SCA on **failure** paths (controlled fail fixture must still produce **scan** findings — D53)
-- [ ] Persist **JobReceipt** before terminal status (incl. cancel — D61); destroy in finally with confirm-only job-level `destroyed_at`; emit `lifecycle` (D49, D57)
-- [ ] Apply gate table (D66); findings and MCP assessment do not invalidate readiness; scan tool crash → `partial` / `failed` report without erasing readiness
-- [ ] **Do not** add CVE exploit PoCs or generic offensive suites against non-MCP app targets
-- [ ] Separate `findings.source=sca` from `intentional_app` (D53)
-- [ ] `finalizing`: persist receipt → destroy with confirm → `destroyed_at` only if confirmed else `destroy_failed` (D57) → terminal per D66
+- [x] `vulnscan.py` on Plane 1 against lockfiles copied to artifact dir (D43, D63)
+- [x] When profile plans it: run **preinstalled** MCP Inspector and/or SDK probes in Plane 2 after readiness; stream `log.kind=mcp_assessment` / `finding`; attach `vuln_report.mcp_assessment`
+- [x] `vuln_review.md` AI summary → job `vuln_report` with **citations to finding ids** (D48); drop uncited claims
+- [x] Persist severity-grouped `VulnFinding[]` with `source` `sca` \| `mcp_assessment` \| `canary` \| `network` \| `containment` \| `preflight`; emit `finding` SSE
+- [x] Best-effort SCA on **failure** paths (controlled fail fixture must still produce **scan** findings — D53)
+- [x] Persist **JobReceipt** before terminal status (incl. cancel — D61); destroy in finally with confirm-only job-level `destroyed_at`; emit `lifecycle` (D49, D57)
+- [x] Apply gate table (D66); findings and MCP assessment do not invalidate readiness; scan tool crash → `partial` / `failed` report without erasing readiness
+- [x] **Do not** add CVE exploit PoCs or generic offensive suites against non-MCP app targets
+- [x] Separate `findings.source=sca` from `intentional_app` (D53)
+- [x] `finalizing`: persist receipt → destroy with confirm → `destroyed_at` only if confirmed else `destroy_failed` (D57) → terminal per D66
 
 **Done when:** At least one stack produces real SCA advisories or a clean bill; MCP assessment path works when planned; controlled fail fixture has SCA without pretending original app readiness; destroy confirm-only.
 
@@ -224,8 +224,8 @@ Depends on [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md).
 - [ ] **E-M2:** Bootstrap + plan loop → valid runtime profile via Vultr Inference; OpenCode lockdown
 - [ ] **E-M3:** Readiness via harness + containment/network probes; image replace path
 - [x] **E-M4:** Optional in-guest screenshots when useful
-- [ ] **E-M5:** Vuln **scan** report (incl. fail path); optional MCP assessment; `finalizing` → `completed`
-- [ ] **E-M5b:** Containment + network probes logged
+- [x] **E-M5:** Vuln **scan** report (incl. fail path); optional MCP assessment; `finalizing` → `completed`
+- [x] **E-M5b:** Containment + network probes logged
 - [ ] **E-M6:** D53 fixtures + admission + absolute expiry cleanup; Vultr demo deploy
 
 ---

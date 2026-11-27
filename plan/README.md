@@ -42,8 +42,8 @@ Plane detail (when a step says “see plane doc”):
 | [x] | [15-containment-probes](15-containment-probes.md) | Containment matrix + network + canary scan (D58, D65) |
 | [x] | [16-screenshots](16-screenshots.md) | Optional in-guest Playwright stills (E4) |
 | [x] | [17-status-ui](17-status-ui.md) | Live status / SSE UI (N2) |
-| [ ] | [18-vuln-receipt-finalize](18-vuln-receipt-finalize.md) | SCA + cite-checked review + receipt + destroy (E5) |
-| [ ] | [19-report-ui](19-report-ui.md) | Report / receipt window (N3) |
+| [x] | [18-vuln-receipt-finalize](18-vuln-receipt-finalize.md) | SCA + cite-checked review + receipt + destroy (E5) |
+| [x] | [19-report-ui](19-report-ui.md) | Report / receipt window (N3) |
 | [ ] | [20-e2e-fixtures-deploy](20-e2e-fixtures-deploy.md) | Assert pinned fixtures + demo edge deploy (M7) |
 | [ ] | [20b-video-site-ui](20b-video-site-ui.md) | Video-site feed UI + many GitHub job entries |
 | [ ] | [21-cleanup-docs](21-cleanup-docs.md) | Remove build-step / scaffolding docs after M7 |

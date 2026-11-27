@@ -17,11 +17,11 @@ export default function JobPage(props: PageProps<"/jobs/[id]">) {
         className="mb-1 text-3xl font-semibold tracking-tight"
         style={{ fontFamily: "var(--font-display), ui-sans-serif, sans-serif" }}
       >
-        Status
+        Job
       </h1>
       <p className="mb-8 text-sm text-[var(--muted)]">
-        Live progress and evidence — leave and return; state restores from
-        snapshot + SSE.
+        Live status while running; receipt, profile, and scan findings when the
+        job finishes. Leave and return — state restores from snapshot + SSE.
       </p>
       <Suspense
         fallback={

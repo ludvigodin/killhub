@@ -1,6 +1,6 @@
 # Step 20 — E2E fixtures + demo deploy (M7)
 
-**Goal:** Pinned fixtures behave as specified; public demo is on **Vultr Cloud Compute** behind edge bind + admission + durable ledger.
+**Goal:** Pinned fixtures behave as specified; public demo is on **Vultr Cloud Compute** behind edge bind + admission + durable ledger — marketed at **[https://killhub.pro](https://killhub.pro)** (D24).
 
 ## Prerequisites
 
@@ -26,8 +26,9 @@
 - [ ] **Assert** (do not first-time pin) fixtures from [10b-pin-fixtures.md](10b-pin-fixtures.md) still match D53
 - [ ] Assert webapp → `original_application`; MCP filesystem → original readiness from **built checkout**; controlled fail → `setup_failed`
 - [ ] Absolute expiry + cancel + completed always reclaim sandbox across Plane 1 restart
-- [ ] Demo deploy: reverse proxy faces internet; app binds `127.0.0.1` (D46)
+- [ ] Demo deploy: reverse proxy faces internet; app binds `127.0.0.1` (D46); public hostname **killhub.pro**
 - [ ] Admission + ledger + host reaper live before public URL
+- [ ] `CONTROL_PLANE_DENY_HOSTS` / `CONTROL_PLANE_PROBE_URL` include `killhub.pro` on the demo host
 
 ## Do not
 
@@ -50,7 +51,7 @@ Must exit **0**. Do **not** start the next step while either tool fails. Python-
 
 ## Done when
 
-Pinned fixtures pass on real **`msb`** sandboxes; demo URL is on Vultr behind edge proxy (verified via Vultr MCP/`vultr-cli`); sandboxes die on expiry even if control plane restarts. Biome + Knip lint gate passes ([LINT.md](LINT.md)).
+Pinned fixtures pass on real **`msb`** sandboxes; **https://killhub.pro** is on Vultr behind edge proxy (verified via Vultr MCP/`vultr-cli`); sandboxes die on expiry even if control plane restarts. Biome + Knip lint gate passes ([LINT.md](LINT.md)).
 
 ## Next
 

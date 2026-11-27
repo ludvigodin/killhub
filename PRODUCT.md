@@ -41,7 +41,7 @@ A user pastes a public GitHub URL and, without refreshing, sees:
 
 …while Killhub secrets never enter the sandbox (canaries only), OpenCode cannot shell the control plane, Plane 2 cannot call Plane 1, adversarial probes stay contained, and the sandbox is destroyed on job completion / fail / cancel / absolute expiry (even if the control plane restarts).
 
-Public demos run the control plane on **Vultr Cloud Compute** (app on localhost behind a reverse proxy) with agent reasoning via **Vultr Serverless Inference** and execution in Microsandbox on VX1 — behind admission limits and a durable job ledger.
+The public demo is **[https://killhub.pro](https://killhub.pro)** — control plane on **Vultr Cloud Compute** (app on localhost behind a reverse proxy), agent reasoning via **Vultr Serverless Inference**, execution in Microsandbox on VX1 — behind admission limits and a durable job ledger.
 
 ## v1 golden fixtures
 
@@ -57,7 +57,7 @@ Pinned commit SHAs live in fixture config ([DECISIONS.md](DECISIONS.md) D53).
 
 - Private repos / OAuth  
 - Multi-user auth / billing  
-- Long-lived **customer** environments / production hosting beyond job TTL (a publicly reachable control-plane demo on Vultr is in scope)  
+- Long-lived **customer** environments / production hosting beyond job TTL (**[killhub.pro](https://killhub.pro)** on Vultr is the in-scope public control-plane demo)  
 - GPU workloads  
 - Auto-remediating vulnerabilities  
 - Weaponizing CVEs / generic app/web pentest exploit suites (SCA + report always; optional MCP Inspector/SDK assessment only when the agent plans it — D35; containment probes are separate)  

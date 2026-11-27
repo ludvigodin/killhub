@@ -128,6 +128,13 @@ class Settings(BaseSettings):
     containment_on_claim: bool = Field(default=False, alias="CONTAINMENT_ON_CLAIM")
     # After verify, optional in-guest Playwright still (D31, D38) — never gates completion.
     screenshots_on_claim: bool = Field(default=False, alias="SCREENSHOTS_ON_CLAIM")
+    # After probes: SCA + receipt + destroy → terminal (D37, D49, D57, D66).
+    finalize_on_claim: bool = Field(default=False, alias="FINALIZE_ON_CLAIM")
+    # Plane-1 OSV endpoint for lockfile SCA (D43) — never queried from guest offline.
+    vuln_scan_osv_url: str = Field(
+        default="https://api.osv.dev/v1/querybatch",
+        alias="VULN_SCAN_OSV_URL",
+    )
     # Known-live control-plane / public URL for install-phase CP denial probes (D65).
     control_plane_probe_url: str = Field(
         default="https://example.com",

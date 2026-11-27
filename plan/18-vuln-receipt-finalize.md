@@ -19,13 +19,13 @@ Use **`msb` CLI/SDK** (and Vultr MCP / `vultr-cli` to verify the VX1 host) per [
 
 ## Do
 
-- [ ] `vulnscan.py` SCA via **Plane 1** on lockfiles copied to artifact dir (D43); best-effort on fail paths
-- [ ] Optional MCP assessment only when profile plans it — tooling already present (D35, D63)
-- [ ] Cite-checked `vuln_review` — drop uncited claims (D48)
-- [ ] Persist JobReceipt (verification, gates, probes, generations, findings) **before** terminal status
-- [ ] Destroy in finally; job-level `destroyed_at` only after confirmed remove of current generation (D57, D64)
-- [ ] Apply gate table (D66); mark `completed`/`failed` only after report + cleanup path (D37)
-- [ ] Cancel path uses same finalizer ordering (D61)
+- [x] `vulnscan.py` SCA via **Plane 1** on lockfiles copied to artifact dir (D43); best-effort on fail paths
+- [x] Optional MCP assessment only when profile plans it — tooling already present (D35, D63)
+- [x] Cite-checked `vuln_review` — drop uncited claims (D48)
+- [x] Persist JobReceipt (verification, gates, probes, generations, findings) **before** terminal status
+- [x] Destroy in finally; job-level `destroyed_at` only after confirmed remove of current generation (D57, D64)
+- [x] Apply gate table (D66); mark `completed`/`failed` only after report + cleanup path (D37)
+- [x] Cancel path uses same finalizer ordering (D61)
 
 ## Do not
 

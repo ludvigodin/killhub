@@ -15,9 +15,31 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Killhub",
+  metadataBase: new URL("https://killhub.pro"),
+  title: {
+    default: "Killhub",
+    template: "%s · Killhub",
+  },
   description:
     "Paste a public GitHub URL. Get a verified running environment — and a receipt that outlives the sandbox.",
+  applicationName: "Killhub",
+  openGraph: {
+    title: "Killhub",
+    description:
+      "Paste a public GitHub URL. Get a verified running environment — and a receipt that outlives the sandbox.",
+    url: "https://killhub.pro",
+    siteName: "Killhub",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Killhub",
+    description:
+      "Paste a public GitHub URL. Get a verified running environment — and a receipt that outlives the sandbox.",
+  },
+  alternates: {
+    canonical: "/",
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

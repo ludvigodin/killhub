@@ -99,15 +99,15 @@ Jobs are **server-owned** (Plane 1). Closing the tab does **not** cancel. Resume
 
 ### N3 — Report window
 
-- [ ] Show `environment_profile.json` when available
-- [ ] `EnvStatus`: provisioning / running / readiness passed / completed / destroyed / destroy_failed (`sandbox_id` / `expires_at` / `cleanup` / `destroyed_at`) — do not equate readiness with completion (D37, D57)
-- [ ] Show `verification.kind` (`original_application` \| `generated_demo` \| `setup_failed`) and visible `original_failure` when present (D54)
-- [ ] Repair attempts + containment / network / canary evidence
-- [ ] Render **receipt** dossier when present (D49): gates, probes, lifecycle, cited findings
-- [ ] `VulnReport` when **scan** completes (including fail path) — severity-grouped advisories by `source` (`sca` \| `mcp_assessment` \| `canary` \| `network` \| `containment` \| `preflight`)
-- [ ] When present, show `vuln_report.mcp_assessment` (Inspector/SDK) separately from SCA; clarify assessment was agent-planned (D35)
-- [ ] Optional copy clarifying default report is scan-based; MCP assessment appears only when planned — not a generic app pentest; findings do not erase readiness
-- [ ] Cancel control; optional retry
+- [x] Show `environment_profile.json` when available
+- [x] `EnvStatus`: provisioning / running / readiness passed / completed / destroyed / destroy_failed (`sandbox_id` / `expires_at` / `cleanup` / `destroyed_at`) — do not equate readiness with completion (D37, D57)
+- [x] Show `verification.kind` (`original_application` \| `generated_demo` \| `setup_failed`) and visible `original_failure` when present (D54)
+- [x] Repair attempts + containment / network / canary evidence
+- [x] Render **receipt** dossier when present (D49): gates, probes, lifecycle, cited findings
+- [x] `VulnReport` when **scan** completes (including fail path) — severity-grouped advisories by `source` (`sca` \| `mcp_assessment` \| `canary` \| `network` \| `containment` \| `preflight`)
+- [x] When present, show `vuln_report.mcp_assessment` (Inspector/SDK) separately from SCA; clarify assessment was agent-planned (D35)
+- [x] Optional copy clarifying default report is scan-based; MCP assessment appears only when planned — not a generic app pentest; findings do not erase readiness
+- [x] Cancel control; optional retry
 
 **Done when:** Terminal jobs show profile, readiness evidence or clear failure, receipt/vulns (and MCP assessment when planned), and sandbox-destroyed / `completed` state.
 
@@ -117,9 +117,9 @@ Jobs are **server-owned** (Plane 1). Closing the tab does **not** cancel. Resume
 - [ ] Empty and error states (including “no screenshots”, admission rejections, pre-flight hard-fail)
 - [ ] No control-plane secrets in client bundles
 - [ ] E2E against pinned fixtures (D53)
-- [ ] Deploy control plane to **Vultr Cloud Compute** with public HTTPS via reverse proxy; app binds `127.0.0.1` (D24, D46) only after ledger + admission + host reaper are live
+- [ ] Deploy control plane to **Vultr Cloud Compute** with public HTTPS via reverse proxy; app binds `127.0.0.1` (D24, D46) only after ledger + admission + host reaper are live — marketed hostname **[killhub.pro](https://killhub.pro)**
 
-**Done when:** Leave/return restores UI; demo reachable on Vultr behind admission controls and edge proxy.
+**Done when:** Leave/return restores UI; **https://killhub.pro** reachable on Vultr behind admission controls and edge proxy.
 
 ---
 
@@ -136,8 +136,8 @@ Jobs are **server-owned** (Plane 1). Closing the tab does **not** cancel. Resume
 - [x] **N-M0:** Frontend boots in compose
 - [ ] **N-M1:** Input creates job via Plane 1 API
 - [x] **N-M2:** Live status, progress, logs
-- [ ] **N-M3:** Report shows profile + vulns + sandbox lifecycle
-- [ ] **N-M4:** Reconnect / cancel; public Vultr demo URL live
+- [x] **N-M3:** Report shows profile + vulns + sandbox lifecycle
+- [ ] **N-M4:** Reconnect / cancel; public Vultr demo URL live (**https://killhub.pro**)
 
 ---
 

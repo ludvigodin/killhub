@@ -14,11 +14,11 @@
 
 ## Do
 
-- [ ] Show `environment_profile.json`
-- [ ] EnvStatus: readiness ≠ completion; show destroy/cleanup state
-- [ ] Render receipt: gates, probes, lifecycle, `verification.kind`
-- [ ] VulnReport by source (`sca`, `mcp_assessment`, `canary`, `network`, …)
-- [ ] Cancel control; clear copy that scan ≠ pentest
+- [x] Show `environment_profile.json`
+- [x] EnvStatus: readiness ≠ completion; show destroy/cleanup state
+- [x] Render receipt: gates, probes, lifecycle, `verification.kind`
+- [x] VulnReport by source (`sca`, `mcp_assessment`, `canary`, `network`, …)
+- [x] Cancel control; clear copy that scan ≠ pentest
 
 ## Do not
 

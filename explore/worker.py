@@ -1,4 +1,4 @@
-"""Background worker — claims pending jobs; optional bootstrap → containment."""
+"""Background worker — claims pending jobs; optional bootstrap → finalize."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ async def worker_loop(settings: Settings | None = None) -> None:
     poll = max(cfg.worker_poll_seconds, 0.2)
     logger.info(
         "worker started (poll=%ss auto_create=%s discover=%s install=%s verify=%s "
-        "screenshots=%s containment=%s)",
+        "screenshots=%s containment=%s finalize=%s)",
         poll,
         cfg.msb_auto_create,
         cfg.discover_on_claim,
@@ -24,6 +24,7 @@ async def worker_loop(settings: Settings | None = None) -> None:
         cfg.verify_on_claim,
         cfg.screenshots_on_claim,
         cfg.containment_on_claim,
+        cfg.finalize_on_claim,
     )
     while True:
         try:
@@ -37,6 +38,7 @@ async def worker_loop(settings: Settings | None = None) -> None:
                     or cfg.verify_on_claim
                     or cfg.screenshots_on_claim
                     or cfg.containment_on_claim
+                    or cfg.finalize_on_claim
                 ):
                     await asyncio.to_thread(_run_claimed_job, claimed.job_id, cfg)
         except asyncio.CancelledError:
@@ -52,6 +54,7 @@ def _run_claimed_job(job_id: str, settings: Settings) -> None:
     from containment import ContainmentError, run_containment_probes
     from discover import DiscoverError, discover_runtime_profile
     from errors import HarnessError
+    from finalize import FinalizeError, finalize_job
     from harness import (
         create_environment,
         default_bootstrap_plan,
@@ -63,32 +66,38 @@ def _run_claimed_job(job_id: str, settings: Settings) -> None:
     from verify import VerifyError, verify_readiness
 
     ledger = get_ledger(settings)
+    pipeline = (
+        settings.discover_on_claim
+        or settings.install_on_claim
+        or settings.verify_on_claim
+        or settings.screenshots_on_claim
+        or settings.containment_on_claim
+        or settings.finalize_on_claim
+    )
     try:
-        if (
-            settings.discover_on_claim
-            or settings.install_on_claim
-            or settings.verify_on_claim
-            or settings.screenshots_on_claim
-            or settings.containment_on_claim
-        ):
+        if pipeline:
             discover_runtime_profile(job_id, settings=settings, create=True)
             if (
                 settings.install_on_claim
                 or settings.verify_on_claim
                 or settings.screenshots_on_claim
                 or settings.containment_on_claim
+                or settings.finalize_on_claim
             ):
                 provision_and_go_offline(job_id, settings=settings)
             if (
                 settings.verify_on_claim
                 or settings.screenshots_on_claim
                 or settings.containment_on_claim
+                or settings.finalize_on_claim
             ):
                 verify_readiness(job_id, settings=settings)
-            if settings.screenshots_on_claim:
+            if settings.screenshots_on_claim or settings.finalize_on_claim:
                 maybe_capture_after_verify(job_id, settings=settings)
-            if settings.containment_on_claim:
+            if settings.containment_on_claim or settings.finalize_on_claim:
                 run_containment_probes(job_id, settings=settings)
+            if settings.finalize_on_claim:
+                finalize_job(job_id, settings=settings)
             return
         # Legacy T0 path: bootstrap create only.
         gen = create_environment(job_id, default_bootstrap_plan(settings), settings=settings)
@@ -106,22 +115,35 @@ def _run_claimed_job(job_id: str, settings: Settings) -> None:
         InstallError,
         VerifyError,
         ContainmentError,
+        FinalizeError,
     ) as exc:
         message = getattr(exc, "message", str(exc))
         code = getattr(exc, "code", "worker_error")
         logger.error("claimed job %s failed: %s", job_id, message)
         job = ledger.get_job(job_id)
         if job is not None and job.status not in {"failed", "cancelled", "completed"}:
+            ledger.append_event(
+                job_id,
+                typ="error",
+                message=message,
+                payload={"code": code, "phase": "worker_pipeline"},
+            )
+            ledger.update_job_fields(
+                job_id,
+                error=message,
+                current_step="pipeline failed",
+            )
+            if settings.finalize_on_claim:
+                # Best-effort SCA + receipt + destroy on fail paths (D53, D37).
+                try:
+                    finalize_job(job_id, settings=settings)
+                    return
+                except Exception:  # noqa: BLE001
+                    logger.exception("finalize after failure also failed for %s", job_id)
             ledger.update_job_fields(
                 job_id,
                 status="failed",
                 current_step="pipeline failed",
                 error=message,
                 progress=100,
-            )
-            ledger.append_event(
-                job_id,
-                typ="error",
-                message=message,
-                payload={"code": code, "phase": "worker_pipeline"},
             )

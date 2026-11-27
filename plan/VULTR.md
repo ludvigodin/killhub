@@ -21,7 +21,7 @@ Canonical product rules: [DECISIONS.md](../DECISIONS.md) D22, D23, D24, D25, **D
 
 1. **Before** sandbox steps (06+): confirm VX1 / `msb` via `msb doctor` (CLI) or Microsandbox MCP `runtime_check`. Confirm the host exists via **Vultr MCP** or `vultr-cli instance list`.
 2. **Harness code** in Killhub must call **`msb` / SDK** (D23) — not a homemade hypervisor. MCP is for *operators/agents building and debugging*; the durable product path is harness → `msb`.
-3. **Demo deploy (step 20):** provision/inspect the control-plane VM with Vultr MCP (read) + `vultr-cli` (write). Do not deploy Killhub demos off Vultr (D24).
+3. **Demo deploy (step 20):** provision/inspect the control-plane VM with Vultr MCP (read) + `vultr-cli` (write). Public hostname **[killhub.pro](https://killhub.pro)**. Do not deploy Killhub demos off Vultr (D24).
 4. **If MCP or CLI is unavailable:** **stop and report**. Do not mark the step done with a simulated Plane 2.
 5. **Secrets:** `VULTR_API_KEY` / inference keys stay on Plane 1 / operator env — never injected into sandboxes (D19).
 

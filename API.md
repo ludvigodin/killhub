@@ -18,7 +18,7 @@ flowchart LR
 
 | Path | Protocol | Auth (v1) |
 |------|----------|-----------|
-| Browser → Next.js | HTTPS | None (public demo) + admission (D40); edge bind `127.0.0.1` behind proxy on demo (D46) |
+| Browser → Next.js | HTTPS ([killhub.pro](https://killhub.pro)) | None (public demo) + admission (D40); edge bind `127.0.0.1` behind proxy on demo (D46) |
 | Next.js → `explore/` | HTTP localhost Internal Worker API | Loopback + `INTERNAL_API_TOKEN` (D52) |
 | Control plane → Vultr API | HTTPS | `VULTR_API_KEY` on Plane 1 server only |
 | Control plane → Plane 2 | Microsandbox `msb` / SDK on VX1 | Host access for harness; network policy (D39) |

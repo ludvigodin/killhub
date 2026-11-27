@@ -790,6 +790,41 @@ class Ledger:
             "status": row["status"],
         }
 
+    def upsert_vuln_report(
+        self,
+        job_id: str,
+        *,
+        summary: str,
+        findings: list[dict[str, Any]],
+        status: str,
+        mcp_assessment: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if status not in {"ok", "partial", "failed"}:
+            raise ValueError(f"invalid vuln_report status: {status}")
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO vuln_reports (
+                    job_id, summary, findings, mcp_assessment, status
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(job_id) DO UPDATE SET
+                    summary = excluded.summary,
+                    findings = excluded.findings,
+                    mcp_assessment = excluded.mcp_assessment,
+                    status = excluded.status
+                """,
+                (
+                    job_id,
+                    summary,
+                    _dumps(findings),
+                    _dumps(mcp_assessment) if mcp_assessment is not None else None,
+                    status,
+                ),
+            )
+        report = self.get_vuln_report(job_id)
+        assert report is not None
+        return report
+
     def upsert_receipt(
         self,
         job_id: str,

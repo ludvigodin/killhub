@@ -2,9 +2,21 @@
 
 **Paste a public GitHub URL. Get a verified running environment — and a receipt that outlives the sandbox.**
 
+**Try it live → [https://killhub.pro](https://killhub.pro)**
+
 Killhub stands up someone else’s repo the way you’d want a security-minded operator to: understand first, isolate always, prove readiness, surface known risk, then destroy the machine.
 
 Built on **Vultr** end-to-end — Cloud Compute control plane, [Serverless Inference](https://docs.vultr.com/products/serverless/inference/provisioning) for the agent, [Microsandbox](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute) microVMs for untrusted code.
+
+---
+
+## Try Killhub
+
+1. Open **[killhub.pro](https://killhub.pro)**
+2. Paste a **public** `https://github.com/...` URL
+3. Watch live status, readiness evidence, and the intake receipt — then the disposable sandbox is destroyed
+
+Public demo is anonymous and admission-limited (rate / concurrency / queue). Prefer small getting-started or MCP repos for a first run.
 
 ---
 
@@ -182,7 +194,7 @@ Untrusted code never runs as a privileged control-plane process. OpenCode only s
 
 | Layer | Where |
 |-------|-------|
-| Control plane demo | Vultr Cloud Compute (app on localhost behind reverse proxy) |
+| Public demo | **[https://killhub.pro](https://killhub.pro)** — Vultr Cloud Compute behind HTTPS reverse proxy (app on `127.0.0.1`) |
 | Agent reasoning | Vultr Serverless Inference (`api.vultrinference.com`) |
 | Untrusted execution | Microsandbox on Vultr VX1 — one microVM per job |
 | Local dev | `docker-compose` for Plane 1; sandboxes still provisioned on VX1 |
@@ -209,11 +221,14 @@ Operators, security-minded engineers, and internal teams who need to quickly and
 
 ## Quick start
 
-Docs-first while the stack is scaffolded:
+**Use the product:** [https://killhub.pro](https://killhub.pro)
+
+**Hack on the repo:**
 
 1. Read [PRODUCT.md](PRODUCT.md) — *what* and *why*
 2. Read [ARCHITECTURE.md](ARCHITECTURE.md) — planes, trust zones, lifecycle
 3. Follow [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) — build order by plane
+4. Copy [`.env.example`](.env.example) → `.env` (never commit secrets)
 
 ---
 
@@ -267,4 +282,4 @@ Private repos / OAuth · multi-user billing · long-lived customer sandboxes · 
 
 ## Definition of done
 
-A user pastes a public GitHub URL and, without refreshing, sees live status, a validated profile, verifiable readiness with an honest label, and a cited intake receipt — while one Microsandbox absorbs the work and is destroyed on completion, with Killhub secrets never entering the guest.
+On **[killhub.pro](https://killhub.pro)** (or a local control plane), a user pastes a public GitHub URL and, without refreshing, sees live status, a validated profile, verifiable readiness with an honest label, and a cited intake receipt — while one Microsandbox absorbs the work and is destroyed on completion, with Killhub secrets never entering the guest.

@@ -409,7 +409,7 @@ Caps: `MAX_SCREENSHOTS_PER_JOB` + disk budgets (D40); redact secrets; stills onl
 
 ## Admission (public demo)
 
-Anonymous `POST /api/jobs` is gated by D40: global concurrency, bounded queue, request throttling, inference budgets, disk/log caps. Rejections: `429` / `503` with explicit error codes ([API.md](API.md)).
+Public HTTPS edge: **[https://killhub.pro](https://killhub.pro)**. Anonymous `POST /api/jobs` is gated by D40: global concurrency, bounded queue, request throttling, inference budgets, disk/log caps. Rejections: `429` / `503` with explicit error codes ([API.md](API.md)).
 
 ---
 
@@ -462,7 +462,7 @@ flowchart TB
 | Environment | Plane 1 | Plane 2 | Inference |
 |-------------|---------|---------|-----------|
 | **Local dev** | `docker-compose` (ports may bind openly) | Microsandbox on reachable VX1 (`MSB_HOST`) | Vultr Serverless Inference |
-| **Public / demo** | Vultr Cloud Compute behind reverse proxy; app on `127.0.0.1` (D46) | Microsandbox on Vultr VX1 | Vultr Serverless Inference only |
+| **Public / demo** | **[killhub.pro](https://killhub.pro)** — Vultr Cloud Compute behind reverse proxy; app on `127.0.0.1` (D46) | Microsandbox on Vultr VX1 | Vultr Serverless Inference only |
 
 Control plane and VX1 may be the same Vultr host or split; sandboxes never run inside the Next.js process address space as shared-kernel containers substituting for Microsandbox.
 
