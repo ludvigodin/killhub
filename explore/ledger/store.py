@@ -154,10 +154,17 @@ class Ledger:
         *,
         env_ttl_seconds: int,
         job_id: str | None = None,
+        resolved_commit: str | None = None,
         status: JobStatus = "pending",
         current_step: str = "accepted",
     ) -> Job:
         github_url = validate_github_url(github_url)
+        # Known fixture pins must be present in the row before a worker can claim it.
+        if resolved_commit is not None and (
+            not isinstance(resolved_commit, str)
+            or not re.fullmatch(r"[0-9a-f]{40}", resolved_commit)
+        ):
+            raise ValueError("resolved_commit must be a full lowercase Git SHA")
         now = utc_now()
         expires = (
             (datetime.now(timezone.utc) + timedelta(seconds=env_ttl_seconds))
@@ -180,7 +187,7 @@ class Ledger:
                     event_cursor, expires_at, cleanup, destroyed_at,
                     cancel_requested_at, created_at, updated_at
                 ) VALUES (
-                    ?, ?, NULL, ?, 0, ?, '[]', NULL, NULL, NULL,
+                    ?, ?, ?, ?, 0, ?, '[]', NULL, NULL, NULL,
                     NULL, NULL, NULL, NULL, NULL, NULL,
                     NULL, ?, ?, NULL, NULL, ?, ?
                 )
@@ -188,6 +195,7 @@ class Ledger:
                 (
                     jid,
                     github_url,
+                    resolved_commit,
                     status,
                     current_step,
                     expires,

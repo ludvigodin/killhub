@@ -533,7 +533,14 @@ def discover_runtime_profile(
         raise DiscoverError(f"unknown job_id: {job_id}", code="not_found")
 
     fixture = match_fixture(job.github_url)
-    pin = str(fixture["commit"]) if fixture and fixture.get("commit") else None
+    catalog_pin = str(fixture["commit"]) if fixture and fixture.get("commit") else None
+    # A queued fixture's recorded commit takes precedence over the current catalog.
+    # If the fixture changed, its current build metadata may no longer fit that commit.
+    if job.resolved_commit is not None and catalog_pin and job.resolved_commit != catalog_pin:
+        raise DiscoverError("Fixture pin changed after admission", code="fixture_pin_changed")
+    pin = job.resolved_commit if job.resolved_commit is not None else catalog_pin
+    if pin is not None and not _SHA_RE.fullmatch(pin):
+        raise DiscoverError("Invalid recorded Git commit", code="invalid_commit")
     oci_image = (cfg.msb_default_image or "debian").strip()
 
     # Trusted prompts are host-owned (never submitted-repo AGENTS.md).

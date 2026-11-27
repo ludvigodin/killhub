@@ -21,7 +21,7 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from config import Settings
-from discover import infer_runtime_profile
+from discover import DiscoverError, discover_runtime_profile, infer_runtime_profile
 from fixtures import require_fixture
 from jobs import get_ledger, reset_ledger_for_tests
 
@@ -94,3 +94,26 @@ def test_legacy_runtime_requires_explicit_read_adapter() -> None:
     assert assert_runtime_ready_for_provision(legacy, stored=True) == canonical
     assert legacy["source"]["type"] == "git"
     assert "accept" in legacy["probes"][0]
+
+
+def test_discovery_rejects_catalog_pin_change_before_bootstrap(tmp_path: Path) -> None:
+    fixture = require_fixture("webapp_success")
+    settings = Settings(
+        _env_file=None,
+        LEDGER_URL=f"sqlite:///{tmp_path / 'ledger.db'}",
+        PROFILE_STORAGE=str(tmp_path / "profiles"),
+    )
+    ledger = get_ledger(settings)
+    try:
+        job = ledger.create_job(fixture["github_url"], env_ttl_seconds=60)
+        # Simulate a queued job admitted against a prior catalog revision.
+        previous = "b" * 40
+        ledger.update_job_fields(job.job_id, resolved_commit=previous)
+        with pytest.raises(DiscoverError) as error:
+            discover_runtime_profile(job.job_id, settings=settings)
+        assert error.value.code == "fixture_pin_changed"
+        assert ledger.list_profile_revisions(job.job_id) == []
+        saved = ledger.get_job(job.job_id)
+        assert saved is not None and saved.resolved_commit == previous and saved.sandbox_id is None
+    finally:
+        reset_ledger_for_tests()
