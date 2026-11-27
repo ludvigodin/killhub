@@ -20,6 +20,7 @@ from config import Settings, get_settings
 from harness import (
     LABEL_EXPIRES,
     LABEL_JOB,
+    LABEL_PROBE_OWNER,
     DestroyResult,
     HarnessError,
     MsbCli,
@@ -104,7 +105,9 @@ def reap_expired_from_ledger(
             env_id = note[len("live sandbox ") :].split(" ", 1)[0]
             # Host-managed killhub sandboxes without ledger → destroy (orphan).
             labels = msb.inspect_labels(env_id)
-            if _job_in_flight(ledger, labels.get(LABEL_JOB)):
+            # Probe VMs share their owner's deadline but are never its primary generation.
+            owner = labels.get(LABEL_JOB) or labels.get(LABEL_PROBE_OWNER)
+            if _job_in_flight(ledger, owner):
                 # D80: create → ledger generation write is not atomic; a VM
                 # whose job is still running is mid-provisioning, not an
                 # orphan. Absolute expires_at reaping still applies.

@@ -9,7 +9,7 @@ import pytest
 
 from config import get_settings
 from errors import HarnessError
-from harness import LABEL_JOB, CliResult, MsbCli
+from harness import LABEL_JOB, LABEL_PROBE_OWNER, CliResult, MsbCli
 from jobs import get_ledger
 from reaper import reap_expired_from_ledger
 from selfheal import heal_lost_sandbox, sandbox_alive
@@ -105,7 +105,8 @@ def test_heal_refuses_after_cancel(cfg) -> None:
     assert not heal_lost_sandbox(job.job_id, cause="x", attempt=1, settings=cfg, cli=cli)
 
 
-def test_reaper_skips_orphan_of_in_flight_job(cfg) -> None:
+@pytest.mark.parametrize("owner_label", [LABEL_JOB, LABEL_PROBE_OWNER])
+def test_reaper_skips_orphan_of_in_flight_job(cfg, owner_label) -> None:
     ledger = get_ledger(cfg)
     job = ledger.create_job(URL, env_ttl_seconds=3600)  # pending, no generation yet
     calls: list = []
@@ -113,7 +114,7 @@ def test_reaper_skips_orphan_of_in_flight_job(cfg) -> None:
         cfg,
         runner=_runner(
             live="kh-new\n",
-            labels={"killhub.managed": "1", LABEL_JOB: job.job_id},
+            labels={"killhub.managed": "1", owner_label: job.job_id},
             calls=calls,
         ),
     )
