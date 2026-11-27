@@ -2,6 +2,8 @@ import * as T from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { type FrameEvent, stations } from "@/lib/mainframe";
 
+import { RaptorGuide } from "./raptorGuide";
+
 function cabinetFace(label: string, evidence: boolean) {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
@@ -91,7 +93,33 @@ export function mountScene(
     scene.add(mesh);
     return mesh;
   }
-  box(0, -0.31, -13, 85, 0.6, 78, base);
+  const floor = box(0, -0.31, -13, 85, 0.6, 78, base);
+  const glow = new T.PointLight(0xffcb8e, 13, 8);
+  scene.add(glow);
+  glow.visible = false;
+  const shadowCanvas = document.createElement("canvas");
+  shadowCanvas.width = shadowCanvas.height = 64;
+  const ink = shadowCanvas.getContext("2d");
+  if (ink) {
+    const fade = ink.createRadialGradient(32, 32, 2, 32, 32, 32);
+    fade.addColorStop(0, "rgba(0,0,0,.62)");
+    fade.addColorStop(0.55, "rgba(0,0,0,.33)");
+    fade.addColorStop(1, "rgba(0,0,0,0)");
+    ink.fillStyle = fade;
+    ink.fillRect(0, 0, 64, 64);
+  }
+  const shadow = new T.Mesh(
+    new T.PlaneGeometry(1.15, 2.65),
+    new T.MeshBasicMaterial({
+      map: new T.CanvasTexture(shadowCanvas),
+      transparent: true,
+      depthWrite: false,
+    }),
+  );
+  shadow.rotation.order = "YXZ";
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.visible = false;
+  scene.add(shadow);
   const grid = new T.GridHelper(82, 82, 0x729989, 0x38564e);
   grid.position.z = -13;
   scene.add(grid);
@@ -147,7 +175,7 @@ export function mountScene(
     loading = false,
     raptor: T.Group | undefined,
     mixer: T.AnimationMixer | undefined,
-    patrol = 0;
+    guide: RaptorGuide | undefined;
   let banks: (FrameEvent | undefined)[] = [];
   camera.rotation.order = "YXZ";
   camera.position.set(0, 2.4, 8);
@@ -164,11 +192,14 @@ export function mountScene(
         raptor = g.scene;
         const bounds = new T.Box3().setFromObject(raptor);
         const height = bounds.getSize(new T.Vector3()).y;
-        raptor.scale.setScalar(1.45 / height);
+        raptor.scale.setScalar(1.35 / height);
         scene.add(raptor);
         mixer = new T.AnimationMixer(raptor);
-        const walk = g.animations.find((a) => a.name.endsWith("_Walk"));
-        if (walk) mixer.clipAction(walk).play();
+        const walk = T.AnimationClip.findByName(g.animations, "Walk");
+        if (walk) {
+          guide = new RaptorGuide(raptor, mixer, walk);
+          guide.appear(station, side);
+        }
         wake();
       },
       undefined,
@@ -209,21 +240,15 @@ export function mountScene(
     }
     camera.rotation.set(pitch, yaw, 0);
     if (raptor) {
-      raptor.visible = active;
+      raptor.visible = shadow.visible = glow.visible = active;
       if (active) {
-        if (!motion.matches) {
-          mixer?.update(dt);
-          patrol += dt * 0.75;
-        }
-        raptor.position.set(
-          Math.sin(patrol) * 1.15,
-          0,
-          2 - station * 4.3 + Math.cos(patrol) * 0.8,
-        );
-        raptor.rotation.y = Math.atan2(
-          1.15 * Math.cos(patrol),
-          -0.8 * Math.sin(patrol),
-        );
+        if (!motion.matches) guide?.step(dt, camera.position);
+        shadow.position.set(raptor.position.x, 0.018, raptor.position.z);
+        shadow.rotation.y = raptor.rotation.y;
+        glow.position.copy(raptor.position);
+        glow.position.x -= 1.2;
+        glow.position.y += 2.8;
+        glow.position.z += 1.8;
       }
     }
     const fraction = (now - packetStarted) / 950;
@@ -266,6 +291,12 @@ export function mountScene(
   const ro = new ResizeObserver(resize);
   ro.observe(canvas);
   resize();
+  function directRaptor(x: number, z: number) {
+    if (!guide || !active) return;
+    guide.goTo(x, z);
+    if (motion.matches) guide.model.position.copy(guide.destination);
+    wake();
+  }
   const ray = new T.Raycaster();
   let pointer: {
     x: number;
@@ -301,7 +332,9 @@ export function mountScene(
         ),
         camera,
       );
-      const hit = ray.intersectObjects(racks)[0];
+      const hit = ray.intersectObjects([...racks, floor])[0];
+      if (hit?.object === floor && active)
+        directRaptor(hit.point.x, hit.point.z);
       const entry = hit && banks[hit.object.userData.bank];
       if (entry) inspect(entry.event.id);
     }
@@ -348,9 +381,17 @@ export function mountScene(
         packetStarted = performance.now();
       }
       banks = items;
-      station = selected?.station ?? 0;
+      const nextStation = selected?.station ?? 0;
+      const changedBank =
+        station !== nextStation || side !== (selected?.bank ?? 0) % 2;
+      station = nextStation;
       side = (selected?.bank ?? 0) % 2;
       following = follow;
+      if (alert && !active) guide?.appear(station, side);
+      else if (alert && changedBank && guide) {
+        guide.approachStation(station, side);
+        if (motion.matches) guide.model.position.copy(guide.destination);
+      }
       active = alert;
       for (let i = 0; i < lamps.length; i++)
         lamps[i].color.set(
@@ -366,6 +407,12 @@ export function mountScene(
         );
       if (alert) loadRaptor();
       wake();
+    },
+    callRaptor() {
+      directRaptor(
+        camera.position.x - Math.sin(yaw) * 2.8,
+        camera.position.z - Math.cos(yaw) * 2.8,
+      );
     },
     flyForward() {
       following = false;

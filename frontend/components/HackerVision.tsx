@@ -131,7 +131,9 @@ export function HackerVision({ entries }: { entries: ProgressLogEntry[] }) {
         {danger && (
           <p className="text-sm text-[#ffd3ad]">
             {danger.alert} · {danger.event.message}
-            {modelMissing && " · Raptor model unavailable"}
+            {modelMissing
+              ? " · Raptor model unavailable"
+              : !unavailable && " · Click the aisle to guide the raptor."}
           </p>
         )}
         <fieldset
@@ -211,6 +213,15 @@ export function HackerVision({ entries }: { entries: ProgressLogEntry[] }) {
                   {followCamera ? "Take flight controls" : "Track station"}
                 </button>
               )}
+              {danger && !unavailable && !modelMissing && (
+                <button
+                  type="button"
+                  className={control}
+                  onClick={() => scene.current?.callRaptor()}
+                >
+                  Call raptor
+                </button>
+              )}
               {!unavailable && !followCamera && (
                 <button
                   type="button"
@@ -251,6 +262,16 @@ export function HackerVision({ entries }: { entries: ProgressLogEntry[] }) {
                 {JSON.stringify(selected.event.telemetry ?? {}, null, 2)}
               </pre>
             </details>
+            {danger && (
+              <a
+                className="text-xs text-[#afc5b7] underline underline-offset-2"
+                href="/hackervision/CREDITS.txt"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Raptor model by pistachio
+              </a>
+            )}
           </>
         )}
       </div>

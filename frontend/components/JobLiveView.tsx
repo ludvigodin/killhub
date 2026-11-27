@@ -519,7 +519,7 @@ export function JobLiveView({
         type="button"
         onClick={() => void onCancel()}
         disabled={busy || terminal || cancelling || !snapshot}
-        className="rounded-md border border-[#ff4d4d]/55 bg-[#1a0a0a] px-4 py-2 font-mono text-sm tracking-wide text-[#ff6b6b] shadow-[0_0_8px_rgba(255,77,77,0.2)] transition-[box-shadow,border-color,opacity,background-color] hover:border-[#ff4d4d] hover:bg-[#2a1010] hover:shadow-[0_0_14px_rgba(255,77,77,0.4)] disabled:opacity-40 disabled:shadow-none"
+        className="min-h-9 rounded px-2.5 text-sm font-medium text-(--muted) transition-colors enabled:hover:bg-(--danger-soft) enabled:hover:text-(--danger) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent) disabled:text-(--muted)/65"
       >
         {cancelling ? "Cancelling…" : "Cancel job"}
       </button>
@@ -527,9 +527,14 @@ export function JobLiveView({
         type="button"
         aria-pressed={vision}
         onClick={() => setVision(!vision)}
-        className="rounded-md border border-[#3dff9a]/50 bg-[#07151d] px-4 py-2 font-mono text-sm tracking-wide text-[#3dff9a] shadow-[0_0_8px_rgba(61,255,154,0.25)] transition-[box-shadow,border-color,background-color] hover:border-[#3dff9a] hover:shadow-[0_0_14px_rgba(61,255,154,0.45)] aria-pressed:border-[#80ffdb] aria-pressed:bg-[#102e32] aria-pressed:text-[#80ffdb] aria-pressed:shadow-[0_0_16px_rgba(128,255,219,0.4)]"
+        aria-expanded={vision}
+        className="inline-flex min-h-9 items-center gap-2.5 rounded-md border border-(--line) bg-(--paper-deep) px-3 text-sm font-medium text-(--ink) transition-colors hover:border-(--muted) aria-pressed:border-(--accent) aria-pressed:bg-(--accent-soft) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent)"
       >
         HackerVision
+        <span
+          aria-hidden="true"
+          className={`size-1.5 border-r border-b border-current opacity-70 ${vision ? "translate-y-0.5 rotate-[225deg]" : "-translate-y-0.5 rotate-45"}`}
+        />
       </button>
     </div>
   );
