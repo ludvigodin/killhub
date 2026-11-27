@@ -289,3 +289,59 @@ def test_restart_recovers_only_absent_generation(tmp_path, monkeypatch):
         assert ledger.get_receipt(job.job_id)["dossier"]["code"] == "worker_restart"
         recover_interrupted_jobs(cfg, cli)
         assert ledger.get_job(job.job_id).event_cursor == recovered.event_cursor
+
+
+def test_restart_removes_leftover_live_sandbox_then_finalizes(tmp_path, monkeypatch):
+    from config import Settings
+    from ledger import Ledger
+    from reaper import recover_interrupted_jobs
+
+    cfg = Settings(LEDGER_URL=f"sqlite:///{tmp_path}/ledger.db")
+    with Ledger.from_url(cfg.ledger_url) as ledger:
+        monkeypatch.setattr("reaper.get_ledger", lambda _: ledger)
+        job = ledger.create_job("https://github.com/example/demo", env_ttl_seconds=120)
+        ledger.append_sandbox_generation(
+            job.job_id,
+            environment_id="kh-left",
+            image="debian",
+            expires_at=job.expires_at,
+            state="running",
+            cpus=1,
+            memory="512M",
+        )
+        ledger.update_job_fields(job.job_id, status="verifying", current_step="verify")
+        cli = MagicMock()
+        inventories = iter(['[{"name":"kh-left"}]', "[]"])
+        cli.run.side_effect = lambda *a, **k: MagicMock(stdout=next(inventories))
+
+        recover_interrupted_jobs(cfg, cli)
+
+        cli.remove.assert_called_once_with("kh-left", force=True)
+        recovered = ledger.get_job(job.job_id)
+        assert recovered.status == "failed"
+        assert recovered.error == "Worker restarted; its leftover sandbox was removed."
+        assert recovered.cleanup.status == "destroyed"
+
+
+def test_restart_fails_in_flight_job_that_never_created_a_sandbox(tmp_path, monkeypatch):
+    from config import Settings
+    from ledger import Ledger
+    from reaper import recover_interrupted_jobs
+
+    cfg = Settings(LEDGER_URL=f"sqlite:///{tmp_path}/ledger.db")
+    with Ledger.from_url(cfg.ledger_url) as ledger:
+        monkeypatch.setattr("reaper.get_ledger", lambda _: ledger)
+        job = ledger.create_job("https://github.com/example/demo", env_ttl_seconds=120)
+        ledger.update_job_fields(job.job_id, status="analyzing", current_step="preflight")
+        cli = MagicMock()
+
+        recover_interrupted_jobs(cfg, cli)
+
+        cli.run.assert_not_called()  # no inventory needed when no VM was recorded
+        recovered = ledger.get_job(job.job_id)
+        assert recovered.status == "failed"
+        assert recovered.destroyed_at is None  # no VM existed: no destroy claim (D57)
+        receipt = ledger.get_receipt(job.job_id)
+        assert receipt["dossier"]["code"] == "worker_restart"
+        assert receipt["verification"]["kind"] == "setup_failed"
+        assert not ledger.finalize_interrupted_before_sandbox(recovered)  # idempotent

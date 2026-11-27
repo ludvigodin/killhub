@@ -210,26 +210,54 @@ def exact_sandbox_names(cli: MsbCli) -> set[str]:
 
 
 def recover_interrupted_jobs(settings: Settings, cli: MsbCli) -> None:
-    """Before accepting traffic on the single-host SQLite deployment, close lost runs."""
+    """Before accepting traffic on the single-host SQLite deployment, close lost runs.
+
+    Runs only in the first worker after downtime, so every in-flight job here
+    belongs to the dead process (D82):
+    - no sandbox yet → finalize ``failed`` (no destroy claim);
+    - recorded sandbox absent from inventory → finalize with confirmed destroy;
+    - recorded sandbox still live → remove it, re-inventory, then finalize only
+      if it is confirmed gone (otherwise leave it for the next start / reaper).
+    """
+    from service import release_admission_slot
+
     ledger = get_ledger(settings)
     if ledger.engine != "sqlite":
         return
-    candidates = [
+    in_flight = [
         job
         for job in ledger.list_jobs()
-        if job.sandbox_id
-        and job.current_sandbox_generation is not None
-        and job.status not in {"pending", "queued", "completed", "failed", "cancelled"}
+        if job.status not in {"pending", "queued", "completed", "failed", "cancelled"}
     ]
-    if not candidates:
+    if not in_flight:
+        return
+    with_vm = []
+    for job in in_flight:
+        if job.sandbox_id and job.current_sandbox_generation is not None:
+            with_vm.append(job)
+        elif ledger.finalize_interrupted_before_sandbox(job):
+            release_admission_slot(was_running=True, settings=settings)
+    if not with_vm:
         return
     live = exact_sandbox_names(cli)
-    for job in candidates:
+    leftover = {job.sandbox_id for job in with_vm if job.sandbox_id in live}
+    for env_id in sorted(leftover):
+        logger.warning("removing sandbox %s left running by the previous worker", env_id)
+        cli.remove(env_id, force=True)
+    if leftover:
+        live = exact_sandbox_names(cli)
+    for job in with_vm:
         if job.sandbox_id in live:
+            logger.warning(
+                "sandbox %s still live after removal; job %s left", job.sandbox_id, job.job_id
+            )
             continue
-        if ledger.finalize_missing_generation(job):
-            from service import release_admission_slot
-
+        reason = (
+            "Worker restarted; its leftover sandbox was removed."
+            if job.sandbox_id in leftover
+            else None
+        )
+        if ledger.finalize_missing_generation(job, reason=reason):
             release_admission_slot(was_running=True, settings=settings)
 
 
