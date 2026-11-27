@@ -83,7 +83,7 @@ export function SectionNav({ items }: SectionNavProps) {
     <>
       <nav
         aria-label="Page sections"
-        className="sticky top-14 z-40 -mx-4 mb-2 border-b border-(--line)/50 bg-(--paper)/85 px-4 py-2.5 backdrop-blur-md sm:-mx-6 sm:px-6 lg:hidden"
+        className="-mx-4 mb-2 border-b border-(--line)/50 px-4 py-2.5 sm:-mx-6 sm:px-6 lg:hidden"
       >
         <ul className="-mx-1 m-0 flex list-none gap-1.5 overflow-x-auto p-0 px-1 scrollbar-none [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden">
           {items.map((item) => {

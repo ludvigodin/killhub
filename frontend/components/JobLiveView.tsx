@@ -38,7 +38,6 @@ import {
   type SectionNavItem,
 } from "./SectionNav";
 import { StatusBadge } from "./StatusBadge";
-import { VerificationBadge } from "./VerificationBadge";
 
 function shortJobId(jobId: string): string {
   return jobId.length > 12 ? `${jobId.slice(0, 8)}…` : jobId;
@@ -632,7 +631,6 @@ export function JobLiveView({
                   ) : (
                     <StatusBadge status={snapshot.status} />
                   )}
-                  <VerificationBadge kind={snapshot.verification?.kind} />
                   {cancelling ? (
                     <span className="type-mono inline-flex items-center gap-1.5 tracking-wide text-(--warn)">
                       <span className="job-live-dot" aria-hidden />
