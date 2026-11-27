@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from time import monotonic
 from typing import Any, AsyncIterator, Dict, List, Optional, Union
+from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
@@ -18,6 +19,7 @@ from config import get_settings
 from fixtures import intake_catalog, resolve_intake_fixture
 from jobs import get_ledger
 from ledger import Ledger
+from ledger.registry_pins import RegistryPinConflict, get_registry_pin, persist_registry_pin
 from ledger.store import validate_github_url
 from novnc_bridge import console_metadata
 from package_metadata import PackageMetadataError, resolve_package_metadata
@@ -41,6 +43,10 @@ class CreateJobBody(BaseModel):
     fixture_id: str | None = Field(default=None, min_length=1, max_length=96)
 
 
+class RegistryPinBody(BaseModel):
+    locator: str = Field(min_length=1, max_length=320)
+
+
 def _error(status_code: int, message: str, code: str) -> HTTPException:
     return HTTPException(
         status_code=status_code,
@@ -53,14 +59,37 @@ def get_fixture_catalog() -> dict[str, Any]:
     return intake_catalog(restricted=get_settings().public_demo_fixtures_only)
 
 
-@router.get("/registry/resolve")
-def get_registry_release(locator: str = Query(min_length=1, max_length=320)) -> dict:
-    """Resolve release metadata without admitting a job or fetching an artifact."""
+def _resolve_registry_release(locator: str) -> dict:
     try:
         with httpx.Client(timeout=4, trust_env=False) as client:
             return resolve_package_metadata(locator, client=client)
     except PackageMetadataError as exc:
         raise _error(exc.status, str(exc), exc.code) from exc
+
+
+@router.get("/registry/resolve")
+def get_registry_release(locator: str = Query(min_length=1, max_length=320)) -> dict:
+    """Resolve release metadata without admitting a job or fetching an artifact."""
+    return _resolve_registry_release(locator)
+
+
+@router.post("/registry/pins")
+def post_registry_pin(body: RegistryPinBody) -> dict:
+    """Record only digests sourced from the trusted registry lookup."""
+    release = _resolve_registry_release(body.locator)
+    try:
+        return persist_registry_pin(release, settings=get_settings())
+    except RegistryPinConflict as exc:
+        raise _error(409, str(exc), "registry_pin_conflict") from exc
+
+
+@router.get("/registry/pins/{pin_id}")
+def read_registry_pin(pin_id: UUID) -> dict:
+    """Read the stored artifact identity without contacting the registry."""
+    record = get_registry_pin(str(pin_id), settings=get_settings())
+    if record is None:
+        raise _error(404, "Registry pin not found", "not_found")
+    return record
 
 
 @router.post("/jobs", status_code=status.HTTP_201_CREATED)

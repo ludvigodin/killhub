@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from ledger.db import SqliteConnection, upsert_meta_sql, wrap_connection
-from ledger.schema import CHECKOUT_INTEGRITY_SQL, SCHEMA_SQL, SCHEMA_SQL_POSTGRES
+from ledger.schema import CHECKOUT_INTEGRITY_SQL, REGISTRY_PINS_SQL, SCHEMA_SQL, SCHEMA_SQL_POSTGRES
 from ledger.url import LedgerEngine
 
 
@@ -44,7 +44,15 @@ def _add_checkout_integrity(conn: Any) -> None:
     conn.execute(CHECKOUT_INTEGRITY_SQL)
 
 
-MIGRATIONS = (Migration(2, "sandbox checkout digests", _add_checkout_integrity),)
+def _add_registry_pins(conn: Any) -> None:
+    """Record immutable registry evidence independently of runnable jobs."""
+    conn.execute(REGISTRY_PINS_SQL)
+
+
+MIGRATIONS = (
+    Migration(2, "sandbox checkout digests", _add_checkout_integrity),
+    Migration(3, "registry release pins", _add_registry_pins),
+)
 
 
 def latest_version(migrations: Sequence[Migration] = MIGRATIONS) -> int:

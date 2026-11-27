@@ -19,6 +19,18 @@ CREATE TABLE IF NOT EXISTS sandbox_checkout_integrity (
 """
 
 # Shared table/index DDL (no engine-specific pragmas).
+REGISTRY_PINS_SQL = """
+CREATE TABLE IF NOT EXISTS registry_release_pins (
+    pin_id TEXT PRIMARY KEY,
+    registry TEXT NOT NULL,
+    package TEXT NOT NULL,
+    version TEXT NOT NULL,
+    artifact_digests TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (registry, package, version)
+)
+"""
+
 _TABLES_SQL = f"""
 CREATE TABLE IF NOT EXISTS jobs (
     job_id TEXT PRIMARY KEY,
@@ -87,6 +99,7 @@ CREATE TABLE IF NOT EXISTS sandbox_generations (
 );
 
 {CHECKOUT_INTEGRITY_SQL};
+{REGISTRY_PINS_SQL};
 
 CREATE TABLE IF NOT EXISTS screenshots (
     screenshot_id TEXT PRIMARY KEY,
