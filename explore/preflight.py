@@ -347,11 +347,6 @@ def run_preflight(
         )
         if meta_finding is not None:
             findings.append(meta_finding)
-            if meta_finding.diagnostics.get("reason") == "rate_limited":
-                # Public-page reachability still catches missing repos while metadata is limited.
-                reach = _host_reachability(parsed.url, timeout=timeout)
-                if reach is not None:
-                    findings.append(reach)
 
         if data is not None:
             meta["github"] = {

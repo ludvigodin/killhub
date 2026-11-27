@@ -296,23 +296,3 @@ def test_metadata_diagnostics_and_cooldown(monkeypatch, status, remaining, expec
     clock[0] = 1101
     _github_repo_meta("owner", "three", api_base="https://api.github.com", timeout=1)
     assert len(calls) == expected_calls + 1
-
-
-def test_rate_limited_metadata_still_checks_public_repo(monkeypatch):
-    from config import get_settings
-    from preflight import PreflightFinding
-
-    warning = PreflightFinding(
-        "github_api_limited", "rate limit", "info", diagnostics={"reason": "rate_limited"}
-    )
-    monkeypatch.setattr("preflight._github_repo_meta", lambda *args, **kwargs: (None, warning))
-    monkeypatch.setattr(
-        "preflight._host_reachability",
-        lambda *args, **kwargs: PreflightFinding(
-            "repo_not_found", "missing", "critical", hard=True
-        ),
-    )
-    cfg = get_settings().model_copy(update={"preflight_enabled": True})
-    result = run_preflight("https://github.com/org/missing", settings=cfg)
-    assert not result.ok_to_bootstrap
-    assert [f.code for f in result.findings] == ["github_api_limited", "repo_not_found"]
