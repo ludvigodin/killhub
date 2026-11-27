@@ -14,7 +14,7 @@ const PIPELINE = [
   {
     label: "Prove",
     short: "Evidence",
-    detail: "Readiness · stills · containment - honest outcome labels",
+    detail: "Readiness · isolation · cited advisories · optional stills",
   },
   {
     label: "Destroy",
@@ -309,6 +309,34 @@ function TwoPlanes() {
   );
 }
 
+const EVIDENCE_CLASSES = [
+  {
+    label: "Readiness",
+    detail:
+      "HTTP or MCP handshake proves the target answers - labeled original_application, generated_demo, or setup_failed.",
+  },
+  {
+    label: "Network / containment",
+    detail:
+      "Guest cannot call Plane 1 or sibling sandboxes; hostile loops time out; planted canaries are watched.",
+  },
+  {
+    label: "Dependency SCA",
+    detail:
+      "Known advisories from lockfiles, cite-checked on Plane 1 - separate from intentional-app findings.",
+  },
+  {
+    label: "Optional MCP assessment",
+    detail:
+      "Bounded surface check only when the profile plans it - not a generic exploit suite.",
+  },
+  {
+    label: "Optional stills",
+    detail:
+      "Screenshot trail when HTTP verify captures; stills never gate job completion.",
+  },
+] as const;
+
 const DONE_EVIDENCE = [
   {
     label: "Readiness",
@@ -321,6 +349,10 @@ const DONE_EVIDENCE = [
   {
     label: "Containment",
     detail: "∞ loop absorbed, then destroy",
+  },
+  {
+    label: "Cited advisories",
+    detail: "Lockfile SCA summarized with citations",
   },
 ] as const;
 
@@ -338,6 +370,51 @@ const DONE_EXCLUSIONS = [
     detail: "No sandbox after the receipt",
   },
 ] as const;
+
+function EvidenceClasses() {
+  return (
+    <figure
+      className="evidence-ledger m-0"
+      aria-label="Evidence classes Killhub collects"
+    >
+      <div className="evidence-ledger-sheet">
+        <header className="evidence-ledger-head">
+          <div>
+            <p className="type-eyebrow text-(--accent)">Job evidence</p>
+            <p className="mt-1 type-section-title">What Killhub tests</p>
+          </div>
+          <p className="evidence-ledger-stamp">Five classes</p>
+        </header>
+
+        <ol className="evidence-ledger-list m-0 list-none p-0">
+          {EVIDENCE_CLASSES.map((item, i) => (
+            <li key={item.label} className="evidence-ledger-row">
+              <span className="evidence-ledger-index type-mono tabular-nums text-(--accent)">
+                {String(i + 1).padStart(2, "0")}
+              </span>
+              <span>
+                <span className="block text-sm font-semibold tracking-tight text-(--ink)">
+                  {item.label}
+                </span>
+                <span className="block text-sm leading-snug text-(--muted)">
+                  {item.detail}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ol>
+
+        <footer className="evidence-ledger-foot">
+          <p className="type-eyebrow text-(--danger)">Not a pentest suite</p>
+          <p className="mt-1 text-sm leading-snug text-(--muted)">
+            Killhub does not weaponize CVEs or run generic app/web exploit
+            packs. Containment proves isolation - it is not CVE hunting.
+          </p>
+        </footer>
+      </div>
+    </figure>
+  );
+}
 
 function SecurityScope() {
   return (
@@ -435,9 +512,16 @@ export function MarketingDiagrams() {
         <TwoPlanes />
       </Section>
       <Section
-        title="What “done” looks like"
-        support="Judges and operators see executed results: readiness, stills, containment absorption, and a durable receipt after destroy."
+        title="Evidence Killhub collects"
+        support="Five probe classes on every job path that reaches prove - plus an explicit line on what Killhub does not run."
         delay={160}
+      >
+        <EvidenceClasses />
+      </Section>
+      <Section
+        title="What “done” looks like"
+        support="Judges and operators see executed results: readiness, stills, containment absorption, cited advisories, and a durable receipt after destroy."
+        delay={200}
       >
         <SecurityScope />
       </Section>

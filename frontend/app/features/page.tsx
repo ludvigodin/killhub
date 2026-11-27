@@ -20,8 +20,8 @@ export default function FeaturesPage() {
           <p className="type-eyebrow mb-2 text-(--accent)">Features</p>
           <h1 className="type-page-title mb-2">Pattern A on Vultr</h1>
           <p className="max-w-xl text-base leading-relaxed text-(--muted)">
-            How Killhub plans, sandboxes, proves, and destroys - with a hard
-            plane boundary.
+            How Killhub plans, sandboxes, proves, and destroys - readiness,
+            isolation probes, and cited risk behind a hard plane boundary.
           </p>
         </header>
         <MarketingDiagrams />
