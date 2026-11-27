@@ -11,6 +11,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 from canaries import scan_canaries
 from config import Settings, get_settings
@@ -130,32 +131,43 @@ def _guest_fetch(
     probe_session: str,
 ) -> tuple[str, int, str]:
     """Return (classification, exit_code, detail)."""
+    # Check the TCP boundary directly. HTTP authorization and TLS errors can
+    # occur after a connection succeeds and must never count as a network deny.
+    endpoint = urlsplit(url)
+    script = """import errno, socket, sys
+try:
+    with socket.create_connection((sys.argv[1], int(sys.argv[2])), float(sys.argv[3])):
+        print("connected")
+except OSError as exc:
+    unreachable = (errno.ENETUNREACH, errno.EHOSTUNREACH, errno.EACCES, errno.EPERM)
+    if isinstance(exc, TimeoutError) or exc.errno in unreachable:
+        print("unreachable")
+    else:
+        print("inconclusive")
+"""
     result = exec_command(
         environment_id,
         [
-            "sh",
-            "-lc",
-            (
-                f"export KILLHUB_PROBE_SESSION={_shell_quote(probe_session)}; "
-                f"if [ -x {GUEST_HELPERS}/network_probe.sh ]; then "
-                f"{GUEST_HELPERS}/network_probe.sh {_shell_quote(url)} {int(timeout)}; "
-                f"elif command -v wget >/dev/null 2>&1; then "
-                f"wget -qO- --timeout={int(timeout)} {_shell_quote(url)} >/dev/null; "
-                f"elif command -v curl >/dev/null 2>&1; then "
-                f"curl -fsS --max-time {int(timeout)} {_shell_quote(url)} >/dev/null; "
-                f"else echo tooling_missing; exit 3; fi"
-            ),
+            "env",
+            f"KILLHUB_PROBE_SESSION={probe_session}",
+            "python3",
+            "-I",
+            "-c",
+            script,
+            endpoint.hostname or "",
+            str(endpoint.port or (443 if endpoint.scheme == "https" else 80)),
+            str(timeout),
         ],
         job_id=job_id,
         settings=settings,
         timeout=timeout + 20,
     )
-    text = (result.stdout or "") + (result.stderr or "")
-    if result.exit_code == 0:
-        return "ok", 0, text[:200]
-    if result.exit_code == 3 or "tooling_missing" in text:
-        return "tooling_missing", result.exit_code, text[:200]
-    return "denied", result.exit_code, text[:200]
+    marker = (result.stdout or "").strip()
+    if result.exit_code == 0 and marker == "connected":
+        return "ok", 0, marker
+    if result.exit_code == 0 and marker == "unreachable":
+        return "denied", 0, marker
+    return "inconclusive", result.exit_code, "no verified network result"
 
 
 def _collect_install_cp_probe(job_id: str, settings: Settings) -> dict[str, Any] | None:
@@ -278,27 +290,11 @@ def probe_host_access_denied(
         targets.append({"name": "msb_host", "url": f"http://{host}/"})
 
     probes: list[dict[str, Any]] = []
-    any_policy_denied = False
     any_bypass = False
 
     for target in targets:
         url = target["url"]
         host_ok, host_detail = _host_fetch_ok(url)
-        # For host.microsandbox.internal, host-side fetch from Plane 1 Mac may fail —
-        # treat msb exec to guest's host alias positive control via sibling? Use
-        # host_ok only when URL is globally reachable; else positive = host process up.
-        if target["name"] in {"host_internal", "host_gateway_ip"}:
-            # Positive control: harness can still exec on this sandbox (host alive).
-            ping = exec_command(
-                environment_id,
-                ["true"],
-                job_id=job_id,
-                settings=cfg,
-                timeout=20,
-            )
-            host_ok = ping.exit_code == 0
-            host_detail = "sandbox_exec_ok" if host_ok else "sandbox_exec_failed"
-
         guest_class, guest_code, guest_detail = _guest_fetch(
             environment_id,
             url,
@@ -307,16 +303,15 @@ def probe_host_access_denied(
             probe_session=session,
         )
 
-        if not host_ok:
-            classification = "inconclusive"
-        elif guest_class == "tooling_missing":
-            classification = "tooling_missing"
-        elif guest_class == "ok":
+        if guest_class == "ok":
             classification = "policy_bypass"
             any_bypass = True
-        else:
+        elif host_ok and guest_class == "denied":
             classification = "policy_denied"
-            any_policy_denied = True
+        elif guest_class == "tooling_missing":
+            classification = "tooling_missing"
+        else:
+            classification = "inconclusive"
 
         item = {
             "name": target["name"],
@@ -366,13 +361,13 @@ def probe_host_access_denied(
     install_ok = bool(install_cp and install_cp.get("classification") == "policy_denied")
     # Proven host deny needs verify-phase policy_denied AND install-phase CP deny
     # so offline mode cannot masquerade as CP isolation (D65).
-    proven = any_policy_denied and install_ok and not any_bypass
+    proven = (
+        bool(cp_url) and install_ok and all(p["classification"] == "policy_denied" for p in probes)
+    )
     if any_bypass:
         classification = "policy_bypass"
     elif proven:
         classification = "policy_denied"
-    elif any_policy_denied and not install_ok:
-        classification = "inconclusive"
     else:
         classification = "inconclusive"
 
@@ -547,9 +542,12 @@ def probe_sibling_access_denied(
             elif guest_class == "tooling_missing":
                 classification = "tooling_missing"
                 ok = False
-            else:
+            elif guest_class == "denied":
                 classification = "policy_denied"
                 ok = True
+            else:
+                classification = "inconclusive"
+                ok = False
             evidence.update(
                 {
                     "ok": ok,
