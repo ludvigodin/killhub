@@ -37,6 +37,18 @@ def _parse_iso(value: str) -> datetime | None:
         return None
 
 
+def _job_in_flight(ledger: Any, job_id: str | None) -> bool:
+    if not job_id:
+        return False
+    job = ledger.get_job(job_id)
+    if job is None or job.status in {"failed", "cancelled", "completed"}:
+        return False
+    if job.cancel_requested_at is not None or job.destroyed_at is not None:
+        return False
+    expires = _parse_iso(job.expires_at) if job.expires_at else None
+    return expires is None or expires > datetime.now(timezone.utc)
+
+
 def reap_expired_from_ledger(
     *,
     settings: Settings | None = None,
@@ -89,6 +101,12 @@ def reap_expired_from_ledger(
             env_id = note[len("live sandbox ") :].split(" ", 1)[0]
             # Host-managed killhub sandboxes without ledger → destroy (orphan).
             labels = msb.inspect_labels(env_id)
+            if _job_in_flight(ledger, labels.get(LABEL_JOB)):
+                # D80: create → ledger generation write is not atomic; a VM
+                # whose job is still running is mid-provisioning, not an
+                # orphan. Absolute expires_at reaping still applies.
+                logger.info("skip orphan destroy for in-flight job env=%s", env_id)
+                continue
             if labels.get("killhub.managed") == "1" or LABEL_JOB in labels:
                 result = destroy_environment(
                     env_id,
