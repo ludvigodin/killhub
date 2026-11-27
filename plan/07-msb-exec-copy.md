@@ -13,15 +13,15 @@
 
 ## Vultr / msb tooling (required)
 
-- [ ] Implement `exec` / `copy_in` / `copy_out` with **`msb exec`** and **`msb copy`** (or official SDK) only
-- [ ] Optional debug: Microsandbox MCP sandbox tools — product path remains harness → `msb` (D23)
+- [x] Implement `exec` / `copy_in` / `copy_out` with **`msb exec`** and **`msb copy`** (or official SDK) only
+- [x] Optional debug: Microsandbox MCP sandbox tools — product path remains harness → `msb` (D23)
 
 ## Do
 
-- [ ] `exec(environment_id, cmd)` → stdout/stderr/exit_code + per-call timeout
-- [ ] `copy_in` / `copy_out` with **D60** restrictions: logical helper ids / artifact kinds; allowlisted helper roots + per-job artifact dirs; reject `..`, symlink escape, oversized copies
-- [ ] Assert Killhub API/inference keys are **absent** from guest env
-- [ ] Stream exec failures as job `log` events (no secrets)
+- [x] `exec(environment_id, cmd)` → stdout/stderr/exit_code + per-call timeout
+- [x] `copy_in` / `copy_out` with **D60** restrictions: logical helper ids / artifact kinds; allowlisted helper roots + per-job artifact dirs; reject `..`, symlink escape, oversized copies
+- [x] Assert Killhub API/inference keys are **absent** from guest env
+- [x] Stream exec failures as job `log` events (no secrets)
 
 ## Do not
 

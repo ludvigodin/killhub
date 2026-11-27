@@ -105,7 +105,39 @@ Microsandbox defaults allow public-internet egress and deny host/private/metadat
 | SCA | Prefer Plane-1 advisory scan of lockfiles copied to `storage/artifacts/{job_id}/`; no live registry `npm audit` after offline (D43) |
 | Proof | See containment evidence rules below (D65) — failed fetch alone is insufficient |
 
-Document the concrete SDK / `--net*` / `--net-rule` composition used in create here when implemented (deny-list on `public` vs strict allowlist are both allowed for **install** if they satisfy the table; **verify** is deny-all remaining).
+### Concrete `msb` flags (Killhub — implemented)
+
+**Install / provision phase** (`explore/net_policy.py` → `install_phase_policy`, always applied on create — cannot be skipped):
+
+```bash
+msb create --name kh-<job> --cpus N --memory SIZE \
+  --env KILLHUB_CANARY_*=… \          # randomized canaries (D44), not real secrets
+  --net public \
+  --net-rule deny@host \
+  --net-rule deny@private \
+  --net-rule deny@meta \
+  --net-rule deny@<CONTROL_PLANE_DENY_HOSTS…> \
+  --net-rule deny@<MSB_HOST ip/hostname> \
+  [--net / --net-rule from MSB_NET_POLICY extras] \
+  <image>
+```
+
+| Flag | Role |
+|------|------|
+| `--net public` | Package/git egress during install (D43 phase 1) |
+| `deny@host` / `deny@private` / `deny@meta` | Host, RFC1918/link-local private, cloud metadata |
+| `deny@<cp>` | Explicit control-plane / Jobs API destinations (`CONTROL_PLANE_DENY_HOSTS`) |
+| Sibling isolation | Microsandbox default (inter-sandbox denied) — no extra flag |
+
+**Verify / containment phase** (applied later in step 13 — `verify_phase_policy`):
+
+```bash
+# deny-all remaining guest egress (loopback only)
+msb … --no-net
+# or equivalent net-default deny with no public allows
+```
+
+Operator extras via `MSB_NET_POLICY` (comma list): bare tokens are extra `--net` profiles; `rule:TOKEN` appends `--net-rule TOKEN` after Killhub denies.
 
 ## Containment evidence (D58 + D65)
 

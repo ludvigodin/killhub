@@ -14,16 +14,16 @@
 
 ## Vultr / msb tooling (required)
 
-- [ ] Encode network policy using Microsandbox **`msb` / SDK** `--net*` (or equivalent) on create — document exact flags in IMPLEMENTATION_TEST_VM.md
-- [ ] Verify VX1 / policy assumptions with Vultr MCP or `vultr-cli` if host networking/firewall is involved
+- [x] Encode network policy using Microsandbox **`msb` / SDK** `--net*` (or equivalent) on create — document exact flags in IMPLEMENTATION_TEST_VM.md
+- [x] Verify VX1 / policy assumptions with Vultr MCP or `vultr-cli` if host networking/firewall is involved
 
 ## Do
 
-- [ ] Apply egress policy on create: deny control-plane + management; sibling isolation
-- [ ] Document concrete `--net*` / SDK flags in IMPLEMENTATION_TEST_VM.md
-- [ ] Plant randomized canaries (env/files); never real Killhub secrets
-- [ ] Do not log canary plaintext in SSE
-- [ ] Stub hooks for later `network_probe` / canary scan (step 15)
+- [x] Apply egress policy on create: deny control-plane + management; sibling isolation
+- [x] Document concrete `--net*` / SDK flags in IMPLEMENTATION_TEST_VM.md
+- [x] Plant randomized canaries (env/files); never real Killhub secrets
+- [x] Do not log canary plaintext in SSE
+- [x] Stub hooks for later `network_probe` / canary scan (step 15)
 
 ## Do not
 

@@ -103,6 +103,8 @@ class Ledger:
         )
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
+        self._conn.execute("PRAGMA journal_mode = WAL")
+        self._conn.execute("PRAGMA busy_timeout = 5000")
         self._conn.executescript(SCHEMA_SQL)
         self._conn.execute(
             "INSERT OR REPLACE INTO ledger_meta(key, value) VALUES (?, ?)",

@@ -29,10 +29,10 @@ Plane detail (when a step says “see plane doc”):
 | [x] | [03-ledger-core](03-ledger-core.md) | Durable job/event store (D41) |
 | [x] | [04-internal-worker-api](04-internal-worker-api.md) | Python Internal Worker API (D52) |
 | [x] | [05-jobs-proxy-admission](05-jobs-proxy-admission.md) | Next proxy + admission + SSE cursor (N1) |
-| [ ] | [06-msb-create-destroy](06-msb-create-destroy.md) | Microsandbox create/destroy + reaper (T0) |
-| [ ] | [07-msb-exec-copy](07-msb-exec-copy.md) | Exec + copy in/out (T1) |
-| [ ] | [08-net-policy-canaries](08-net-policy-canaries.md) | Network policy + canaries on create (D39, D44) |
-| [ ] | [09-preflight](09-preflight.md) | Plane-1 pre-flight before create (D45) |
+| [x] | [06-msb-create-destroy](06-msb-create-destroy.md) | Microsandbox create/destroy + reaper (T0) |
+| [x] | [07-msb-exec-copy](07-msb-exec-copy.md) | Exec + copy in/out (T1) |
+| [x] | [08-net-policy-canaries](08-net-policy-canaries.md) | Network policy + canaries on create (D39, D44) |
+| [x] | [09-preflight](09-preflight.md) | Plane-1 pre-flight before create (D45) |
 | [ ] | [10-opencode-lockdown](10-opencode-lockdown.md) | Trusted OpenCode + Vultr inference only (D38, D25) |
 | [ ] | [10b-pin-fixtures](10b-pin-fixtures.md) | Pin M7 fixture commit SHAs before discover (D53) |
 | [ ] | [11-bootstrap-discover](11-bootstrap-discover.md) | Bootstrap sandbox + discover runtime profile (D36) |

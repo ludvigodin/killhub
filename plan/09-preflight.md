@@ -14,10 +14,10 @@
 
 ## Do
 
-- [ ] After URL + admission: pre-flight module (metadata / cheap risk as available)
-- [ ] Hard-fail → terminal/failed with `finding.source=preflight`; **no** `msb create`
-- [ ] Soft signals → continue with findings attached
-- [ ] Emit `log.kind=preflight` / `finding` events
+- [x] After URL + admission: pre-flight module (metadata / cheap risk as available)
+- [x] Hard-fail → terminal/failed with `finding.source=preflight`; **no** `msb create`
+- [x] Soft signals → continue with findings attached
+- [x] Emit `log.kind=preflight` / `finding` events
 
 ## Do not
 

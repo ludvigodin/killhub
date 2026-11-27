@@ -14,17 +14,17 @@
 
 ## Vultr / msb tooling (required)
 
-- [ ] Locate/verify the VX1 instance with **Vultr MCP** or `vultr-cli instance list` (D59)
-- [ ] On the host: `msb doctor` (or Microsandbox MCP `runtime_check`) must pass
-- [ ] Harness implements create/destroy by calling **`msb` CLI or official SDK** — not Docker, not a mock
+- [x] Locate/verify the VX1 instance with **Vultr MCP** or `vultr-cli instance list` (D59)
+- [x] On the host: `msb doctor` (or Microsandbox MCP `runtime_check`) must pass
+- [x] Harness implements create/destroy by calling **`msb` CLI or official SDK** — not Docker, not a mock
 
 ## Do
 
-- [ ] `harness.py`: `create_environment` / `wait_until_ready` / `destroy_environment` wrapping `msb create` / status / `msb stop` + `msb remove`
-- [ ] Set absolute `expires_at` at create; `msb touch` must not extend it
-- [ ] Emit lifecycle create/destroy events to the ledger
-- [ ] Confirm destroy only sets `destroyed_at` after successful remove (D57)
-- [ ] Host-side reaper for past `expires_at` + Plane 1 orphan reconcile stub
+- [x] `harness.py`: `create_environment` / `wait_until_ready` / `destroy_environment` wrapping `msb create` / status / `msb stop` + `msb remove`
+- [x] Set absolute `expires_at` at create; `msb touch` must not extend it
+- [x] Emit lifecycle create/destroy events to the ledger
+- [x] Confirm destroy only sets `destroyed_at` after successful remove (D57)
+- [x] Host-side reaper for past `expires_at` + Plane 1 orphan reconcile stub
 
 ## Do not
 

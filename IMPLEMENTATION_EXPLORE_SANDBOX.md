@@ -120,7 +120,7 @@ Versioned executable schema (`schema_version: "1"`) — see [DATABASE.md](DATABA
 
 ### E2 — Plan loop (steps −1–3) + OpenCode lockdown
 
-- [ ] Plane-1 **pre-flight** before bootstrap create when hard-fail applies (D45); emit `log.kind=preflight` / `finding.source=preflight`
+- [x] Plane-1 **pre-flight** before bootstrap create when hard-fail applies (D45); emit `log.kind=preflight` / `finding.source=preflight`
 - [ ] Ship **trusted OpenCode system/managed config** (D38): deny host `shell` / arbitrary tools/providers/plugins; allow only Vultr inference + job-scoped harness tools; never load submitted-repo `.opencode` / `AGENTS.md` as authority
 - [ ] Wire OpenCode → **Vultr Serverless Inference** (D25); fail closed if not Vultr
 - [ ] Persist `inference_model` + usage toward budgets

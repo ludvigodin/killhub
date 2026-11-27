@@ -22,6 +22,10 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     monkeypatch.setenv("SSE_KEEPALIVE_SECONDS", "1")
     monkeypatch.setenv("WORKER_POLL_SECONDS", "0.2")
     monkeypatch.setenv("ENV_TTL_SECONDS", "3600")
+    monkeypatch.setenv("REAPER_ENABLED", "false")
+    monkeypatch.setenv("MSB_AUTO_CREATE", "false")
+    # Preflight has dedicated tests; default suite stays offline-stable.
+    monkeypatch.setenv("PREFLIGHT_ENABLED", "false")
     get_settings.cache_clear()
     jobs.reset_ledger_for_tests()
 
