@@ -59,9 +59,16 @@ def test_m7_fixtures_have_full_shas() -> None:
 
 
 def test_match_fixture_by_url() -> None:
-    hit = match_fixture("https://github.com/heroku/node-js-getting-started/")
-    assert hit is not None
-    assert hit["id"] == "webapp_success"
+    for url in (
+        "https://github.com/heroku/node-js-getting-started/",
+        "https://github.com/heroku/nodejs-getting-started",
+    ):
+        hit = match_fixture(url)
+        assert hit is not None, url
+        assert hit["id"] == "webapp_success"
+    # Image-replace variant is require_fixture-only (same canonical URL).
+    assert require_fixture("webapp_image_replace")["oci_image"] == "alpine"
+    assert require_fixture("webapp_image_replace").get("match_by_url") is False
 
 
 def test_bootstrap_and_runtime_validation() -> None:

@@ -10,6 +10,7 @@ import {
   type ScreenshotMeta,
 } from "@/lib/api";
 import { ErrorBanner } from "./ErrorBanner";
+import { JobReport } from "./JobReport";
 import { ProgressBar } from "./ProgressBar";
 import {
   isProgressLogType,
@@ -18,6 +19,8 @@ import {
 } from "./ProgressLog";
 import { type ScreenshotItem, ScreenshotTimeline } from "./ScreenshotTimeline";
 import { StatusBadge } from "./StatusBadge";
+
+const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 
 type JobLiveViewProps = {
   jobId: string;
@@ -197,6 +200,21 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
           if (data.event_id) next.event_cursor = data.event_id;
           return next;
         });
+
+        const nextStatus =
+          (typeof data.status === "string" && data.status) ||
+          (typeof data.payload?.status === "string" && data.payload.status) ||
+          null;
+        if (nextStatus && TERMINAL.has(nextStatus)) {
+          // Refresh snapshot so receipt / vuln_report / cleanup land in the report.
+          void getJob(jobId)
+            .then((snap) => {
+              if (!cancelled) onSnapshot(snap);
+            })
+            .catch(() => {
+              /* keep SSE-patched snapshot */
+            });
+        }
       };
 
       for (const type of [
@@ -264,14 +282,25 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
     }
   }
 
-  const terminal =
-    snapshot?.status === "cancelled" ||
-    snapshot?.status === "completed" ||
-    snapshot?.status === "failed";
+  const terminal = snapshot ? TERMINAL.has(snapshot.status) : false;
+  const showReport = Boolean(
+    snapshot &&
+      (terminal ||
+        snapshot.receipt ||
+        snapshot.vuln_report ||
+        snapshot.profile),
+  );
 
   return (
     <div className="space-y-8">
       <p className="font-mono text-sm text-[var(--muted)]">{jobId}</p>
+      {snapshot?.github_url ? (
+        <p className="text-sm text-[var(--muted)]">
+          <a href={snapshot.github_url} target="_blank" rel="noreferrer">
+            {snapshot.github_url}
+          </a>
+        </p>
+      ) : null}
 
       {snapshot ? (
         <section
@@ -309,6 +338,12 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
       <ProgressLog entries={logs} />
 
       <ScreenshotTimeline jobId={jobId} shots={shots} />
+
+      {showReport && snapshot ? (
+        <div className="border-t border-[var(--line)] pt-8">
+          <JobReport snapshot={snapshot} />
+        </div>
+      ) : null}
     </div>
   );
 }

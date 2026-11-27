@@ -205,6 +205,15 @@ class Ledger:
         rows = self._conn.execute("SELECT * FROM jobs ORDER BY created_at ASC").fetchall()
         return [self._row_to_job(r) for r in rows]
 
+    def list_recent_jobs(self, *, limit: int = 48) -> list[Job]:
+        """Newest-first job rows for the public feed (D69)."""
+        capped = max(1, min(int(limit), 200))
+        rows = self._conn.execute(
+            "SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (capped,),
+        ).fetchall()
+        return [self._row_to_job(r) for r in rows]
+
     def get_snapshot(self, job_id: str) -> dict[str, Any] | None:
         """Public Jobs API snapshot shape (API.md)."""
         job = self.get_job(job_id)
@@ -789,6 +798,41 @@ class Ledger:
             "mcp_assessment": _loads(row["mcp_assessment"]),
             "status": row["status"],
         }
+
+    def upsert_vuln_report(
+        self,
+        job_id: str,
+        *,
+        summary: str,
+        findings: list[dict[str, Any]],
+        status: str,
+        mcp_assessment: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if status not in {"ok", "partial", "failed"}:
+            raise ValueError(f"invalid vuln_report status: {status}")
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO vuln_reports (
+                    job_id, summary, findings, mcp_assessment, status
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(job_id) DO UPDATE SET
+                    summary = excluded.summary,
+                    findings = excluded.findings,
+                    mcp_assessment = excluded.mcp_assessment,
+                    status = excluded.status
+                """,
+                (
+                    job_id,
+                    summary,
+                    _dumps(findings),
+                    _dumps(mcp_assessment) if mcp_assessment is not None else None,
+                    status,
+                ),
+            )
+        report = self.get_vuln_report(job_id)
+        assert report is not None
+        return report
 
     def upsert_receipt(
         self,

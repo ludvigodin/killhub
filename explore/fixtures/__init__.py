@@ -31,11 +31,23 @@ def normalize_github_url(url: str) -> str:
     return cleaned
 
 
+def _fixture_urls(fixture: dict[str, Any]) -> list[str]:
+    urls = [str(fixture.get("github_url") or "")]
+    aliases = fixture.get("aliases") or []
+    if isinstance(aliases, list):
+        urls.extend(str(a) for a in aliases)
+    return [u for u in urls if u]
+
+
 def match_fixture(github_url: str) -> dict[str, Any] | None:
+    """Match a public URL to a URL-facing fixture (skips match_by_url=false)."""
     target = normalize_github_url(github_url).lower()
     for fixture in list_fixtures().values():
-        if normalize_github_url(str(fixture["github_url"])).lower() == target:
-            return fixture
+        if fixture.get("match_by_url") is False:
+            continue
+        for candidate in _fixture_urls(fixture):
+            if normalize_github_url(candidate).lower() == target:
+                return fixture
     return None
 
 

@@ -11,6 +11,23 @@ function clientIp(request: Request): string {
   return request.headers.get("x-real-ip") || "unknown";
 }
 
+export async function GET(request: Request) {
+  await connection();
+  const url = new URL(request.url);
+  const limit = url.searchParams.get("limit");
+  const path =
+    limit != null && limit.length > 0
+      ? `/internal/jobs?limit=${encodeURIComponent(limit)}`
+      : "/internal/jobs";
+  const upstream = await exploreFetch(path, {
+    method: "GET",
+  });
+  if (!upstream.ok) {
+    return mapExploreError(upstream);
+  }
+  return Response.json(await upstream.json());
+}
+
 export async function POST(request: Request) {
   await connection();
 

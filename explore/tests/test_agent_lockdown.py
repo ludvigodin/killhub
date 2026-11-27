@@ -114,7 +114,7 @@ def test_record_inference_usage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     get_settings.cache_clear()
     ledger = get_ledger()
     job = ledger.create_job(
-        "https://github.com/heroku/node-js-getting-started",
+        "https://github.com/heroku/nodejs-getting-started",
         env_ttl_seconds=3600,
     )
     result = InferenceResult(
@@ -175,6 +175,37 @@ def test_chat_completion_uses_vultr_only(monkeypatch: pytest.MonkeyPatch, tmp_pa
     get_settings.cache_clear()
 
 
+def test_chat_completion_falls_back_to_reasoning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VULTR_INFERENCE_BASE_URL", "https://api.vultrinference.com/v1")
+    monkeypatch.setenv("VULTR_INFERENCE_API_KEY", "test-key")
+    monkeypatch.setenv("VULTR_INFERENCE_MODEL", "qwen3.8-flash-next")
+    get_settings.cache_clear()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "model": "qwen3.8-flash-next",
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "reasoning": "ok",
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
+            },
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    result = chat_completion([{"role": "user", "content": "hi"}], client=client)
+    assert result.content == "ok"
+    get_settings.cache_clear()
+
+
 def test_environment_agent_binds_trusted_config(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -182,7 +213,7 @@ def test_environment_agent_binds_trusted_config(
     get_settings.cache_clear()
     ledger = get_ledger()
     job = ledger.create_job(
-        "https://github.com/heroku/node-js-getting-started",
+        "https://github.com/heroku/nodejs-getting-started",
         env_ttl_seconds=3600,
     )
     agent = EnvironmentAgent(job.job_id)

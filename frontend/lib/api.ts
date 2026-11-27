@@ -7,6 +7,77 @@ type ApiError = {
 
 export type CreateJobResponse = { job_id: string };
 
+type CleanupState = {
+  status?: string;
+  attempts?: number;
+  last_error?: string | null;
+  updated_at?: string | null;
+};
+
+type VerificationInfo = {
+  kind?: string;
+  original_failure?: unknown;
+  [key: string]: unknown;
+};
+
+export type JobSummary = {
+  job_id: string;
+  github_url: string;
+  status: string;
+  progress: number;
+  current_step: string;
+  created_at: string;
+  updated_at?: string;
+  screenshot_id?: string | null;
+  error?: string | null;
+  verification?: VerificationInfo | null;
+};
+
+export type JobListResponse = {
+  jobs: JobSummary[];
+};
+
+type ReadinessInfo = {
+  passed?: boolean;
+  probe?: string;
+  detail?: unknown;
+  at?: string;
+  [key: string]: unknown;
+};
+
+export type VulnFinding = {
+  id?: string;
+  severity?: string;
+  package?: string;
+  title?: string;
+  advisory_url?: string;
+  source?: string;
+  detail?: unknown;
+};
+
+export type VulnReportData = {
+  job_id?: string;
+  summary?: string;
+  findings?: VulnFinding[];
+  mcp_assessment?: Record<string, unknown> | null;
+  status?: string;
+};
+
+type JobReceipt = {
+  job_id?: string;
+  verification?: VerificationInfo | null;
+  containment?: Record<string, unknown> | null;
+  lifecycle?: Record<string, unknown> | null;
+  dossier?: Record<string, unknown> | null;
+};
+
+type EnvironmentGen = {
+  environment_id?: string;
+  generation?: number;
+  state?: string;
+  expires_at?: string;
+};
+
 export type JobSnapshot = {
   job_id: string;
   status: string;
@@ -16,7 +87,21 @@ export type JobSnapshot = {
   error: string | null;
   cancel_requested_at: string | null;
   updated_at: string;
+  github_url?: string;
+  created_at?: string;
   screenshot_ids?: string[];
+  profile?: Record<string, unknown> | null;
+  readiness?: ReadinessInfo | null;
+  verification?: VerificationInfo | null;
+  verify_result?: Record<string, unknown> | null;
+  sandbox_id?: string | null;
+  resolved_commit?: string | null;
+  expires_at?: string;
+  cleanup?: CleanupState | null;
+  destroyed_at?: string | null;
+  environment?: EnvironmentGen | null;
+  vuln_report?: VulnReportData | null;
+  receipt?: JobReceipt | null;
   [key: string]: unknown;
 };
 
@@ -48,6 +133,26 @@ export async function createJob(githubUrl: string): Promise<CreateJobResponse> {
     });
   }
   return body;
+}
+
+export async function listJobs(limit = 48): Promise<JobListResponse> {
+  const res = await fetch(
+    `/api/jobs?limit=${encodeURIComponent(String(limit))}`,
+    {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    },
+  );
+  const body = await parseJson<JobListResponse & ApiError>(res);
+  if (!res.ok) {
+    throw Object.assign(new Error(body.error || "list failed"), {
+      code: body.code || "error",
+      status: res.status,
+    });
+  }
+  return {
+    jobs: Array.isArray(body.jobs) ? body.jobs : [],
+  };
 }
 
 export async function getJob(jobId: string): Promise<JobSnapshot> {
