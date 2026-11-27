@@ -13,21 +13,11 @@ export default function NotFound() {
       <SiteNav />
 
       <section className="feed-hero mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center py-16 text-center sm:py-24">
-        <p
-          className="mb-3 font-mono text-sm tracking-widest text-(--accent) uppercase"
-          aria-hidden
-        >
+        <p className="type-eyebrow mb-3 text-(--accent)" aria-hidden>
           404
         </p>
-        <h1
-          className="mb-3 text-3xl font-semibold tracking-tight sm:text-4xl"
-          style={{
-            fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-          }}
-        >
-          Route not found
-        </h1>
-        <p className="mb-8 max-w-md text-base leading-relaxed text-(--muted) sm:text-lg">
+        <h1 className="type-page-title mb-3">Route not found</h1>
+        <p className="mb-8 max-w-md text-base leading-relaxed text-(--muted)">
           This path isn’t part of Killhub. Head home to paste a public git URL,
           or read how Pattern A runs.
         </p>

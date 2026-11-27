@@ -92,6 +92,8 @@ def test_normalize_and_resolve_backend(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert normalize_storage_backend("object") == "s3"
     with pytest.raises(ObjectStorageError):
         normalize_storage_backend("gcs")
+    with pytest.raises(ObjectStorageError):
+        normalize_storage_backend("./storage/screenshots")
 
     from config import get_settings
 
@@ -104,8 +106,10 @@ def test_normalize_and_resolve_backend(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.delenv("STORAGE_BACKEND")
     monkeypatch.setenv("SCREENSHOT_STORAGE", "object")
     get_settings.cache_clear()
-    assert resolve_storage_backend() == "s3"
-    assert filesystem_root_for_screenshots().name == "screenshots"
+    # Paths only — backend keywords on SCREENSHOT_STORAGE fail closed (use STORAGE_BACKEND).
+    assert resolve_storage_backend() == "filesystem"
+    with pytest.raises(ObjectStorageError, match="STORAGE_BACKEND"):
+        filesystem_root_for_screenshots()
 
     monkeypatch.setenv("SCREENSHOT_STORAGE", str(tmp_path / "shots"))
     get_settings.cache_clear()

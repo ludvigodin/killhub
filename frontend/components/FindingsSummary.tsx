@@ -7,6 +7,8 @@ import {
   type SeverityLevel,
   securityVerdict,
 } from "@/lib/findings";
+import { SectionHeader } from "./SectionHeader";
+import { SECTION_SCROLL_MT } from "./SectionNav";
 
 export function FindingsSummary({ snapshot }: { snapshot: JobSnapshot }) {
   const report = snapshot.vuln_report;
@@ -16,26 +18,25 @@ export function FindingsSummary({ snapshot }: { snapshot: JobSnapshot }) {
 
   return (
     <section
+      id="section-findings"
       aria-label="Findings summary"
-      className="space-y-3 border border-(--line) bg-(--paper-deep)/60 px-4 py-4"
+      className={`space-y-3 border border-(--line) bg-(--paper-deep)/60 px-4 py-4 ${SECTION_SCROLL_MT}`}
     >
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-sm uppercase tracking-wide text-(--muted)">
-          Security assessment
-        </p>
-        {statusTone ? (
-          <p className="font-mono text-xs" style={{ color: statusTone.fg }}>
-            report {statusTone.label}
-          </p>
-        ) : null}
-      </div>
+      <SectionHeader
+        eyebrow="Security assessment"
+        title="Findings"
+        meta={
+          statusTone ? (
+            <p className="type-mono" style={{ color: statusTone.fg }}>
+              report {statusTone.label}
+            </p>
+          ) : null
+        }
+      />
 
       <p
-        className="text-base font-medium tracking-tight"
-        style={{
-          fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-          color: verdict.color,
-        }}
+        className="type-display text-base font-medium tracking-tight"
+        style={{ color: verdict.color }}
       >
         {verdict.label}
       </p>

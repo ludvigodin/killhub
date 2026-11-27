@@ -173,8 +173,8 @@ class Settings(BaseSettings):
         default="filesystem",
         alias="STORAGE_BACKEND",
     )
-    # Local staging roots (also used when STORAGE_BACKEND=filesystem).
-    # Legacy: SCREENSHOT_STORAGE=s3|object selects object backend with default path.
+    # Local staging roots (also used when STORAGE_BACKEND=filesystem). Paths only —
+    # backend selection is STORAGE_BACKEND (D72), not these env vars.
     screenshot_storage: str = Field(
         default="./storage/screenshots",
         alias="SCREENSHOT_STORAGE",

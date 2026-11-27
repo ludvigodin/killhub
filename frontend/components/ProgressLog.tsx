@@ -1,3 +1,6 @@
+import { SectionHeader } from "./SectionHeader";
+import { SECTION_SCROLL_MT } from "./SectionNav";
+
 export type ProgressLogEntry = {
   id: string;
   type: string;
@@ -37,10 +40,12 @@ export function ProgressLog({ entries }: ProgressLogProps) {
       !(e.type === "progress" && e.kind === "heartbeat"),
   );
   return (
-    <section aria-label="Job event log">
-      <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
-        Activity
-      </p>
+    <section
+      id="section-activity"
+      aria-label="Job event log"
+      className={SECTION_SCROLL_MT}
+    >
+      <SectionHeader className="mb-3" eyebrow="Event stream" title="Activity" />
       <ul className="max-h-96 space-y-1.5 overflow-y-auto border border-(--line) bg-(--paper-deep)/50 p-3 font-mono text-xs leading-relaxed">
         {lines.length === 0 ? (
           <li className="text-(--muted)">Waiting for events…</li>

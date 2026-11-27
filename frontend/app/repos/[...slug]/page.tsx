@@ -1,8 +1,14 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { RepoHistory } from "@/components/RepoHistory";
 import { SiteNav } from "@/components/SiteNav";
 import { githubUrlFromRepoSlug, ownerRepoFromGithubUrl } from "@/lib/github";
+import { noindexRobots } from "@/lib/seo";
+
+export const metadata: Metadata = {
+  robots: noindexRobots,
+};
 
 async function RepoShell({ params }: { params: Promise<{ slug: string[] }> }) {
   const { slug } = await params;
@@ -20,7 +26,7 @@ export default function RepoPage(props: {
 }) {
   return (
     <main className="min-h-screen w-full">
-      <div className="mx-auto flex w-full max-w-5xl flex-col px-6 pb-12">
+      <div className="mx-auto flex w-full max-w-6xl flex-col px-6 pb-12">
         <SiteNav />
         <Suspense
           fallback={

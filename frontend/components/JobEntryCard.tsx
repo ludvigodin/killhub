@@ -157,12 +157,7 @@ export function JobEntryCard({
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p
-              className="truncate text-sm font-semibold tracking-tight text-(--ink) sm:text-base"
-              style={{
-                fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-              }}
-            >
+            <p className="type-display truncate text-sm font-semibold tracking-tight text-(--ink) sm:text-base">
               {emphasizeRun ? runLabel : title}
             </p>
             {job.safety ? (
@@ -176,11 +171,11 @@ export function JobEntryCard({
             ) : null}
           </div>
           <p className="mt-0.5 truncate text-sm text-(--muted)">
-            {errorLine && TERMINAL.has(job.status) ? (
+            {errorLine && terminal ? (
               <span style={{ color: "var(--danger)" }}>{errorLine}</span>
             ) : emphasizeRun ? (
               <>
-                <span className="font-mono text-xs tracking-wide">
+                <span className="type-mono tracking-wide">
                   {shortJobId(job.job_id)}
                 </span>
                 {queueLine || job.current_step ? (
@@ -235,12 +230,12 @@ export function JobEntryCard({
           {when.relative || when.absolute}
         </time>
         {when.absolute ? (
-          <p className="max-w-[11rem] truncate text-right text-[11px] tabular-nums text-(--muted)">
+          <p className="type-meta max-w-[11rem] truncate text-right text-(--muted)">
             {when.absolute}
           </p>
         ) : null}
         {updated ? (
-          <p className="text-[11px] tabular-nums text-(--muted)">
+          <p className="type-meta text-(--muted)">
             {terminal ? "ended" : "updated"} {updated.relative}
           </p>
         ) : null}
@@ -256,7 +251,7 @@ export function JobEntryCard({
             <HostIcon host={host} className="size-4" />
           </a>
         ) : (
-          <p className="mt-0.5 font-mono text-[11px] tracking-wide text-(--muted)">
+          <p className="type-mono mt-0.5 tracking-wide text-(--muted)">
             {shortJobId(job.job_id)}
           </p>
         )}

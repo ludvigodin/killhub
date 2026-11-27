@@ -98,12 +98,7 @@ export function DeepLinkStart({ owner, repo }: DeepLinkStartProps) {
       >
         ← Killhub
       </Link>
-      <h1
-        className="mb-2 text-3xl font-semibold tracking-tight sm:text-4xl"
-        style={{ fontFamily: "var(--font-display), ui-sans-serif, sans-serif" }}
-      >
-        {label}
-      </h1>
+      <h1 className="type-page-title mb-2">{label}</h1>
       {error ? (
         <>
           <ErrorBanner message={error.message} code={error.code} />

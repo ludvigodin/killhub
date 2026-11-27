@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import { HubsFeed } from "@/components/HubsFeed";
+import { hubsDescription, hubsTitle } from "@/lib/seo";
 
 export const metadata: Metadata = {
-  title: "Hubs",
-  description:
-    "All Killhub test runs - every repo planned, sandboxed, and verified.",
+  title: hubsTitle,
+  description: hubsDescription,
   alternates: {
     canonical: "/hubs",
   },

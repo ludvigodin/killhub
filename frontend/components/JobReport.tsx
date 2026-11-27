@@ -2,6 +2,7 @@ import type { JobSnapshot, ReceiptDossier } from "@/lib/api";
 import { snapshotSafety } from "@/lib/findings";
 import { EnvStatus } from "./EnvStatus";
 import { ResultStamp } from "./ResultStamp";
+import { SectionHeader } from "./SectionHeader";
 import { VulnReport } from "./VulnReport";
 
 type JobReportProps = {
@@ -56,45 +57,38 @@ export function JobReport({ snapshot }: JobReportProps) {
       : null;
   const destroyConfirmed = lifecycle?.confirmed;
   const safety = snapshotSafety(snapshot);
+  const metaParts = [
+    dossierCode ? `code ${dossierCode}` : null,
+    outcome ? `outcome ${outcome}` : null,
+    vulnReportStatus ? `vuln ${vulnReportStatus}` : null,
+  ].filter(Boolean);
 
   return (
     <section className="space-y-8" aria-label="Intake receipt">
-      <div>
-        <div className="flex flex-wrap items-center gap-3">
-          <h2
-            className="text-2xl font-semibold tracking-tight"
-            style={{
-              fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-            }}
-          >
-            Receipt
-          </h2>
-          {safety ? <ResultStamp safety={safety} /> : null}
-        </div>
-        <p className="mt-1 text-sm text-(--muted)">
-          Durable intake dossier - outlives the sandbox. Scan-based by default;
-          not a pentest suite. Containment matrix is shown above.
-        </p>
-        {(() => {
-          const parts = [
-            dossierCode ? `code ${dossierCode}` : null,
-            outcome ? `outcome ${outcome}` : null,
-            vulnReportStatus ? `vuln ${vulnReportStatus}` : null,
-          ].filter(Boolean);
-          return parts.length > 0 ? (
-            <p className="mt-2 font-mono text-xs text-(--muted)">
-              {parts.join(" · ")}
-            </p>
-          ) : null;
-        })()}
-      </div>
+      <SectionHeader
+        size="lg"
+        eyebrow="Intake dossier"
+        title="Receipt"
+        description={
+          <>
+            <span>
+              Durable intake dossier - outlives the sandbox. Scan-based by
+              default; not a pentest suite. Containment matrix is shown above.
+            </span>
+            {metaParts.length > 0 ? (
+              <p className="mt-2 font-mono text-xs text-(--muted)">
+                {metaParts.join(" · ")}
+              </p>
+            ) : null}
+          </>
+        }
+        meta={safety ? <ResultStamp safety={safety} /> : null}
+      />
 
       <EnvStatus snapshot={snapshot} />
 
-      <section aria-label="Outcome gates">
-        <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
-          Gates
-        </p>
+      <section aria-label="Outcome gates" className="space-y-3">
+        <SectionHeader size="sm" eyebrow="Outcome" title="Gates" />
         {gates ? (
           <dl className="grid gap-2 text-sm sm:grid-cols-2">
             <div>
@@ -136,10 +130,8 @@ export function JobReport({ snapshot }: JobReportProps) {
 
       <VulnReport report={snapshot.vuln_report} />
 
-      <section aria-label="Profile revisions">
-        <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
-          Profile revisions
-        </p>
+      <section aria-label="Profile revisions" className="space-y-3">
+        <SectionHeader size="sm" eyebrow="Profile" title="Revisions" />
         {revisions.length > 0 ? (
           <ul className="space-y-1.5 text-sm">
             {revisions.map((item, index) => {
@@ -180,10 +172,8 @@ export function JobReport({ snapshot }: JobReportProps) {
         )}
       </section>
 
-      <section aria-label="Sandbox generations">
-        <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
-          Sandbox generations
-        </p>
+      <section aria-label="Sandbox generations" className="space-y-3">
+        <SectionHeader size="sm" eyebrow="Sandbox" title="Generations" />
         {generations.length > 0 ? (
           <ul className="space-y-1.5 text-sm">
             {generations.map((item, index) => {
@@ -230,10 +220,8 @@ export function JobReport({ snapshot }: JobReportProps) {
         )}
       </section>
 
-      <section aria-label="Lifecycle evidence">
-        <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
-          Lifecycle
-        </p>
+      <section aria-label="Lifecycle evidence" className="space-y-3">
+        <SectionHeader size="sm" eyebrow="Cleanup" title="Lifecycle" />
         {lifecycle ? (
           <div className="space-y-2">
             <dl className="grid gap-2 text-sm sm:grid-cols-2">
@@ -282,14 +270,22 @@ export function JobReport({ snapshot }: JobReportProps) {
         )}
       </section>
 
-      <section aria-label="Environment profile">
-        <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
-          environment_profile.json
-          {snapshot.current_profile_revision != null
-            ? ` · rev ${snapshot.current_profile_revision}`
-            : ""}
-          {typeof profile?.phase === "string" ? ` · ${profile.phase}` : ""}
-        </p>
+      <section aria-label="Environment profile" className="space-y-3">
+        <SectionHeader
+          size="sm"
+          eyebrow="Runtime"
+          title="environment_profile.json"
+          description={
+            [
+              snapshot.current_profile_revision != null
+                ? `rev ${snapshot.current_profile_revision}`
+                : null,
+              typeof profile?.phase === "string" ? profile.phase : null,
+            ]
+              .filter(Boolean)
+              .join(" · ") || undefined
+          }
+        />
         {profile ? (
           <pre className="max-h-80 overflow-auto border border-(--line) bg-(--paper-deep)/50 p-3 font-mono text-xs leading-relaxed">
             {prettyJson(profile)}

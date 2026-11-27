@@ -80,10 +80,10 @@ export function JobFeed() {
         <div className="mb-6 flex justify-center">
           <KillhubLogo size={64} />
         </div>
-        <h1 className="mx-auto mb-3 max-w-2xl text-xl font-medium tracking-tight text-(--ink) sm:text-2xl">
+        <h1 className="type-display mx-auto mb-3 max-w-2xl text-2xl font-semibold tracking-tight text-(--ink) sm:text-3xl">
           Plan → sandboxed execution → verifiable output → destroy
         </h1>
-        <p className="mx-auto mb-8 max-w-xl text-base leading-relaxed text-(--muted) sm:text-lg">
+        <p className="mx-auto mb-8 max-w-xl text-base leading-relaxed text-(--muted)">
           Paste a public git URL. The agent plans, runs real work in a
           Microsandbox, returns evidence - then destroys the VM.
         </p>
@@ -92,14 +92,7 @@ export function JobFeed() {
 
       <section aria-label="Job feed" className="flex flex-col gap-3">
         <div className="flex items-baseline justify-between gap-3">
-          <h2
-            className="text-lg font-semibold tracking-tight"
-            style={{
-              fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-            }}
-          >
-            Recent
-          </h2>
+          <h2 className="type-section-title">Recent</h2>
           <p className="text-sm text-(--muted)">
             {loading
               ? "Loading…"
@@ -113,14 +106,7 @@ export function JobFeed() {
 
         {!loading && repos.length === 0 ? (
           <div className="rounded-lg border border-dashed border-(--line) bg-(--paper-deep)/50 px-6 py-16 text-center">
-            <p
-              className="mb-2 text-xl font-semibold tracking-tight"
-              style={{
-                fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-              }}
-            >
-              No runs yet
-            </p>
+            <p className="type-section-title mb-2">No runs yet</p>
             <p className="mx-auto max-w-md text-(--muted)">
               Paste a public git URL above - or connect MCP - and watch each job
               plan, execute in a sandbox, prove output, then destroy.
