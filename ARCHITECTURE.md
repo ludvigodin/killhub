@@ -512,7 +512,7 @@ Control plane and VX1 may be the same Vultr host or split; sandboxes never run i
 
 ---
 
-## Proposed repo layout
+## Repo layout
 
 ```
 killhub/
