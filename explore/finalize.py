@@ -11,6 +11,7 @@ from harness import DestroyResult, destroy_job_environment
 from jobs import get_ledger
 from ledger.store import utc_now
 from models import CleanupState
+from verdict import containment_reports_bypass, recorded_policy_bypass
 from vulnscan import VulnScanError, run_vuln_scan
 
 logger = logging.getLogger("killhub.finalize")
@@ -72,51 +73,39 @@ def evaluate_gates(
     readiness = job.readiness or {}
     readiness_passed = bool(readiness.get("passed"))
     verification = job.verification or {}
-    reasons: list[str] = []
-    hard_fail = False
+    # D66 must survive pruning and restart. Retained events can still identify
+    # previously unpersisted legacy evidence, but cannot undo a durable failure.
+    bypass = recorded_policy_bypass(ledger.get_receipt(job_id) or {})
+    if bypass is None:
+        for event in ledger.list_events(job_id):
+            payload = event.payload or {}
+            if event.type == "finding" and payload.get("classification") == "policy_bypass":
+                bypass = "policy_bypass"
+                break
+            if event.type == "containment" and containment_reports_bypass(payload):
+                bypass = "containment_policy_bypass"
+                break
 
-    # Policy bypass (guest reached CP/management) — hard fail (D66).
-    for event in ledger.list_events(job_id):
-        payload = event.payload or {}
-        if event.type == "finding" and payload.get("classification") == "policy_bypass":
-            hard_fail = True
-            reasons.append("policy_bypass")
-            break
-        if event.type == "containment":
-            dims = payload.get("dimensions") or {}
-            for dim in dims.values() if isinstance(dims, dict) else []:
-                if isinstance(dim, dict) and dim.get("classification") == "policy_bypass":
-                    hard_fail = True
-                    reasons.append("containment_policy_bypass")
-                    break
-            if payload.get("classification") == "policy_bypass":
-                hard_fail = True
-                reasons.append("containment_policy_bypass")
-        if hard_fail:
-            break
-
-    if hard_fail:
+    if bypass is not None:
         return {
             "terminal": "failed",
-            "reasons": reasons,
+            "reasons": [bypass],
             "hard_fail": True,
             "readiness_passed": readiness_passed,
         }
 
     if not readiness_passed or verification.get("kind") == "setup_failed":
-        reasons.append("readiness_not_passed")
         return {
             "terminal": "failed",
-            "reasons": reasons,
+            "reasons": ["readiness_not_passed"],
             "hard_fail": False,
             "readiness_passed": False,
         }
 
-    reasons.append("readiness_passed")
     # SCA / MCP findings do not block completed (D11, D35, D66).
     return {
         "terminal": "completed",
-        "reasons": reasons,
+        "reasons": ["readiness_passed"],
         "hard_fail": False,
         "readiness_passed": True,
     }
@@ -288,7 +277,10 @@ def finalize_job(
         for r in ledger.list_profile_revisions(job_id)
     ]
 
+    # Preserve durable observations and metadata written by earlier phases.
+    prior_receipt = ledger.get_receipt(job_id) or {}
     dossier = {
+        **(prior_receipt.get("dossier") or {}),
         "outcome": terminal,
         "gates": gates,
         "vuln_report_status": vuln_status or (vuln_report or {}).get("status"),
@@ -341,7 +333,7 @@ def finalize_job(
         from service import release_admission_slot
 
         # Finalize runs after claim → always releasing a running slot (D71).
-        release_admission_slot(was_running=True)
+        release_admission_slot(was_running=True, settings=cfg)
     except Exception:  # noqa: BLE001 — admission must not block terminal
         pass
 

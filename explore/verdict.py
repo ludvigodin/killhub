@@ -51,6 +51,57 @@ _AXES = ("timeout_enforcement", "host_access_denied", "sibling_access_denied", "
 _SOURCE_SENSORS = {"sca": "sca_scanner", "preflight": "preflight", "canary": "canary_monitor"}
 
 
+def containment_reports_bypass(containment: Mapping[str, Any]) -> bool:
+    """Recognize a boundary violation in the stored matrix or a legacy event."""
+    if containment.get("classification") == "policy_bypass":
+        return True
+    install_probe = containment.get("install_cp_probe")
+    if (
+        isinstance(install_probe, Mapping)
+        and install_probe.get("classification") == "policy_bypass"
+    ):
+        return True
+    dimensions = containment.get("dimensions")
+    if isinstance(dimensions, Mapping) and any(
+        isinstance(probe, Mapping) and probe.get("classification") == "policy_bypass"
+        for probe in dimensions.values()
+    ):
+        return True
+    probes = containment.get("network_probes")
+    return isinstance(probes, list) and any(
+        isinstance(probe, Mapping) and probe.get("classification") == "policy_bypass"
+        for probe in probes
+    )
+
+
+def recorded_policy_bypass(receipt: Mapping[str, Any]) -> str | None:
+    """Get the durable gate reason, including a finding retained by a prior finalization."""
+    containment = receipt.get("containment")
+    if isinstance(containment, Mapping) and containment_reports_bypass(containment):
+        return "containment_policy_bypass"
+    dossier = receipt.get("dossier")
+    if not isinstance(dossier, Mapping):
+        return None
+    # Network findings come from host-owned policy checks. Advisory and
+    # planner output cannot set the hard-fail gate.
+    findings = dossier.get("findings")
+    if isinstance(findings, list) and any(
+        isinstance(finding, Mapping)
+        and finding.get("source") == "network"
+        and finding.get("classification") == "policy_bypass"
+        for finding in findings
+    ):
+        return "policy_bypass"
+    gates = dossier.get("gates")
+    if isinstance(gates, Mapping) and gates.get("hard_fail") is True:
+        reasons = gates.get("reasons")
+        if isinstance(reasons, list):
+            for reason in reasons:
+                if reason in ("policy_bypass", "containment_policy_bypass"):
+                    return reason
+    return None
+
+
 @lru_cache(maxsize=1)
 def verdict_validator() -> Draft202012Validator:
     """Load the canonical schema from the worker image as well as the source tree."""
@@ -154,9 +205,8 @@ def build_verdict(
         )
         supply_chain_ids.append(finding_id)
 
-    bypass = any(axes[name]["status"] == "failed" for name in _AXES)
-    if bypass:
-        label, summary = "SUSPICIOUS", "A recorded containment probe reported a policy bypass."
+    if recorded_policy_bypass(receipt):
+        label, summary = "SUSPICIOUS", "A recorded isolation check reported a policy bypass."
     elif status == "cancelled" or (status == "failed" and not (job.readiness or {}).get("passed")):
         label, summary = "ABORTED", "The job stopped before runtime assessment could be completed."
     else:
