@@ -313,7 +313,7 @@ const EVIDENCE_CLASSES = [
   {
     label: "Readiness",
     detail:
-      "Starts the real app or MCP server and proves it answers – an HTTP probe or a live MCP handshake. Every result is labelled original, demo, or setup failed.",
+      "Starts the real app or MCP server and proves it answers – an HTTP probe or a live MCP handshake.",
   },
   {
     label: "Install activity",
@@ -366,7 +366,7 @@ const RECOVERY = [
 const DONE_EVIDENCE = [
   {
     label: "Readiness",
-    detail: "Probes with honest outcome labels",
+    detail: "Proof the app answers – or an honest “couldn’t run”",
   },
   {
     label: "Stills",
