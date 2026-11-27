@@ -1,4 +1,4 @@
-"""Ledger heartbeats so jobs.updated_at reflects worker liveness (D81 / D50).
+"""Ledger heartbeats so jobs.updated_at reflects worker liveness (D83 / D50).
 
 SSE comment keep-alives do not write the ledger. Long harness steps must bump
 ``updated_at`` so the reaper and UI can distinguish a live worker from a stall.
@@ -51,7 +51,7 @@ def log_wait(
     update_step: bool = True,
     **payload: Any,
 ) -> None:
-    """Activity-visible log for a long-running step (not the D81 liveness pulse).
+    """Activity-visible log for a long-running step (not the D83 liveness pulse).
 
     When ``update_step`` is true, also mirrors ``message`` onto the job's
     ``current_step`` so the live progress line tracks the wait.

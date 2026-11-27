@@ -2,7 +2,99 @@
 
 Record lasting choices here. Newest first within each section. Link related docs when behavior changes.
 
-Product intent: [PRODUCT.md](PRODUCT.md) · Structure: [ARCHITECTURE.md](ARCHITECTURE.md)
+Product intent: [PRODUCT.md](PRODUCT.md) · Structure: [ARCHITECTURE.md](ARCHITECTURE.md) · Code map: [docs/CODEMAP.md](docs/CODEMAP.md)
+
+---
+
+## Decision index
+
+Jump by ID. Full rationale lives in the thematic sections below. **Superseded** rows are retained for history only.
+
+| ID | Title | Status | Section |
+|----|-------|--------|---------|
+| D1 | Three planes | superseded → D27 | Platform shape |
+| D2 | Plane 1 does not run agent | superseded → D28 | Platform shape |
+| D3 | Plane 2 owns plan loop | superseded → D28 | Platform shape |
+| D4 | Disposable Microsandbox per job (VX1) | active | Platform shape |
+| D5 | Primary intents git_mcp/webapp only | superseded → D34 | Platform shape |
+| D6 | Canonical `environment_profile.json` | active | Platform shape |
+| D7 | OpenCode + Vultr Inference | active | Agent and AI |
+| D8 | Draft/validate runtime profile before provision | active | Agent and AI |
+| D9 | Supported-deps allowlist | superseded → D29 | Agent and AI |
+| D10 | `MAX_REPAIR_ATTEMPTS` cap | active | Agent and AI |
+| D11 | Vulns reported, not auto-patched | active | Agent and AI |
+| D12 | Jobs server-owned; disconnect ≠ cancel | active | API and realtime |
+| D13 | Poll + SSE must stay consistent | active | API and realtime |
+| D14 | SSE types (five) | superseded → D49 | API and realtime |
+| D15 | github.com-only URLs | superseded → D78 | API and realtime |
+| D16 | In-memory job store | superseded → D41 | Data and storage |
+| D17 | Profiles/screenshots filesystem layout | active | Data and storage |
+| D18 | Screenshot stills; Playwright in Plane 2 | active | Data and storage |
+| D19 | No Killhub secrets in sandbox env | active | Security |
+| D20 | Agent tools → harness only | active | Security |
+| D21 | Prefer non-root; no Docker socket | active | Security |
+| D22 | Plane 2 = Microsandbox on Vultr | active | Platform shape |
+| D23 | Harness via `msb` CLI/SDK | active | Security |
+| D24 | Demo CP at killhub.pro on Vultr | active | Platform shape |
+| D25 | Vultr Serverless Inference only | active | Agent and AI |
+| D26 | Containment proof (extended D58/D65) | active | Security |
+| D27 | Two planes; explore+test same VM | active | Platform shape |
+| D28 | Plane 1 owns Jobs API + SSE | active | Platform shape |
+| D29 | No install allowlist | active | Agent and AI |
+| D30 | `git_mcp` readiness = MCP tools/list | active | Agent and AI |
+| D31 | Screenshots optional | active | Agent and AI |
+| D32 | NodeGoat as fail fixture | superseded → D53 | v1 golden fixtures |
+| D33 | SCA + review; no weaponize CVEs | active | Agent and AI |
+| D34 | Agent chooses git_mcp/webapp/demo | active | Platform shape |
+| D35 | Optional MCP security assessment | active | Agent and AI |
+| D36 | Bootstrap sandbox before discovery | active | Platform shape |
+| D37 | Readiness ≠ job completion / destroy | active | Agent and AI |
+| D38 | OpenCode lockdown | active | Security |
+| D39 | Plane 2 network policy + probes | active | Security |
+| D40 | Public demo admission controls | active | API and realtime |
+| D41 | Durable ledger + host reaper | active | Data and storage |
+| D42 | Trust-zone boundary matrix | active | Security |
+| D43 | Install then deny-all egress phases | active | Security |
+| D44 | Canary secrets in Plane 2 | active | Security |
+| D45 | Plane-1 pre-flight before create | active | API and realtime |
+| D46 | Demo edge bind 127.0.0.1 + proxy | active | Security |
+| D47 | Deterministic gates; agents advise | active | Security |
+| D48 | Cite-checked `vuln_review` | active | Security |
+| D49 | Structured evidence + receipt | active | API and realtime |
+| D50 | SSE keep-alives | active | API and realtime |
+| D51 | Versioned executable profile schema | active | Platform shape |
+| D52 | Python sidecar owns job state | active | API and realtime |
+| D53 | Pinned deterministic M7 fixtures | active | v1 golden fixtures |
+| D54 | Verification outcome classes | active | Data and storage |
+| D55 | SSE cursor contract | active | API and realtime |
+| D56 | Cancel commits cancelled early | superseded → D61 | API and realtime |
+| D57 | `destroyed_at` confirmed-only | active | Data and storage |
+| D58 | Containment evidence matrix | active | Security |
+| D59 | Vultr MCP + CLI + `msb` tooling | active | Security |
+| D60 | Harness copy path restrictions | active | Security |
+| D61 | Cancel: request → freeze → finalizer | active | API and realtime |
+| D62 | Resolved commit mandatory | active | Platform shape |
+| D63 | Preinstall assessment tooling | active | Security |
+| D64 | Profile revisions + sandbox generations | active | Platform shape |
+| D65 | Containment positive controls | active | Security |
+| D66 | Gate decision table (normative) | active | Security |
+| D67 | Contiguous event retention / gap | active | API and realtime |
+| D68 | Quality gate (frontend + Python) | active | Security |
+| D69 | Public job feed list | active | API and realtime |
+| D70 | Vultr Firewall for demo VX1 | active | Security |
+| D71 | Shared admission = Valkey | active | Data and storage |
+| D72 | Vultr Object Storage | active | Data and storage |
+| D73 | Hosted ledger = Managed Postgres | active | Data and storage |
+| D74 | Vultr Container Registry for base images | active | Platform shape |
+| D75 | Inference extras (RAG/embed/vision) | active | Agent and AI |
+| D76 | CDN for screenshot thumbs | active | Data and storage |
+| D77 | Feed list server-side pagination | active | API and realtime |
+| D78 | Allowlisted public git hosts | active | API and realtime |
+| D79 | Home feed repo-grouped | active | API and realtime |
+| D80 | Lost-sandbox self-heal | active | Platform shape |
+| D81 | Operator Killhub MCP | active | API and realtime |
+| D82 | GitHub short-path deep link | active | API and realtime |
+| D83 | Stall / wall-clock / expiry terminalization | active | Platform shape |
 
 ---
 
@@ -26,7 +118,7 @@ Product intent: [PRODUCT.md](PRODUCT.md) · Structure: [ARCHITECTURE.md](ARCHITE
 | D62 | **Resolved commit is mandatory; original_application launches the built checkout.** After the first successful clone, every job persists `resolved_commit` (full SHA). Runtime `source.commit` is **required** (not optional). Every re-clone (including after image replace) must check out that exact SHA. Claiming `verification.kind=original_application` requires launching the **built tree from that checkout** (local `node`/`python`/binaries under the workdir or packages already installed into that tree). Do **not** satisfy original-application readiness by `npx -y <unpinned-package>` or other commands that resolve/install a package absent from the local checkout/lockfile. Fixtures pin SHAs in [explore/fixtures/m7.json](explore/fixtures/m7.json) (D53). | Readiness must prove the inspected source; unversioned registry launches can retrieve different code |
 | D22 | Plane 2 runtime = **[Microsandbox on Vultr Cloud Compute](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute)** (`msb` / SDK over KVM+libkrun) | Official Vultr agent-sandboxing path |
 | D24 | **Public / demo control plane** runs on **Vultr Cloud Compute** at **[https://killhub.pro](https://killhub.pro)**; local `docker-compose` remains for development only | Vultr is the orchestration fabric, not only sandboxes; single marketed demo hostname |
-| D81 | **Job stall / wall-clock / expiry terminalization (2026-11-27).** Plane-1 reaper enforces three hard stops on non-terminal jobs: (1) **`JOB_TIMEOUT_SECONDS`** wall clock from `created_at` → `dossier.code=job_timeout`; (2) absolute **`expires_at`** (even with no sandbox generation) → `expires_at`; (3) ledger silence **`JOB_STALL_SECONDS`** (default 600) on `updated_at` for claimed/in-flight statuses → `job_stalled`. Each path destroys any live sandbox (best effort), writes the receipt, then terminal `failed` (or `cancelled` if cancel was requested) and releases admission. Workers emit **ledger progress heartbeats** (~`SSE_KEEPALIVE_SECONDS`) so `updated_at` means worker liveness — SSE comment keep-alives alone do not (D50). Claiming with **no** pipeline flags **skips** claim (jobs stay `pending`; no `worker stub: analyzing`). Does not resume stalled jobs; does not extend `expires_at` (D41). | Documented `JOB_TIMEOUT_SECONDS` was unused; demo jobs sat at analyzing/5% for hours after claim or worker death. |
+| D83 | **Job stall / wall-clock / expiry terminalization (2026-11-27).** Plane-1 reaper enforces three hard stops on non-terminal jobs: (1) **`JOB_TIMEOUT_SECONDS`** wall clock from `created_at` → `dossier.code=job_timeout`; (2) absolute **`expires_at`** (even with no sandbox generation) → `expires_at`; (3) ledger silence **`JOB_STALL_SECONDS`** (default 600) on `updated_at` for claimed/in-flight statuses → `job_stalled`. Each path destroys any live sandbox (best effort), writes the receipt, then terminal `failed` (or `cancelled` if cancel was requested) and releases admission. Workers emit **ledger progress heartbeats** (~`SSE_KEEPALIVE_SECONDS`) so `updated_at` means worker liveness — SSE comment keep-alives alone do not (D50). Claiming with **no** pipeline flags **skips** claim (jobs stay `pending`; no `worker stub: analyzing`). Does not resume stalled jobs; does not extend `expires_at` (D41). | Documented `JOB_TIMEOUT_SECONDS` was unused; demo jobs sat at analyzing/5% for hours after claim or worker death. Was briefly numbered D81; **D81 is Operator MCP** (API section). |
 | D80 | **Lost-sandbox self-heal + in-flight orphan guard (2026-11-27).** If a job's microVM vanishes mid-pipeline (`msb status` → not found, or "shutdown is already in progress"), the worker records a `lifecycle` `sandbox lost` event, marks that generation `failed`, force-removes any remnant, clears `sandbox_id` and re-runs the pipeline on a fresh generation, at most `MAX_SANDBOX_HEALS` times (default 1, 0 = off). The install repair loop aborts with `sandbox_lost` instead of retrying against a dead VM. The reaper no longer destroys a "live sandbox with no ledger generation" whose labeled job is still in flight (create → generation write is not atomic); absolute `expires_at` reaping is unchanged. Still one live VM per job (D27); never extends `expires_at` (D41); readiness still only from gates (D47). | Live demo jobs failed with `canary_plant_failed` (reaper killed a just-created VM as orphan) and `msb snapshot create … sandbox not found` (VMs removed from the host mid-install); repairs 2–3 then ran against a missing VM. |
 
 ---

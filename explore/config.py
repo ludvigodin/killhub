@@ -113,7 +113,7 @@ class Settings(BaseSettings):
 
     # Timeouts / caps
     job_timeout_seconds: int = Field(default=3600, alias="JOB_TIMEOUT_SECONDS")
-    # Silence on jobs.updated_at before reaper fails the run (D81).
+    # Silence on jobs.updated_at before reaper fails the run (D83).
     job_stall_seconds: int = Field(default=600, alias="JOB_STALL_SECONDS")
     env_ttl_seconds: int = Field(default=7200, alias="ENV_TTL_SECONDS")
     max_repair_attempts: int = Field(default=3, alias="MAX_REPAIR_ATTEMPTS")

@@ -225,7 +225,7 @@ def test_claim_without_pipeline_flags_skips(
     from config import get_settings
     from service import claim_pending_job
 
-    # Default claim flags are off — do not claim into a stub (D81).
+    # Default claim flags are off — do not claim into a stub (D83).
     for key in (
         "MSB_AUTO_CREATE",
         "DISCOVER_ON_CLAIM",

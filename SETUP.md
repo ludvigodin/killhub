@@ -1,6 +1,19 @@
 # Killhub setup (Vultr)
 
-Operator runbook for running Killhub yourself. Product overview stays in [README.md](README.md); this page is how to stand up Plane 1 + Plane 2 on Vultr.
+Operator runbook for running Killhub yourself. Product overview stays in [README.md](README.md); this page is how to stand up Plane 1 + Plane 2 on Vultr. Contributor workflow: [CONTRIBUTING.md](CONTRIBUTING.md). Module map: [docs/CODEMAP.md](docs/CODEMAP.md).
+
+## Contents
+
+1. [Prerequisites](#1-prerequisites)
+2. [Accounts and keys](#2-accounts-and-keys)
+3. [Clone and environment files](#3-clone-and-environment-files)
+4. [Local Plane 1](#4-local-plane-1) — native (A) vs Compose (B)
+5. [Enable the job pipeline](#5-enable-the-job-pipeline)
+6. [Plane 2 (Microsandbox)](#6-plane-2-microsandbox)
+7. [Vultr production-style host](#7-vultr-production-style-host)
+8. [Verify](#8-verify)
+9. [Security checklist](#9-security-checklist)
+10. [Troubleshooting](#10-troubleshooting)
 
 Two supported topologies ([ARCHITECTURE.md](ARCHITECTURE.md)):
 
@@ -118,6 +131,8 @@ Never commit `.env`, `frontend/.env.local`, or real keys.
 
 ## 4. Local Plane 1
 
+**Native vs Compose:** use **§4A native** (`pnpm dev` + `python -m main`) for day-to-day UI/API work. **§4B Compose** builds a **production-style** Next image for the control plane — slower to iterate, still needs filled `.env` + pipeline flags (§5) and real `msb` for Plane 2. Compose is not a substitute for Microsandbox.
+
 ### A. Native (recommended for day-to-day)
 
 ```bash
@@ -139,7 +154,7 @@ pnpm dev
 # http://127.0.0.1:3000 — proxies /api to EXPLORE_BASE_URL
 ```
 
-Worker + in-process reaper start with the explore lifespan. Plane 2 still needs reachable `msb` (usually `MSB_HOST` → VX1).
+Worker + **in-process reaper** (`reaper_loop` from `main.py` when `REAPER_ENABLED=true`) start with the explore lifespan. That loop also applies stall / wall-clock / expiry terminalization (D83). Plane 2 still needs reachable `msb` (usually `MSB_HOST` → VX1). For absolute `expires_at` when Plane 1 is down, also run the **host reaper** on VX1 (`python -m reaper --host` — see §7 Durability).
 
 ### Operator MCP (D81)
 
@@ -272,7 +287,7 @@ export MSB_DEFAULT_IMAGE="${VULTR_CR_ENDPOINT}/bootstrap@${DIGEST}"
 
 ## 7. Vultr production-style host
 
-Public demo pattern ([DECISIONS.md](DECISIONS.md) D24, D46): app on loopback; reverse proxy terminates TLS and faces the internet.
+Public demo pattern ([DECISIONS.md](DECISIONS.md) D24, D46): app on loopback; reverse proxy terminates TLS and faces the internet. Operator helpers: [`ops/vx1-firewall.sh`](ops/vx1-firewall.sh), [`ops/offline/`](ops/offline/) (deny-all guest egress wrappers).
 
 ### Bind and proxy
 
@@ -321,7 +336,9 @@ Complements D46: Caddy still terminates TLS on the public NIC; the Firewall grou
 
 Outbound at the Vultr Firewall layer: leave unrestricted. Optional later: tighten SSH further; add IPv6 mirrors if the instance has public v6.
 
-**Inventory status (this workspace, Nov 2026)**
+**Host-specific inventory (dated — this workspace / killhub.pro, Nov 2026)**
+
+> Stale risk: IPs, MCP 401 notes, and instance labels below are **operator inventory for the public demo host**, not universal setup steps. Re-check with Vultr MCP / `vultr-cli` / console before mutating. Prefer [`ops/vx1-firewall.sh`](ops/vx1-firewall.sh) over copy-pasting IDs.
 
 - Vultr MCP `firewall_groups_list`: **0 groups** (account readable).
 - Vultr MCP / `vultr-cli` **instance list**: often **401** until Account → API → Access Control allows the operator IP (#20). Do **not** invent instance IDs.
@@ -454,15 +471,16 @@ cd /opt/killhub/frontend && pnpm install && pnpm build
   ```
 
   Create the cluster in the Vultr dashboard (or `vultr-cli database create`), allow the VX1 IP in DB trusted sources, copy the connection URI (TLS — `sslmode=require`), put it in `/etc/killhub/killhub.env`, restart `killhub-explore`. Schema bootstrap runs on open. Do **not** inject DB credentials into sandboxes. This repo does not provision a cluster for you.
-- In-process reaper runs with explore when `REAPER_ENABLED=true`.
-- **Host reaper** (VX1, works even if Plane 1 is down):
+- **Reaper dual mode (D41, D83):**
+  - **In-process:** `reaper_loop` inside explore (`REAPER_ENABLED=true`) — ledger reconcile + stall / `JOB_TIMEOUT_SECONDS` / `expires_at` terminalization.
+  - **Host:** on VX1, works even if Plane 1 is down — scans `msb` labels and destroys past `killhub.expires_at` (does not trust `msb touch`):
 
 ```bash
 cd /opt/killhub/explore
 .venv/bin/python -m reaper --host --once
 ```
 
-Cron or timer example: every 5 minutes.
+Cron or timer example: every 5 minutes. Run the host reaper under the same identity / `MSB_BIN` as the worker so inventory matches.
 
 - **Ledger backup** ([DATABASE.md](DATABASE.md)):
 
@@ -606,9 +624,13 @@ cd ../explore && .venv/bin/ruff check . && .venv/bin/ruff format --check . && .v
 | Doc | Purpose |
 |-----|---------|
 | [README.md](README.md) | Product |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor workflow |
+| [docs/CODEMAP.md](docs/CODEMAP.md) | Module map / request path |
+| [docs/GLOSSARY.md](docs/GLOSSARY.md) | Shared terms |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Planes, trust zones, deploy topology |
-| [DECISIONS.md](DECISIONS.md) | D24, D25, D41, D46, D59, D70–D76, … |
+| [DECISIONS.md](DECISIONS.md) | D24, D25, D41, D46, D59, D70–D76, D81, D83, … |
 | [`ops/vx1-firewall.sh`](ops/vx1-firewall.sh) | Dry-run / apply Vultr Firewall for VX1 (D70) |
+| [`ops/offline/`](ops/offline/) | Deny-all guest egress wrappers on VX1 |
 | [AGENTS.md](AGENTS.md) | Agent rules, quality gate, Vultr tooling |
 | [DATABASE.md](DATABASE.md) | Ledger, reaper, backups |
 | [API.md](API.md) | Jobs API + SSE |

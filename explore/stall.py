@@ -1,4 +1,4 @@
-"""Fail non-terminal jobs that timed out, stalled, or passed expires_at (D81).
+"""Fail non-terminal jobs that timed out, stalled, or passed expires_at (D83).
 
 Plane-1 reaper calls :func:`reap_stale_jobs` after absolute sandbox expiry so
 the ledger never leaves a run looking "live" with a dead or absent worker.

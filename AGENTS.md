@@ -2,7 +2,7 @@
 
 This file is binding for any AI agent (Cursor, OpenCode, CI bots, or the in-product Environment Agent) working on or inside Killhub.
 
-Canonical product docs: [PRODUCT.md](PRODUCT.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [DECISIONS.md](DECISIONS.md) · [DATABASE.md](DATABASE.md) · [API.md](API.md)
+Canonical product docs: [PRODUCT.md](PRODUCT.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [DECISIONS.md](DECISIONS.md) · [DATABASE.md](DATABASE.md) · [API.md](API.md) · [SETUP.md](SETUP.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [docs/CODEMAP.md](docs/CODEMAP.md) · [docs/GLOSSARY.md](docs/GLOSSARY.md)
 
 ---
 
@@ -10,10 +10,11 @@ Canonical product docs: [PRODUCT.md](PRODUCT.md) · [ARCHITECTURE.md](ARCHITECTU
 
 1. Read [PRODUCT.md](PRODUCT.md) for *what* and *why*.
 2. Read [ARCHITECTURE.md](ARCHITECTURE.md) for the **two planes** and boundaries.
-3. Read [DECISIONS.md](DECISIONS.md) before introducing new tech or patterns.
-4. Touch code in the matching tree: `frontend/` (Plane 1 UI + `/api` proxy), `explore/` (ledger + plan loop + harness), harness→`msb` for Plane 2. Contracts live in [API.md](API.md) / [DATABASE.md](DATABASE.md).
-5. Before finishing substantive work, run the **quality gate** (§8 / D68) and fix until all pass.
-6. Vultr / Microsandbox work must go through **Vultr MCP**, **`vultr-cli`**, and/or **`msb` CLI/SDK** (optionally `microsandbox-mcp` for debug) — see §9 and [DECISIONS.md](DECISIONS.md) D59. Never substitute Docker-on-host for Plane 2 or mark sandbox work done without real `msb`.
+3. Skim [docs/CODEMAP.md](docs/CODEMAP.md) for module ownership; [docs/GLOSSARY.md](docs/GLOSSARY.md) for terms.
+4. Read [DECISIONS.md](DECISIONS.md) (Decision index at top) before introducing new tech or patterns.
+5. Touch code in the matching tree: `frontend/` (Plane 1 UI + `/api` proxy), `explore/` (ledger + plan loop + harness), harness→`msb` for Plane 2. Contracts live in [API.md](API.md) / [DATABASE.md](DATABASE.md). Contributor workflow: [CONTRIBUTING.md](CONTRIBUTING.md). Run/deploy: [SETUP.md](SETUP.md).
+6. Before finishing substantive work, run the **quality gate** (§8 / D68) and fix until all pass.
+7. Vultr / Microsandbox work must go through **Vultr MCP**, **`vultr-cli`**, and/or **`msb` CLI/SDK** (optionally `microsandbox-mcp` for debug) — see §9 and [DECISIONS.md](DECISIONS.md) D59. Never substitute Docker-on-host for Plane 2 or mark sandbox work done without real `msb`.
 
 Do not invent a third durable plane or split explore/test into two VMs without updating architecture + decisions first ([DECISIONS.md](DECISIONS.md) D27–D28).
 
@@ -79,8 +80,9 @@ When acting as the Environment Agent:
 
 ## 5. Code and docs hygiene
 
-- Prefer changing the correct tree (`frontend/`, `explore/`, harness→sandbox) over cross-cutting hacks.
-- Update [DECISIONS.md](DECISIONS.md) when you make a lasting technical choice.
+- Prefer changing the correct tree (`frontend/`, `explore/`, harness→sandbox) over cross-cutting hacks. Module map: [docs/CODEMAP.md](docs/CODEMAP.md).
+- Frontend Killhub notes (proxy, SSE, admission): [frontend/AGENTS.md](frontend/AGENTS.md).
+- Update [DECISIONS.md](DECISIONS.md) when you make a lasting technical choice (and the Decision index).
 - Update [API.md](API.md) / [DATABASE.md](DATABASE.md) when contracts or schemas change.
 - Do not downgrade dependencies.
 - Do not edit Expo `ios/` / `android/` or Podfiles (N/A for this repo; keep the project rule if present).
