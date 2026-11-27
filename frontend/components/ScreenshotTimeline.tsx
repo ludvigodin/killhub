@@ -97,7 +97,7 @@ export function ScreenshotTimeline({ jobId, shots }: ScreenshotTimelineProps) {
           src={featuredSrc}
           alt={featured.caption || `Screenshot ${featured.screenshot_id}`}
           priority
-          className="aspect-[16/9] w-full object-cover object-top sm:aspect-[2/1]"
+          className="aspect-video w-full object-cover object-top sm:aspect-2/1"
         />
         <figcaption className="absolute inset-x-0 bottom-0 bg-linear-to-t from-[#0a0b0d]/95 via-[#0a0b0d]/55 to-transparent px-3 pb-3 pt-10 sm:px-4">
           <p className="type-display text-sm font-semibold tracking-tight text-(--ink) sm:text-base">

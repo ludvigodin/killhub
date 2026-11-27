@@ -264,7 +264,7 @@ export function JobEntryCard({
           {when.relative || when.absolute}
         </time>
         {when.absolute ? (
-          <p className="type-meta max-w-[11rem] truncate text-right text-(--muted)">
+          <p className="type-meta max-w-44 truncate text-right text-(--muted)">
             {when.absolute}
           </p>
         ) : null}

@@ -83,9 +83,9 @@ export function SectionNav({ items }: SectionNavProps) {
     <>
       <nav
         aria-label="Page sections"
-        className="sticky top-[4.75rem] z-40 -mx-6 mb-2 border-b border-(--line)/50 bg-(--paper)/85 px-6 py-2.5 backdrop-blur-md lg:hidden"
+        className="sticky top-19 z-40 -mx-6 mb-2 border-b border-(--line)/50 bg-(--paper)/85 px-6 py-2.5 backdrop-blur-md lg:hidden"
       >
-        <ul className="m-0 flex list-none gap-1.5 overflow-x-auto p-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <ul className="m-0 flex list-none gap-1.5 overflow-x-auto p-0 scrollbar-none [&::-webkit-scrollbar]:hidden">
           {items.map((item) => {
             const active = item.id === activeId;
             return (

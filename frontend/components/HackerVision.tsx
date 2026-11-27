@@ -70,6 +70,11 @@ export function HackerVision({
     scene.current?.update(banks, selected, Boolean(danger), followCamera);
   }, [banks, selected, danger, followCamera]);
   useEffect(() => {
+    // Wait until the portal canvas is in the DOM. On reopen the cached
+    // telemetryScene import can resolve in the same turn as mount, before the
+    // SSR `mounted` gate has painted the canvas (first open often "works"
+    // only because the cold import is slow enough).
+    if (!mounted) return;
     let alive = true;
     import("./telemetryScene")
       .then(({ mountScene }) => {
@@ -96,7 +101,7 @@ export function HackerVision({
       scene.current?.dispose();
       scene.current = null;
     };
-  }, []);
+  }, [mounted]);
   const select = (item: FrameEvent) => {
     setPinned(item.event.id);
     setFollowCamera(true);
