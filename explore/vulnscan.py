@@ -30,6 +30,7 @@ LOCKFILE_NAMES = (
     "npm-shrinkwrap.json",
     "requirements.txt",
     "poetry.lock",
+    "uv.lock",
     "Pipfile.lock",
     "Cargo.lock",
     "go.sum",
@@ -217,6 +218,33 @@ def _parse_requirements_txt(text: str) -> list[tuple[str, str]]:
     return pkgs
 
 
+def _parse_toml_lock(text: str) -> list[tuple[str, str]]:
+    """``[[package]]`` entries of uv.lock / poetry.lock that come from a registry.
+
+    Editable, virtual, path, directory and git sources (the project itself,
+    workspace members, VCS pins) are skipped: OSV can't match them as PyPI
+    releases.
+    """
+    import tomllib
+
+    data = tomllib.loads(text)
+    pkgs: list[tuple[str, str]] = []
+    for pkg in data.get("package") or []:
+        if not isinstance(pkg, dict):
+            continue
+        name, version = pkg.get("name"), pkg.get("version")
+        if not isinstance(name, str) or not isinstance(version, str):
+            continue
+        src = pkg.get("source")
+        if isinstance(src, dict):
+            if any(k in src for k in ("editable", "virtual", "path", "directory", "git")):
+                continue
+            if src.get("type") in {"git", "directory", "file", "url"}:
+                continue
+        pkgs.append((name, version))
+    return pkgs
+
+
 def extract_packages(path: Path) -> tuple[str, list[tuple[str, str]]]:
     """Return (ecosystem, [(name, version), ...])."""
     name = path.name.lower()
@@ -227,6 +255,8 @@ def extract_packages(path: Path) -> tuple[str, list[tuple[str, str]]]:
         return "npm", _parse_npm_lock(data)
     if name.endswith("requirements.txt"):
         return "PyPI", _parse_requirements_txt(text)
+    if name.endswith("uv.lock") or name.endswith("poetry.lock"):
+        return "PyPI", _parse_toml_lock(text)
     if name.endswith("pipfile.lock"):
         data = json.loads(text)
         pkgs: list[tuple[str, str]] = []
