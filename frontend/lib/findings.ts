@@ -25,7 +25,8 @@ export const SEVERITY_TONE: Record<SeverityLevel, { bg: string; fg: string }> =
   };
 
 export function normalizeSeverity(raw: string | undefined): string {
-  return (raw || "info").toLowerCase();
+  const severity = (raw || "info").toLowerCase();
+  return severity === "moderate" ? "medium" : severity;
 }
 
 export function countSeverities(
@@ -53,6 +54,40 @@ export function countSeverities(
   return counts;
 }
 
+const legacyClean =
+  "No scan findings. Clean bill for this job's scanned surfaces.";
+
+export function readerSummary(report: JobSnapshot["vuln_report"]) {
+  if (!report?.summary || report.summary === legacyClean) return null;
+  if (!report.summary.includes("Cite-checked review —")) return report.summary;
+
+  // Older receipts stored a list of titles. Rebuild the reader-facing sentence
+  // from the saved evidence without rewriting the receipt.
+  const findings = report.findings ?? [];
+  for (const severity of SEVERITY_ORDER) {
+    const finding = findings.find(
+      (f) => normalizeSeverity(f.severity) === severity,
+    );
+    if (!finding) continue;
+    if (severity === "info") break;
+    if (finding.source === "sca" && finding.package)
+      return `A security advisory lists ${finding.package} as affected. Its effect on this application is unknown. Check the advisory for a fixed version before running the project.`;
+    return finding.title || null;
+  }
+  if (
+    findings.some(
+      (f) =>
+        f.source === "network" &&
+        typeof f.detail === "object" &&
+        f.detail !== null &&
+        "classification" in f.detail &&
+        f.detail.classification === "policy_denied",
+    )
+  )
+    return "The sandbox blocked a network connection as expected.";
+  return null;
+}
+
 export function securityVerdict(job: JobSnapshot) {
   const report = job.vuln_report;
   const counts = countSeverities(report?.findings);
@@ -71,16 +106,26 @@ export function securityVerdict(job: JobSnapshot) {
   else if (
     report.status !== "ok" ||
     !Array.isArray(report.findings) ||
-    report.summary ===
-      "No scan findings. Clean bill for this job's scanned surfaces."
+    report.summary === legacyClean
   ) {
     gaps.push("Dependency scan coverage is incomplete or unknown.");
   }
   if (target === "generated_demo")
-    gaps.push("Only a generated demo was verified.");
-  else if (target !== "original_application" || job.status !== "completed") {
+    gaps.push(
+      "Killhub tested a generated demo. The original application still needs verification.",
+    );
+  else if (
+    target !== "original_application" &&
+    ["failed", "cancelled"].includes(job.status)
+  ) {
+    gaps.push(
+      "The run ended before Killhub could verify the original application.",
+    );
+  } else if (target !== "original_application") {
     gaps.push("Verification of the original application is incomplete.");
   }
+  if (target === "original_application" && job.status !== "completed")
+    gaps.push("The application started, but the job did not complete.");
   if (job.receipt?.containment?.claim !== "proven")
     gaps.push("Sandbox isolation was not fully verified.");
 
@@ -102,8 +147,7 @@ export function securityVerdict(job: JobSnapshot) {
     return {
       label: "Review before use",
       color: "var(--warn)",
-      reason:
-        "The scan flagged issues that need a closer look. See the findings in the receipt.",
+      reason: "Review the detailed findings before using this project.",
       gaps,
     };
   if (gaps.length)

@@ -60,6 +60,63 @@ def test_cite_checked_review_drops_uncited() -> None:
     assert "imaginary-pkg" not in out
 
 
+@pytest.mark.parametrize(
+    "draft",
+    [
+        "Minor issue [low-1].",
+        "Unsupported claim [high-1][unknown].",
+        "Too wordy " * 35 + "[high-1].",
+    ],
+)
+def test_review_falls_back_to_highest_recorded_issue(draft: str) -> None:
+    findings = [
+        {"id": "low-1", "severity": "low", "title": "Minor issue"},
+        {"id": "high-1", "severity": "high", "title": "Important warning"},
+    ]
+    assert cite_checked_review(findings, draft) == (
+        "The scan flagged the following issue: Important warning [high-1]."
+    )
+
+
+def test_id_only_and_successful_protection_use_recorded_evidence():
+    advisory = {
+        "id": "sca-1",
+        "source": "sca",
+        "severity": "medium",
+        "package": "example@1",
+        "title": "GHSA-test",
+        "detail": {"osv_id": "GHSA-test"},
+    }
+    denied = {
+        "id": "offline",
+        "source": "network",
+        "severity": "info",
+        "detail": {"classification": "policy_denied"},
+    }
+    text = cite_checked_review([denied, advisory], "This stole a password [sca-1].")
+    assert "example@1" in text and "fixed version" in text and "stole" not in text
+    assert "blocked a network connection as expected" in cite_checked_review([denied])
+
+
+@pytest.mark.parametrize("response_id", ["GHSA-test", "GHSA-other"])
+def test_advisory_description_requires_matching_id(monkeypatch, response_id):
+    from io import BytesIO
+
+    from vulnscan import _load_advisory_summary
+
+    finding = {"detail": {"osv_id": "GHSA-test"}, "title": "GHSA-test"}
+
+    def lookup(url, timeout):
+        assert url == "https://api.osv.dev/v1/vulns/GHSA-test" and timeout <= 3
+        return BytesIO(json.dumps({"id": response_id, "summary": "Published description"}).encode())
+
+    monkeypatch.setattr("urllib.request.urlopen", lookup)
+    _load_advisory_summary(finding, 10)
+    assert finding["title"] == (
+        "Published description" if response_id == "GHSA-test" else "GHSA-test"
+    )
+
+
 def test_sca_from_lockfile_with_mock_osv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     lock = {
         "lockfileVersion": 3,

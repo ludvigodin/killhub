@@ -329,6 +329,37 @@ def _osv_url(vuln: dict[str, Any]) -> str | None:
     return None
 
 
+def _advisory_id_only(finding: dict[str, Any]) -> bool:
+    detail = finding.get("detail") or {}
+    return finding.get("source") == "sca" and (
+        not finding.get("title")
+        or finding["title"] == detail.get("osv_id")
+        or re.fullmatch(r"(?:GHSA|PYSEC|CVE|OSV|RUSTSEC)-[A-Za-z0-9-]+", finding["title"])
+        is not None
+    )
+
+
+def _load_advisory_summary(finding: dict[str, Any], timeout: float) -> None:
+    """Best-effort context for the leading advisory, within the existing lookup budget."""
+    advisory_id = finding["detail"]["osv_id"]
+    if (
+        not isinstance(advisory_id, str)
+        or timeout <= 0
+        or not re.fullmatch(r"[A-Za-z0-9_-]{1,120}", advisory_id)
+    ):
+        return
+    try:
+        url = f"https://api.osv.dev/v1/vulns/{advisory_id}"
+        with urllib.request.urlopen(url, timeout=min(timeout, 3.0)) as response:
+            data = json.loads(response.read(256_000))
+        if isinstance(data, dict) and data.get("id") == advisory_id:
+            description = data.get("summary") or data.get("details")
+            if isinstance(description, str) and description.strip():
+                finding["title"] = " ".join(description.split())[:500]
+    except (OSError, ValueError):
+        pass  # The batch match remains valid even when its description is unavailable.
+
+
 def sca_findings_from_lockfiles(
     lockfiles: list[Path],
     *,
@@ -387,6 +418,10 @@ def sca_findings_from_lockfiles(
         ) as exc:
             errors += 1
             logger.warning("SCA failed for %s: %s", path, exc)
+    if findings and osv_endpoint == OSV_QUERYBATCH:
+        leading = min(findings, key=_review_priority)
+        if _advisory_id_only(leading):
+            _load_advisory_summary(leading, deadline - time.monotonic())
     if errors and scanned == 0:
         return findings, "failed", scanned, discovered
     if errors or incomplete:
@@ -576,41 +611,63 @@ def run_mcp_assessment_if_planned(
     return detail
 
 
+def _checked_draft(findings: list[dict[str, Any]], draft: str) -> str | None:
+    priorities = {str(f["id"]): _review_priority(f) for f in findings if f.get("id")}
+    if not priorities:
+        return None
+    highest = min(priorities.values())
+    kept: list[str] = []
+    mentions_highest = False
+    for sentence in re.split(r"(?<=[.!?])\s+", draft.strip()):
+        cited = set(re.findall(r"\[([^]\n]+)\]", sentence))
+        if cited and cited <= priorities.keys():
+            kept.append(sentence)
+            mentions_highest |= any(priorities[i] == highest for i in cited)
+    summary = " ".join(kept)
+    if mentions_highest and len(kept) <= 2 and len(summary.split()) <= 60:
+        return summary
+    return None
+
+
 def cite_checked_review(findings: list[dict[str, Any]], draft: str | None = None) -> str:
-    """
-    Build / filter a vuln_review summary so every claim cites a finding id (D48).
-    """
-    ids = {str(f.get("id")) for f in findings if f.get("id")}
+    """Build a short review grounded in identified findings (D48)."""
     if not findings:
         return "No findings recorded."
+    findings = [f for f in findings if f.get("id")]
+    if not findings:
+        return "The scan recorded findings without identifiers. Review the details below."
+    finding = min(findings, key=_review_priority)
+    citation = f"[{finding['id']}]"
+    if _advisory_id_only(finding):
+        package = finding.get("package") or "a project dependency"
+        return (
+            f"A security advisory lists {package} as affected {citation}. "
+            "The scan did not establish how this affects the application. "
+            "Check the advisory for a fixed version before running the project."
+        )
+    if _review_priority(finding) == 5:
+        if (
+            finding.get("source") == "network"
+            and (finding.get("detail") or {}).get("classification") == "policy_denied"
+        ):
+            return f"The sandbox blocked a network connection as expected {citation}."
+        return f"The scan recorded an informational observation {citation}."
+    if draft and (summary := _checked_draft(findings, draft)):
+        return summary
+    title = " ".join(str(finding.get("title") or "Issue flagged").split())
+    if len(title) > 140:
+        title = title[:137].rstrip() + "…"
+    if finding.get("source") == "sca" and finding.get("package"):
+        return (
+            f"A published security warning applies to {finding['package']}: {title} {citation}. "
+            "Check the advisory for a fixed version before running the project."
+        )
+    return f"The scan flagged the following issue: {title} {citation}."
 
-    if draft:
-        kept: list[str] = []
-        for sentence in re.split(r"(?<=[.!?])\s+", draft.strip()):
-            s = sentence.strip()
-            if not s:
-                continue
-            cited = set(re.findall(r"\[([a-zA-Z0-9_-]+)\]", s))
-            if cited & ids:
-                kept.append(s)
-        if kept:
-            return " ".join(kept)
 
-    # Deterministic cite-checked summary (no uncited claims).
-    parts: list[str] = []
-    by_sev: dict[str, list[dict[str, Any]]] = {}
-    for f in findings:
-        sev = str(f.get("severity") or "info").lower()
-        by_sev.setdefault(sev, []).append(f)
-    order = ("critical", "high", "medium", "low", "info")
-    for sev in order:
-        group = by_sev.get(sev) or []
-        if not group:
-            continue
-        cites = "".join(f"[{f['id']}]" for f in group if f.get("id"))
-        titles = "; ".join(str(f.get("title") or f.get("id")) for f in group[:5])
-        parts.append(f"{sev}: {titles} {cites}".strip())
-    return "Cite-checked review — " + " | ".join(parts)
+def _review_priority(finding: dict[str, Any]) -> int:
+    rank = {"critical": 0, "high": 1, "medium": 2, "moderate": 2, "low": 3, "info": 5}
+    return rank.get(str(finding.get("severity")).lower(), 4)
 
 
 def run_vuln_scan(
@@ -681,8 +738,10 @@ def run_vuln_scan(
     try:
         from inference_extras import draft_vuln_review, maybe_seed_embeddings_for_findings
 
-        draft = draft_vuln_review(all_findings, job_id=job_id, settings=cfg)
-        if draft:
+        ranked = sorted(all_findings, key=_review_priority)
+        if ranked and _review_priority(ranked[0]) != 5 and not _advisory_id_only(ranked[0]):
+            draft = draft_vuln_review([ranked[0]], job_id=job_id, settings=cfg)
+        if draft := _checked_draft(ranked[:1], draft or ""):
             review_mode = "llm_rag" if (cfg.vultr_rag_collection or "").strip() else "llm"
         # Optional document embeddings for advisory indexing — never required.
         maybe_seed_embeddings_for_findings(all_findings, job_id=job_id, settings=cfg)
@@ -690,16 +749,16 @@ def run_vuln_scan(
         logger.info("vuln_review extras skipped: %s", exc.__class__.__name__)
 
     status = "partial" if copy_incomplete and sca_status == "ok" else sca_status
-    summary = cite_checked_review(all_findings, draft=draft)
+    summary = draft or cite_checked_review(all_findings)
     if not lock_host:
-        summary = f"No dependency files were available for scanning. {summary}"
+        summary = f"{summary} No dependency files were available for scanning."
     elif status == "failed":
-        summary = f"Dependency advisory lookup could not be completed. {summary}"
+        summary = f"{summary} The lookup for known dependency issues failed."
     elif status == "partial":
-        summary = f"Dependency advisory coverage was incomplete. {summary}"
+        summary = f"{summary} Some dependencies could not be checked for known security issues."
 
     if discovered:
-        summary = f"Checked {checked} of {discovered} pinned dependency entries. {summary}"
+        summary = f"{summary} Checked {checked} of {discovered} listed dependency versions."
 
     report = ledger.upsert_vuln_report(
         job_id,

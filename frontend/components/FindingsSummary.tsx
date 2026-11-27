@@ -1,7 +1,7 @@
 import type { JobSnapshot } from "@/lib/api";
 import {
   countSeverities,
-  reportStatusTone,
+  readerSummary,
   SEVERITY_ORDER,
   SEVERITY_TONE,
   type SeverityLevel,
@@ -12,7 +12,7 @@ export function FindingsSummary({ snapshot }: { snapshot: JobSnapshot }) {
   const report = snapshot.vuln_report;
   const verdict = securityVerdict(snapshot);
   const counts = countSeverities(report?.findings);
-  const statusTone = report ? reportStatusTone(report.status) : null;
+  const summary = readerSummary(report);
 
   return (
     <section
@@ -23,11 +23,6 @@ export function FindingsSummary({ snapshot }: { snapshot: JobSnapshot }) {
         <p className="text-sm uppercase tracking-wide text-(--muted)">
           Security assessment
         </p>
-        {statusTone ? (
-          <p className="font-mono text-xs" style={{ color: statusTone.fg }}>
-            report {statusTone.label}
-          </p>
-        ) : null}
       </div>
 
       <p
@@ -39,6 +34,10 @@ export function FindingsSummary({ snapshot }: { snapshot: JobSnapshot }) {
       >
         {verdict.label}
       </p>
+
+      {summary ? (
+        <p className="text-sm leading-relaxed wrap-anywhere">{summary}</p>
+      ) : null}
 
       {counts.total > 0 ? (
         <ul className="flex flex-wrap gap-2" aria-label="Severity counts">
