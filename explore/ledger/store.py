@@ -751,6 +751,31 @@ class Ledger:
         ).fetchone()
         return dict(row) if row else None
 
+    def insert_screenshot(
+        self,
+        job_id: str,
+        *,
+        step: str,
+        caption: str,
+        storage_path: str,
+        screenshot_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Persist screenshot metadata (bytes already on host via D60 copy_out)."""
+        shot_id = screenshot_id or str(uuid.uuid4())
+        now = utc_now()
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO screenshots (
+                    screenshot_id, job_id, step, caption, storage_path, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (shot_id, job_id, step, caption, storage_path, now),
+            )
+        row = self.get_screenshot(job_id, shot_id)
+        assert row is not None
+        return row
+
     def get_vuln_report(self, job_id: str) -> dict[str, Any] | None:
         row = self._conn.execute(
             "SELECT * FROM vuln_reports WHERE job_id = ?", (job_id,)

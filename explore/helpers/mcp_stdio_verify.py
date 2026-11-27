@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""In-guest MCP stdio verify helper (D51) — preinstalled in install phase (D63).
+
+Launches a subprocess from argv after `--`, speaks JSON-RPC over stdio.
+Supports newline-delimited JSON (NDJSON) used by current MCP filesystem
+servers, with optional Content-Length framing via `--framing content-length`.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import select
+import subprocess
+import sys
+import time
+
+
+def _write_ndjson(proc: subprocess.Popen[bytes], msg: dict) -> None:
+    assert proc.stdin is not None
+    proc.stdin.write(json.dumps(msg).encode("utf-8") + b"\n")
+    proc.stdin.flush()
+
+
+def _write_content_length(proc: subprocess.Popen[bytes], msg: dict) -> None:
+    assert proc.stdin is not None
+    body = json.dumps(msg).encode("utf-8")
+    header = (f"Content-Length: {len(body)}\r\nContent-Type: application/json\r\n\r\n").encode(
+        "ascii"
+    )
+    proc.stdin.write(header + body)
+    proc.stdin.flush()
+
+
+def _read_exact(proc: subprocess.Popen[bytes], n: int, deadline: float) -> bytes:
+    assert proc.stdout is not None
+    buf = b""
+    fd = proc.stdout.fileno()
+    while len(buf) < n:
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            raise TimeoutError(f"timed out reading {n} bytes (got {len(buf)})")
+        ready, _, _ = select.select([fd], [], [], min(remaining, 0.5))
+        if not ready:
+            if proc.poll() is not None:
+                err = b""
+                if proc.stderr is not None:
+                    err = proc.stderr.read() or b""
+                raise TimeoutError(
+                    f"MCP process exited ({proc.returncode}) before full read; stderr={err[:300]!r}"
+                )
+            continue
+        chunk = os.read(fd, n - len(buf))
+        if not chunk:
+            raise TimeoutError("MCP stdout closed before full read")
+        buf += chunk
+    return buf
+
+
+def _read_ndjson(proc: subprocess.Popen[bytes], timeout: float) -> dict:
+    deadline = time.time() + timeout
+    line = b""
+    while b"\n" not in line:
+        line += _read_exact(proc, 1, deadline)
+        if len(line) > 2_000_000:
+            raise ValueError("MCP NDJSON line too large")
+    return json.loads(line.decode("utf-8"))
+
+
+def _read_content_length(proc: subprocess.Popen[bytes], timeout: float) -> dict:
+    deadline = time.time() + timeout
+    headers = b""
+    while b"\r\n\r\n" not in headers:
+        headers += _read_exact(proc, 1, deadline)
+        if len(headers) > 65536:
+            raise ValueError("MCP headers too large")
+    length = None
+    for line in headers.decode("latin-1").split("\r\n"):
+        if line.lower().startswith("content-length:"):
+            length = int(line.split(":", 1)[1].strip())
+            break
+    if length is None:
+        raise ValueError(f"missing Content-Length in headers: {headers!r}")
+    body = _read_exact(proc, length, deadline)
+    return json.loads(body.decode("utf-8"))
+
+
+def main(argv: list[str]) -> int:
+    if "--" not in argv:
+        print(
+            "usage: mcp_stdio_verify.py [--timeout N] [--allow-empty-tools] "
+            "[--framing ndjson|content-length] -- <launch...>",
+            file=sys.stderr,
+        )
+        return 2
+    split = argv.index("--")
+    opts = argv[1:split]
+    launch = argv[split + 1 :]
+    if not launch:
+        print("launch command required after --", file=sys.stderr)
+        return 2
+    timeout = 20.0
+    allow_empty = "--allow-empty-tools" in opts
+    framing = "ndjson"
+    if "--timeout" in opts:
+        i = opts.index("--timeout")
+        timeout = float(opts[i + 1])
+    if "--framing" in opts:
+        i = opts.index("--framing")
+        framing = opts[i + 1].strip().lower()
+    if framing not in {"ndjson", "content-length"}:
+        print(f"unknown framing: {framing}", file=sys.stderr)
+        return 2
+
+    write = _write_ndjson if framing == "ndjson" else _write_content_length
+    read = _read_ndjson if framing == "ndjson" else _read_content_length
+
+    started = time.time()
+    proc = subprocess.Popen(
+        launch,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=0,
+    )
+    try:
+        write(
+            proc,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {
+                        "name": "killhub-mcp-stdio-verify",
+                        "version": "0.1",
+                    },
+                },
+            },
+        )
+        init = read(proc, timeout)
+        write(proc, {"jsonrpc": "2.0", "method": "notifications/initialized"})
+        write(proc, {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+        tools_msg = read(proc, timeout)
+        tools = ((tools_msg.get("result") or {}).get("tools")) or []
+        tool_count = len(tools) if isinstance(tools, list) else 0
+        ok = isinstance(tools, list) and (allow_empty or tool_count >= 1)
+        evidence = {
+            "ok": ok,
+            "tool_count": tool_count,
+            "tool_names": [t.get("name") for t in tools if isinstance(t, dict) and t.get("name")]
+            if isinstance(tools, list)
+            else [],
+            "protocol": (init.get("result") or {}).get("protocolVersion"),
+            "elapsed_ms": int((time.time() - started) * 1000),
+            "allow_empty_tools": allow_empty,
+            "framing": framing,
+        }
+        print(json.dumps(evidence))
+        return 0 if ok else 1
+    except Exception as exc:  # noqa: BLE001
+        err = ""
+        try:
+            if proc.stderr is not None:
+                ready, _, _ = select.select([proc.stderr.fileno()], [], [], 0.1)
+                if ready:
+                    err = os.read(proc.stderr.fileno(), 800).decode("utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            err = ""
+        print(json.dumps({"ok": False, "error": str(exc), "stderr": err[:400]}))
+        return 1
+    finally:
+        try:
+            proc.kill()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

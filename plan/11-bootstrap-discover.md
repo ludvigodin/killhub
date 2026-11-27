@@ -21,14 +21,14 @@ Use **`msb` CLI/SDK** (and Vultr MCP / `vultr-cli` to verify the VX1 host) per [
 
 ## Do
 
-- [ ] Trusted bootstrap profile → `MSB_DEFAULT_IMAGE` create (before discovery — D36)
-- [ ] Clone/inspect **inside** sandbox (copy/exec) — not privileged host install
-- [ ] Persist **`resolved_commit`**; require `source.commit` on runtime profiles (D62)
-- [ ] Prompts: `discover_environment` + `validate_environment_spec`
-- [ ] Append runtime profile as a **revision** under `storage/profiles/{job_id}/` (D64)
-- [ ] Invalid runtime profile blocks provision
-- [ ] Stream plan-loop steps as `span` / `log` / status
-- [ ] Consume pinned fixtures from step 10b
+- [x] Trusted bootstrap profile → `MSB_DEFAULT_IMAGE` create (before discovery — D36)
+- [x] Clone/inspect **inside** sandbox (copy/exec) — not privileged host install
+- [x] Persist **`resolved_commit`**; require `source.commit` on runtime profiles (D62)
+- [x] Prompts: `discover_environment` + `validate_environment_spec`
+- [x] Append runtime profile as a **revision** under `storage/profiles/{job_id}/` (D64)
+- [x] Invalid runtime profile blocks provision
+- [x] Stream plan-loop steps as `span` / `log` / status
+- [x] Consume pinned fixtures from step 10b
 
 ## Do not
 

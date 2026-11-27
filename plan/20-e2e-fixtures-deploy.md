@@ -54,4 +54,4 @@ Pinned fixtures pass on real **`msb`** sandboxes; demo URL is on Vultr behind ed
 
 ## Next
 
-[21-cleanup-docs.md](21-cleanup-docs.md) — remove build scaffolding docs once M7 is green.
+[20b-video-site-ui.md](20b-video-site-ui.md)

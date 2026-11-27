@@ -19,13 +19,13 @@ Use **`msb` CLI/SDK** (and Vultr MCP / `vultr-cli` to verify the VX1 host) per [
 
 ## Do
 
-- [ ] `verify.py`: `git_mcp` → MCP handshake that **lists tools**; `webapp`/`demo` → profile probe
-- [ ] For `original_application`: launch **built checkout** at `resolved_commit` — no unpinned `npx -y` (D62)
-- [ ] On pass: set `readiness` only — **not** `completed`, **not** destroy
-- [ ] Record `verification.kind`: `original_application` \| `generated_demo` \| `setup_failed`
-- [ ] If inventing `demo`, keep `verification.original_failure` visible
-- [ ] Gates own success — agent cannot invent readiness (D47, D66)
-- [ ] Use pinned fixtures from step 10b
+- [x] `verify.py`: `git_mcp` → MCP handshake that **lists tools**; `webapp`/`demo` → profile probe
+- [x] For `original_application`: launch **built checkout** at `resolved_commit` — no unpinned `npx -y` (D62)
+- [x] On pass: set `readiness` only — **not** `completed`, **not** destroy
+- [x] Record `verification.kind`: `original_application` \| `generated_demo` \| `setup_failed`
+- [x] If inventing `demo`, keep `verification.original_failure` visible
+- [x] Gates own success — agent cannot invent readiness (D47, D66)
+- [x] Use pinned fixtures from step 10b
 
 ## Do not
 

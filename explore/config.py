@@ -114,6 +114,31 @@ class Settings(BaseSettings):
         default="./storage/artifacts",
         alias="ARTIFACT_STORAGE",
     )
+    profile_storage: str = Field(
+        default="./storage/profiles",
+        alias="PROFILE_STORAGE",
+    )
+    # When true with MSB_AUTO_CREATE, run bootstrap discover after create (D36).
+    discover_on_claim: bool = Field(default=False, alias="DISCOVER_ON_CLAIM")
+    # After discover, attempt install + offline transition (D43).
+    install_on_claim: bool = Field(default=False, alias="INSTALL_ON_CLAIM")
+    # After install, launch + readiness verify (D37, D54) — never completes/destroys.
+    verify_on_claim: bool = Field(default=False, alias="VERIFY_ON_CLAIM")
+    # After verify, run containment matrix + canary scan (D58, D65) — never destroys.
+    containment_on_claim: bool = Field(default=False, alias="CONTAINMENT_ON_CLAIM")
+    # After verify, optional in-guest Playwright still (D31, D38) — never gates completion.
+    screenshots_on_claim: bool = Field(default=False, alias="SCREENSHOTS_ON_CLAIM")
+    # Known-live control-plane / public URL for install-phase CP denial probes (D65).
+    control_plane_probe_url: str = Field(
+        default="https://example.com",
+        alias="CONTROL_PLANE_PROBE_URL",
+    )
+    # Positive-control URL that should succeed from guest during install egress
+    # (must NOT be in CONTROL_PLANE_DENY_HOSTS — distinct from CP probe).
+    install_egress_probe_url: str = Field(
+        default="https://github.com",
+        alias="INSTALL_EGRESS_PROBE_URL",
+    )
     helpers_root: str = Field(
         default="./helpers",
         alias="HELPERS_ROOT",

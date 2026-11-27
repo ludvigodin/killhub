@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://killhub.local/schemas/environment_profile.v1.json",
+  "title": "Killhub environment_profile v1",
+  "type": "object",
+  "required": ["schema_version", "intent"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "intent": {
+      "type": "string",
+      "enum": ["bootstrap", "git_mcp", "webapp", "demo"]
+    },
+    "source": {
+      "type": "object",
+      "required": ["type", "url"],
+      "properties": {
+        "type": { "const": "git" },
+        "url": { "type": "string", "minLength": 1 },
+        "ref": { "type": "string" },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      },
+      "additionalProperties": true
+    },
+    "runtime": { "type": "string" },
+    "os_image": { "type": "string" },
+    "oci_image": { "type": "string" },
+    "workdir": { "type": "string" },
+    "services": { "type": "array" },
+    "packages": { "type": "array" },
+    "install_commands": { "type": "array" },
+    "run_commands": { "type": "array" },
+    "processes": { "type": "array" },
+    "ports": { "type": "array" },
+    "summary": { "type": "string" },
+    "verification_target": {
+      "type": "string",
+      "enum": ["original_application", "generated_demo"]
+    },
+    "mcp": { "type": "object" },
+    "probes": { "type": "array" },
+    "healthcheck": { "type": "object" },
+    "policy": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "intent": { "const": "bootstrap" } } },
+      "then": {
+        "required": ["oci_image", "workdir", "install_commands", "run_commands"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "intent": { "enum": ["git_mcp", "webapp", "demo"] }
+        }
+      },
+      "then": {
+        "required": [
+          "source",
+          "runtime",
+          "os_image",
+          "workdir",
+          "services",
+          "packages",
+          "install_commands",
+          "run_commands",
+          "processes",
+          "ports",
+          "summary",
+          "verification_target"
+        ],
+        "properties": {
+          "source": {
+            "type": "object",
+            "required": ["type", "url", "commit"]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "intent": { "const": "git_mcp" } } },
+      "then": {
+        "required": ["mcp"],
+        "properties": {
+          "mcp": {
+            "type": "object",
+            "required": ["transport", "launch_command", "readiness"],
+            "properties": {
+              "transport": { "enum": ["stdio", "streamable_http"] }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "additionalProperties": true
+}

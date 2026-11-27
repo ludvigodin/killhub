@@ -17,10 +17,10 @@ Use **`msb` CLI/SDK** (and Vultr MCP / `vultr-cli` to verify the VX1 host) per [
 
 ## Do
 
-- [ ] Run Playwright **in guest** for HTTP verify when useful; `copy_out` stills
-- [ ] Skip for CLI-only MCP / early fail
-- [ ] Cap `MAX_SCREENSHOTS_PER_JOB` + disk budget; redact secrets
-- [ ] Emit SSE `screenshot` only when captured
+- [x] Run Playwright **in guest** for HTTP verify when useful; `copy_out` stills
+- [x] Skip for CLI-only MCP / early fail
+- [x] Cap `MAX_SCREENSHOTS_PER_JOB` + disk budget; redact secrets
+- [x] Emit SSE `screenshot` only when captured
 
 ## Do not
 

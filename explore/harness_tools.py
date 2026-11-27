@@ -16,7 +16,7 @@ from harness import (
     copy_out,
     create_environment,
     default_bootstrap_plan,
-    destroy_environment,
+    destroy_job_environment,
     exec_command,
     wait_until_ready,
 )
@@ -133,7 +133,7 @@ class HarnessTools:
         return {"copied": "out", "host_path": str(dest)}
 
     def tool_destroy(self) -> dict[str, Any]:
-        destroy_environment(self.job_id, settings=self.settings)
+        destroy_job_environment(self.job_id, settings=self.settings)
         return {"destroyed": True, "job_id": self.job_id}
 
     def tool_readiness_probe_stub(self) -> dict[str, Any]:

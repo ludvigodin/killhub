@@ -38,12 +38,17 @@ __all__ = [
     "ExecResult",
     "MsbCli",
     "create_environment",
+    "replace_environment",
     "wait_until_ready",
     "destroy_environment",
+    "destroy_job_environment",
     "exec_command",
     "copy_in",
     "copy_out",
     "assert_guest_env_clean",
+    "normalize_oci_image",
+    "images_differ",
+    "environment_name_for_job",
 ]
 
 
@@ -95,6 +100,20 @@ def environment_name_for_job(job_id: str) -> str:
     return name[:63]
 
 
+def normalize_oci_image(image: str) -> str:
+    """Normalize image refs for equality (strip, lower, drop trailing :latest)."""
+    raw = (image or "").strip().lower()
+    if not raw:
+        return ""
+    if raw.endswith(":latest"):
+        raw = raw[: -len(":latest")]
+    return raw
+
+
+def images_differ(left: str, right: str) -> bool:
+    return normalize_oci_image(left) != normalize_oci_image(right)
+
+
 def normalize_memory(memory: str) -> str:
     """Map Killhub memory strings to msb CLI forms (`4Gi` → `4G`)."""
     raw = memory.strip()
@@ -127,6 +146,30 @@ def default_bootstrap_plan(settings: Settings | None = None) -> EnvironmentPlan:
         net_profiles=policy.profiles,
         net_rules=policy.rules,
         network_phase=policy.phase,
+    )
+
+
+def plan_for_image(
+    image: str,
+    *,
+    settings: Settings | None = None,
+    replace: bool = False,
+) -> EnvironmentPlan:
+    """Build an EnvironmentPlan for a specific OCI image (Killhub net policy)."""
+    cfg = settings or get_settings()
+    base = default_bootstrap_plan(cfg)
+    cleaned = (image or "").strip()
+    if not cleaned:
+        raise HarnessError("oci_image is required", code="config")
+    return EnvironmentPlan(
+        image=cleaned,
+        cpus=base.cpus,
+        memory=base.memory,
+        net_profiles=base.net_profiles,
+        net_rules=base.net_rules,
+        env=base.env,
+        replace=replace,
+        network_phase=base.network_phase,
     )
 
 
@@ -279,6 +322,54 @@ class MsbCli:
 
     def status(self, name: str) -> CliResult:
         return self.run(["status", name], timeout=30, check=False)
+
+    def snapshot_create(
+        self,
+        group: str,
+        *,
+        sandbox: str,
+        checkpoint: str = "installed",
+        full: bool = True,
+    ) -> CliResult:
+        args = [
+            "snapshot",
+            "create",
+            group,
+            "--sandbox",
+            sandbox,
+            "--name",
+            checkpoint,
+        ]
+        if full:
+            args.append("--full")
+        return self.run(args, timeout=300, check=True)
+
+    def snapshot_remove_group(self, group: str) -> CliResult:
+        return self.run(
+            ["snapshot", "remove", "--all", "--quiet", group],
+            timeout=120,
+            check=False,
+        )
+
+    def snapshot_restore_offline(
+        self,
+        group: str,
+        *,
+        name: str,
+    ) -> CliResult:
+        """Restore snapshot into `name` with deny-all remaining egress (D43)."""
+        return self.run(
+            [
+                "snapshot",
+                "restore",
+                group,
+                "--name",
+                name,
+                "--no-net",
+            ],
+            timeout=300,
+            check=True,
+        )
 
     def list_all(self) -> CliResult:
         # Prefer JSON when available; fall back to plain list.
@@ -534,6 +625,259 @@ def create_environment(
         payload={"phase": "canaries", **canaries.public_summary()},
     )
     return gen
+
+
+def _assert_single_live_job_sandbox(
+    job_id: str,
+    *,
+    settings: Settings,
+    cli: MsbCli,
+    expected: str | None = None,
+) -> None:
+    """Fail closed if more than one microVM is live for this job (D27, D36)."""
+    name = environment_name_for_job(job_id)
+    live = list_live_environment_ids(settings=settings, cli=cli)
+    # Stable name is the only allowed form for a job sandbox.
+    job_lives = {env for env in live if env == name}
+    if expected is None:
+        if len(job_lives) > 1:
+            raise HarnessError(
+                f"multiple live sandboxes for job {job_id}: {sorted(job_lives)}",
+                code="concurrent_vm",
+            )
+        return
+    if job_lives != {expected}:
+        raise HarnessError(
+            f"expected sole live sandbox {expected} for job {job_id}; live={sorted(job_lives)}",
+            code="concurrent_vm",
+        )
+
+
+def replace_environment(
+    job_id: str,
+    plan: EnvironmentPlan,
+    *,
+    settings: Settings | None = None,
+    cli: MsbCli | None = None,
+    reclone: bool = True,
+) -> SandboxGeneration:
+    """
+    Stop+remove current generation → create new image → re-clone resolved SHA (D36).
+
+    Inherits job `expires_at` (never extends). Marks prior generation `replaced`
+    without setting job-level `destroyed_at` while the replacement is alive (D64).
+    """
+    from discover import clone_and_resolve_commit
+
+    cfg = settings or get_settings()
+    msb = cli or MsbCli(cfg)
+    ledger = get_ledger(cfg)
+    job = ledger.get_job(job_id)
+    if job is None:
+        raise HarnessError(f"unknown job_id: {job_id}", code="not_found")
+    if job.status in {"failed", "cancelled", "completed"}:
+        raise HarnessError(
+            f"refusing replace for terminal job ({job.status})",
+            code="terminal",
+        )
+    if job.destroyed_at is not None:
+        raise HarnessError("job sandbox already destroyed", code="already_destroyed")
+    if job.current_sandbox_generation is None or not job.sandbox_id:
+        raise HarnessError("no live generation to replace", code="no_sandbox")
+
+    env_plan = apply_killhub_net_policy(plan, cfg)
+    gens = ledger.list_sandbox_generations(job_id)
+    current = next(
+        (g for g in gens if g.generation == job.current_sandbox_generation),
+        None,
+    )
+    if current is None:
+        raise HarnessError("current sandbox generation missing", code="no_sandbox")
+    if not images_differ(current.image, env_plan.image):
+        raise HarnessError(
+            f"replace requested but image unchanged ({env_plan.image})",
+            code="same_image",
+        )
+
+    prior_id = job.sandbox_id
+    prior_gen = job.current_sandbox_generation
+    prior_expires = job.expires_at
+    resolved = (job.resolved_commit or "").strip()
+    if reclone and not resolved:
+        raise HarnessError(
+            "resolved_commit required before replace re-clone (D62)",
+            code="missing_commit",
+        )
+
+    _assert_single_live_job_sandbox(job_id, settings=cfg, cli=msb, expected=prior_id)
+
+    ledger.append_event(
+        job_id,
+        typ="log",
+        message=f"sandbox replace {current.image} → {env_plan.image}",
+        payload={
+            "kind": "sandbox_replace",
+            "phase": "start",
+            "from_image": current.image,
+            "to_image": env_plan.image,
+            "from_environment_id": prior_id,
+            "from_generation": prior_gen,
+            "expires_at": prior_expires,
+            "resolved_commit": resolved or None,
+        },
+    )
+    ledger.append_event(
+        job_id,
+        typ="lifecycle",
+        message="sandbox replace requested",
+        payload={
+            "phase": "replace",
+            "from_environment_id": prior_id,
+            "from_generation": prior_gen,
+            "to_image": env_plan.image,
+        },
+    )
+    ledger.update_job_fields(
+        job_id,
+        current_step=f"replacing sandbox → {env_plan.image}",
+        progress=max(job.progress, 50),
+    )
+
+    # Remove prior VM before create — never two concurrent (D27).
+    stop = msb.stop(prior_id, force=False)
+    remove = msb.remove(prior_id, force=True)
+    status = msb.status(prior_id)
+    still_present = status.ok and prior_id in (status.stdout + status.stderr)
+    confirmed = remove.ok or not still_present
+    if (
+        not confirmed
+        and "not found" in (remove.stderr + remove.stdout + status.stderr + stop.stderr).lower()
+    ):
+        confirmed = True
+    if not confirmed:
+        raise HarnessError(
+            f"failed to remove prior sandbox {prior_id} before replace",
+            code="replace_remove_failed",
+        )
+
+    now = utc_now()
+    ledger.mark_generation_state(
+        job_id,
+        prior_gen,
+        "replaced",
+        destroyed_at=now,
+    )
+    # Clear current pointer until create opens the next generation — do NOT
+    # set job-level destroyed_at (D64).
+    ledger.update_job_fields(
+        job_id,
+        sandbox_id=None,
+        current_sandbox_generation=None,
+    )
+    job_after = ledger.get_job(job_id)
+    if job_after is not None and job_after.destroyed_at is not None:
+        raise HarnessError(
+            "job-level destroyed_at set during replace — refusing",
+            code="replace_invariant",
+        )
+
+    live_after_remove = list_live_environment_ids(settings=cfg, cli=msb)
+    if prior_id in live_after_remove:
+        raise HarnessError(
+            f"prior sandbox {prior_id} still live after remove",
+            code="concurrent_vm",
+        )
+
+    # create_environment re-applies net policy + plants canaries; expires_at
+    # comes from the job row (unchanged).
+    new_gen = create_environment(job_id, env_plan, settings=cfg, cli=msb)
+    if new_gen.expires_at != prior_expires:
+        raise HarnessError(
+            "replace must inherit job expires_at (D64)",
+            code="expires_extended",
+        )
+    if new_gen.generation != prior_gen + 1:
+        # Still OK if intermediate gens exist; must be strictly newer.
+        if new_gen.generation <= prior_gen:
+            raise HarnessError(
+                "replacement generation must be newer than prior",
+                code="generation_order",
+            )
+
+    _assert_single_live_job_sandbox(job_id, settings=cfg, cli=msb, expected=new_gen.environment_id)
+
+    if reclone:
+        clone_and_resolve_commit(
+            new_gen.environment_id,
+            job_id=job_id,
+            github_url=job.github_url,
+            commit=resolved,
+            settings=cfg,
+        )
+
+    ledger.append_event(
+        job_id,
+        typ="log",
+        message=f"sandbox replace complete → {env_plan.image}",
+        payload={
+            "kind": "sandbox_replace",
+            "phase": "done",
+            "from_image": current.image,
+            "to_image": env_plan.image,
+            "from_environment_id": prior_id,
+            "from_generation": prior_gen,
+            "to_environment_id": new_gen.environment_id,
+            "to_generation": new_gen.generation,
+            "expires_at": new_gen.expires_at,
+            "resolved_commit": resolved or None,
+            "recloned": reclone,
+        },
+    )
+    ledger.append_event(
+        job_id,
+        typ="lifecycle",
+        message="sandbox replaced",
+        payload={
+            "phase": "replaced",
+            "from_environment_id": prior_id,
+            "to_environment_id": new_gen.environment_id,
+            "generation": new_gen.generation,
+            "image": env_plan.image,
+            "expires_at": new_gen.expires_at,
+        },
+    )
+    refreshed = ledger.get_job(job_id)
+    if refreshed is None or refreshed.destroyed_at is not None:
+        raise HarnessError(
+            "job-level destroyed_at must stay unset while replacement is alive",
+            code="replace_invariant",
+        )
+    return new_gen
+
+
+def destroy_job_environment(
+    job_id: str,
+    *,
+    reason: str = "destroy",
+    settings: Settings | None = None,
+    cli: MsbCli | None = None,
+    finalizer: bool = False,
+) -> DestroyResult:
+    """Destroy the job's current sandbox by id (not by passing job_id as name)."""
+    cfg = settings or get_settings()
+    ledger = get_ledger(cfg)
+    job = ledger.get_job(job_id)
+    if job is None:
+        raise HarnessError(f"unknown job_id: {job_id}", code="not_found")
+    environment_id = job.sandbox_id or environment_name_for_job(job_id)
+    return destroy_environment(
+        environment_id,
+        job_id=job_id,
+        reason=reason,
+        settings=cfg,
+        cli=cli,
+        finalizer=finalizer,
+    )
 
 
 def wait_until_ready(

@@ -18,13 +18,13 @@ Use **`msb` CLI/SDK** (and Vultr MCP / `vultr-cli` to verify the VX1 host) per [
 
 ## Do
 
-- [ ] Emit `containment` evidence for: timeout_enforcement, host_access_denied, sibling_access_denied, host_liveness
-- [ ] Use **known-live** targets + host-side **positive controls**; classify `policy_denied` \| `infra_error` \| `tooling_missing` \| `inconclusive` (D65)
-- [ ] Also probe CP denial during **install** phase (already attempted in step 13 — retain evidence here)
-- [ ] `network_probe` to Plane 1 + management targets: only `policy_denied` counts as proven deny
-- [ ] Canary scan → high-severity `finding.source=canary` on **unexpected** hit; exclude deliberate probe sessions (D65)
-- [ ] Incomplete matrix ⇒ `containment.claim=incomplete` (not “proven”) — D66
-- [ ] **Not** CVE exploitation of the submitted app (D33)
+- [x] Emit `containment` evidence for: timeout_enforcement, host_access_denied, sibling_access_denied, host_liveness
+- [x] Use **known-live** targets + host-side **positive controls**; classify `policy_denied` \| `infra_error` \| `tooling_missing` \| `inconclusive` (D65)
+- [x] Also probe CP denial during **install** phase (already attempted in step 13 — retain evidence here)
+- [x] `network_probe` to Plane 1 + management targets: only `policy_denied` counts as proven deny
+- [x] Canary scan → high-severity `finding.source=canary` on **unexpected** hit; exclude deliberate probe sessions (D65)
+- [x] Incomplete matrix ⇒ `containment.claim=incomplete` (not “proven”) — D66
+- [x] **Not** CVE exploitation of the submitted app (D33)
 
 ## Do not
 

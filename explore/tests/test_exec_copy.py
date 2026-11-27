@@ -49,6 +49,7 @@ def test_guest_and_artifact_path_rules(tmp_path: Path, monkeypatch) -> None:
     get_settings.cache_clear()
 
     assert validate_guest_path("/tmp/killhub/a.txt").endswith("a.txt")
+    assert validate_guest_path("/opt/killhub/helpers/x.sh").endswith("x.sh")
     with pytest.raises(HarnessError):
         validate_guest_path("/etc/passwd")
     with pytest.raises(HarnessError):

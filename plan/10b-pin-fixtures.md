@@ -13,12 +13,12 @@
 
 ## Do
 
-- [ ] Create fixture config (e.g. `explore/fixtures/` or `fixtures/m7.json`) with public HTTPS `github.com` URLs **and full commit SHAs** for:
+- [x] Create fixture config (e.g. `explore/fixtures/` or `fixtures/m7.json`) with public HTTPS `github.com` URLs **and full commit SHAs** for:
   - webapp success — `heroku/node-js-getting-started` @ pin → `original_application`
   - `git_mcp` filesystem — `modelcontextprotocol/servers` @ pin + fixed filesystem entrypoint/path (built checkout launch — D62)
   - controlled `setup_failed` — Killhub broken-webapp fixture **or** pinned public commit with `forbid_demo_intent=true`
-- [ ] Document how SCA lockfile fixtures are asserted (`findings.source=sca`) separately from intentional-app labels
-- [ ] Do **not** use NodeGoat as the deterministic fail fixture
+- [x] Document how SCA lockfile fixtures are asserted (`findings.source=sca`) separately from intentional-app labels
+- [x] Do **not** use NodeGoat as the deterministic fail fixture
 
 ## Do not
 

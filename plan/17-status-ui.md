@@ -14,11 +14,11 @@
 
 ## Do
 
-- [ ] StatusBadge + ProgressBar + `current_step`
-- [ ] ProgressLog for `log` + `span` / `finding` / `containment` / `lifecycle`
-- [ ] Tolerate keep-alives without UI flicker
-- [ ] ScreenshotTimeline (empty OK)
-- [ ] On load: snapshot + SSE reconnect with cursor
+- [x] StatusBadge + ProgressBar + `current_step`
+- [x] ProgressLog for `log` + `span` / `finding` / `containment` / `lifecycle`
+- [x] Tolerate keep-alives without UI flicker
+- [x] ScreenshotTimeline (empty OK)
+- [x] On load: snapshot + SSE reconnect with cursor
 
 ## Do not
 

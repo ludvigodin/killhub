@@ -82,7 +82,10 @@ def install_phase_policy(settings: Settings | None = None) -> NetPolicy:
     Sibling isolation remains Microsandbox default (inter-sandbox denied).
     """
     cfg = settings or get_settings()
+    # allow@dns must precede deny@private: Microsandbox gateway DNS sits on the
+    # guest private pool (172.16/12); denying private first blackholes apt/git.
     rules = [
+        "allow@dns",
         "deny@host",
         "deny@private",
         "deny@meta",
@@ -93,7 +96,8 @@ def install_phase_policy(settings: Settings | None = None) -> NetPolicy:
     profiles = ("public",) + tuple(p for p in extra_profiles if p != "public")
     # Extra rules after Killhub denies so operator allows are still evaluated —
     # msb says explicit --net-rule entries are evaluated before profile rules;
-    # order among explicit rules: first match wins, so Killhub denies come first.
+    # order among explicit rules: first match wins, so Killhub denies come first
+    # (except allow@dns, which must win over deny@private).
     return NetPolicy(
         profiles=profiles,
         rules=tuple(dict.fromkeys([*rules, *extra_rules])),
@@ -102,11 +106,17 @@ def install_phase_policy(settings: Settings | None = None) -> NetPolicy:
 
 
 def verify_phase_policy() -> NetPolicy:
-    """Verify/containment phase (D43 phase 2) — deny-all remaining egress (loopback only)."""
+    """Verify/containment phase (D43 phase 2) — deny-all remaining egress (loopback only).
+
+    Applied via snapshot restore / create --no-net (msb cannot change net live).
+    Equivalent to `--net-default deny` with no public allows — not merely
+    registries-denied.
+    """
     return NetPolicy(
         profiles=(),
         rules=(),
         no_net=True,
+        net_default="deny",
         phase="verify",
     )
 

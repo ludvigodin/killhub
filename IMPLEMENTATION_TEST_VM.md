@@ -113,6 +113,7 @@ Microsandbox defaults allow public-internet egress and deny host/private/metadat
 msb create --name kh-<job> --cpus N --memory SIZE \
   --env KILLHUB_CANARY_*=… \          # randomized canaries (D44), not real secrets
   --net public \
+  --net-rule allow@dns \
   --net-rule deny@host \
   --net-rule deny@private \
   --net-rule deny@meta \
@@ -226,7 +227,7 @@ Operator extras via `MSB_NET_POLICY` (comma list): bare tokens are extra `--net`
 
 - [ ] Map bootstrap → `MSB_DEFAULT_IMAGE`; map runtime `oci_image` / `os_image` / runtime → OCI
 - [ ] Clone `source` inside the sandbox; persist **`resolved_commit`** (D62)
-- [ ] `replace_environment` when runtime image differs (D36); re-clone same SHA; inherit `expires_at`; log `sandbox_replace`; re-plant canaries; prior generation `replaced` without job-level `destroyed_at` (D64)
+- [x] `replace_environment` when runtime image differs (D36); re-clone same SHA; inherit `expires_at`; log `sandbox_replace`; re-plant canaries; prior generation `replaced` without job-level `destroyed_at` (D64)
 - [ ] Apply `install_commands` / packages / services with **install-phase egress**; **preinstall** assessment/browser/verify helpers (D63)
 - [ ] Transition to **deny-all remaining egress** before readiness/containment (D43)
 - [ ] Expose / bind ports as required for readiness

@@ -18,13 +18,13 @@ Use **`msb` CLI/SDK** (and Vultr MCP / `vultr-cli` to verify the VX1 host) per [
 
 ## Do
 
-- [ ] Run `install_commands` / packages with install-phase egress
-- [ ] Preinstall Playwright / MCP assessment / verify helpers in this phase (or bake into image) (D63)
-- [ ] Probe control-plane denial **during install** with known-live target + positive control (D65)
-- [ ] Flag failures honestly — never invent success (D29)
-- [ ] Transition to **deny-all remaining egress** (loopback only) before readiness
-- [ ] Log denied egress attempts as findings when observed
-- [ ] Repair loop capped by `MAX_REPAIR_ATTEMPTS` (install errors only in this step)
+- [x] Run `install_commands` / packages with install-phase egress
+- [x] Preinstall Playwright / MCP assessment / verify helpers in this phase (or bake into image) (D63)
+- [x] Probe control-plane denial **during install** with known-live target + positive control (D65)
+- [x] Flag failures honestly — never invent success (D29)
+- [x] Transition to **deny-all remaining egress** (loopback only) before readiness
+- [x] Log denied egress attempts as findings when observed
+- [x] Repair loop capped by `MAX_REPAIR_ATTEMPTS` (install errors only in this step)
 
 ## Do not
 

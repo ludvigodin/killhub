@@ -17,12 +17,12 @@ Use **`msb` CLI/SDK** (and Vultr MCP / `vultr-cli` to verify the VX1 host) per [
 
 ## Do
 
-- [ ] `replace_environment`: stop+remove prior **generation** → create new image → re-clone at **`resolved_commit`**
-- [ ] Inherit original job `expires_at` (do not extend); do not set job-level `destroyed_at` while replacement is alive (D64)
-- [ ] Re-plant canaries; re-apply net policy
-- [ ] Emit `lifecycle` / `log.kind=sandbox_replace`
-- [ ] Assert never two concurrent microVMs for one job
-- [ ] Same-image path continues in place (no replace)
+- [x] `replace_environment`: stop+remove prior **generation** → create new image → re-clone at **`resolved_commit`**
+- [x] Inherit original job `expires_at` (do not extend); do not set job-level `destroyed_at` while replacement is alive (D64)
+- [x] Re-plant canaries; re-apply net policy
+- [x] Emit `lifecycle` / `log.kind=sandbox_replace`
+- [x] Assert never two concurrent microVMs for one job
+- [x] Same-image path continues in place (no replace)
 
 ## Do not
 

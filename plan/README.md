@@ -34,17 +34,18 @@ Plane detail (when a step says “see plane doc”):
 | [x] | [08-net-policy-canaries](08-net-policy-canaries.md) | Network policy + canaries on create (D39, D44) |
 | [x] | [09-preflight](09-preflight.md) | Plane-1 pre-flight before create (D45) |
 | [x] | [10-opencode-lockdown](10-opencode-lockdown.md) | Trusted OpenCode + Vultr inference only (D38, D25) |
-| [ ] | [10b-pin-fixtures](10b-pin-fixtures.md) | Pin M7 fixture commit SHAs before discover (D53) |
-| [ ] | [11-bootstrap-discover](11-bootstrap-discover.md) | Bootstrap sandbox + discover runtime profile (D36) |
-| [ ] | [12-image-replace](12-image-replace.md) | Same-job image replace (still one VM) |
-| [ ] | [13-install-offline](13-install-offline.md) | Install egress → deny-all remaining egress (D43) |
-| [ ] | [14-readiness-verify](14-readiness-verify.md) | MCP/HTTP readiness + verification kinds (D37, D54) |
-| [ ] | [15-containment-probes](15-containment-probes.md) | Containment matrix + network + canary scan (D58, D65) |
-| [ ] | [16-screenshots](16-screenshots.md) | Optional in-guest Playwright stills (E4) |
-| [ ] | [17-status-ui](17-status-ui.md) | Live status / SSE UI (N2) |
+| [x] | [10b-pin-fixtures](10b-pin-fixtures.md) | Pin M7 fixture commit SHAs before discover (D53) |
+| [x] | [11-bootstrap-discover](11-bootstrap-discover.md) | Bootstrap sandbox + discover runtime profile (D36) |
+| [x] | [12-image-replace](12-image-replace.md) | Same-job image replace (still one VM) |
+| [x] | [13-install-offline](13-install-offline.md) | Install egress → deny-all remaining egress (D43) |
+| [x] | [14-readiness-verify](14-readiness-verify.md) | MCP/HTTP readiness + verification kinds (D37, D54) |
+| [x] | [15-containment-probes](15-containment-probes.md) | Containment matrix + network + canary scan (D58, D65) |
+| [x] | [16-screenshots](16-screenshots.md) | Optional in-guest Playwright stills (E4) |
+| [x] | [17-status-ui](17-status-ui.md) | Live status / SSE UI (N2) |
 | [ ] | [18-vuln-receipt-finalize](18-vuln-receipt-finalize.md) | SCA + cite-checked review + receipt + destroy (E5) |
 | [ ] | [19-report-ui](19-report-ui.md) | Report / receipt window (N3) |
 | [ ] | [20-e2e-fixtures-deploy](20-e2e-fixtures-deploy.md) | Assert pinned fixtures + demo edge deploy (M7) |
+| [ ] | [20b-video-site-ui](20b-video-site-ui.md) | Video-site feed UI + many GitHub job entries |
 | [ ] | [21-cleanup-docs](21-cleanup-docs.md) | Remove build-step / scaffolding docs after M7 |
 
 After **21**, the `plan/` ladder (and optionally `IMPLEMENTATION_*.md`) should be gone; durable docs remain at the repo root. See the keep/remove matrix in step 21.

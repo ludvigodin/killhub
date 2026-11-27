@@ -124,13 +124,13 @@ Versioned executable schema (`schema_version: "1"`) — see [DATABASE.md](DATABA
 - [x] Ship **trusted OpenCode system/managed config** (D38): deny host `shell` / arbitrary tools/providers/plugins; allow only Vultr inference + job-scoped harness tools; never load submitted-repo `.opencode` / `AGENTS.md` as authority
 - [x] Wire OpenCode → **Vultr Serverless Inference** (D25); fail closed if not Vultr
 - [x] Persist `inference_model` + usage toward budgets
-- [ ] Bootstrap create via harness before inspect (D36); plant canaries (D44)
-- [ ] `discover.py`: inspect → infer → validate (inspect via sandbox clone/copy/exec — not privileged host exec of untrusted install); persist **`resolved_commit`** (D62)
-- [ ] On runtime `oci_image` ≠ bootstrap: `replace_environment` (log `sandbox_replace`); re-clone **same SHA**; inherit `expires_at`; still one live VM (D64)
-- [ ] `profile.py` + `schemas/environment_profile.v1.json` (D51): services, CommandSpec cwd/env/timeout, processes/supervision, probes, `mcp.transport` (`stdio` \| `streamable_http`), `verification_target`, required `source.commit`; append **revisions** (D64)
+- [x] Bootstrap create via harness before inspect (D36); plant canaries (D44)
+- [x] `discover.py`: inspect → infer → validate (inspect via sandbox clone/copy/exec — not privileged host exec of untrusted install); persist **`resolved_commit`** (D62)
+- [x] On runtime `oci_image` ≠ bootstrap: `replace_environment` (log `sandbox_replace`); re-clone **same SHA**; inherit `expires_at`; still one live VM (D64)
+- [x] `profile.py` + `schemas/environment_profile.v1.json` (D51): services, CommandSpec cwd/env/timeout, processes/supervision, probes, `mcp.transport` (`stdio` \| `streamable_http`), `verification_target`, required `source.commit`; append **revisions** (D64)
 - [ ] In-guest `mcp_stdio_verify` helper: launch subprocess, JSON-RPC `initialize` → `notifications/initialized` → `tools/list`; evidence via `mcp_stdio_verify`
-- [ ] Prompts: discover + validate
-- [ ] Intent: `git_mcp` \| `webapp` \| `demo` (agent decides; D34)
+- [x] Prompts: discover + validate
+- [x] Intent: `git_mcp` \| `webapp` \| `demo` (agent decides; D34)
 - [ ] For `git_mcp`, optionally set `mcp.security_assessment` when Inspector/SDK probes are warranted (D35); omit when not
 - [ ] **No install allowlist** (D29) — runtime profile may contain any OCI/install/run Microsandbox can attempt; invalid/incomplete **runtime** profile still blocks step 4
 - [ ] Cap turns / tokens / wall-clock
@@ -158,9 +158,9 @@ Depends on [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md).
 
 ### E4 — Optional screenshots
 
-- [ ] `screenshots.py`: run Playwright **inside Plane 2** when HTTP verify; copy stills out; terminal stills when useful
-- [ ] **Skip** when not relevant (CLI-only MCP, early fail) — never invalidate readiness or block `completed` (D31)
-- [ ] Emit SSE `screenshot` only when captured; cap `MAX_SCREENSHOTS_PER_JOB` + disk budget; redact secrets
+- [x] `screenshots.py`: run Playwright **inside Plane 2** when HTTP verify; copy stills out; terminal stills when useful
+- [x] **Skip** when not relevant (CLI-only MCP, early fail) — never invalidate readiness or block `completed` (D31)
+- [x] Emit SSE `screenshot` only when captured; cap `MAX_SCREENSHOTS_PER_JOB` + disk budget; redact secrets
 
 **Done when:** HTTP webapp verify can attach a browser still captured in-guest; MCP-only jobs can complete with empty timeline; no Playwright against untrusted pages on Plane 1.
 
@@ -223,7 +223,7 @@ Depends on [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md).
 - [x] **E-M1:** Durable ledger drives Plane 1 API/SSE; restart reconciliation
 - [ ] **E-M2:** Bootstrap + plan loop → valid runtime profile via Vultr Inference; OpenCode lockdown
 - [ ] **E-M3:** Readiness via harness + containment/network probes; image replace path
-- [ ] **E-M4:** Optional in-guest screenshots when useful
+- [x] **E-M4:** Optional in-guest screenshots when useful
 - [ ] **E-M5:** Vuln **scan** report (incl. fail path); optional MCP assessment; `finalizing` → `completed`
 - [ ] **E-M5b:** Containment + network probes logged
 - [ ] **E-M6:** D53 fixtures + admission + absolute expiry cleanup; Vultr demo deploy

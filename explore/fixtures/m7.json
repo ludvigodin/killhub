@@ -1,0 +1,63 @@
+{
+  "schema_version": "1",
+  "notes": {
+    "sca": "Assert dependency advisories via lockfile scanners as findings.source=sca. Intentionally vulnerable application behavior (if any) is labeled separately and is not SCA proof (D53).",
+    "pins_resolved_at": "2026-11-27"
+  },
+  "fixtures": {
+    "webapp_success": {
+      "id": "webapp_success",
+      "github_url": "https://github.com/heroku/node-js-getting-started",
+      "commit": "d33649d5edae61fc766fe6d47e530c475c05a7a0",
+      "ref": "main",
+      "expected_intent": "webapp",
+      "verification_kind": "original_application",
+      "forbid_demo_intent": false,
+      "oci_image": "debian",
+      "policy": {}
+    },
+    "webapp_image_replace": {
+      "id": "webapp_image_replace",
+      "github_url": "https://github.com/heroku/nodejs-getting-started",
+      "commit": "d33649d5edae61fc766fe6d47e530c475c05a7a0",
+      "ref": "main",
+      "expected_intent": "webapp",
+      "verification_kind": "original_application",
+      "forbid_demo_intent": false,
+      "oci_image": "alpine",
+      "notes": "Same getting-started tree (GitHub renamed heroku/node-js-getting-started → heroku/nodejs-getting-started). Bootstrap stays MSB_DEFAULT_IMAGE; runtime alpine forces one replace (D36).",
+      "policy": {}
+    },
+    "git_mcp_filesystem": {
+      "id": "git_mcp_filesystem",
+      "github_url": "https://github.com/modelcontextprotocol/servers",
+      "commit": "b502fd9fc711de7285977396db3b8a732d1c9f64",
+      "ref": "v2.6.0",
+      "expected_intent": "git_mcp",
+      "verification_kind": "original_application",
+      "forbid_demo_intent": false,
+      "mcp": {
+        "transport": "stdio",
+        "entrypoint": "src/filesystem",
+        "package": "@modelcontextprotocol/server-filesystem",
+        "launch_bin": "dist/index.js",
+        "workdir_relative": "src/filesystem",
+        "build_hint": "npm install && npm run build (from src/filesystem; Node >= 24)"
+      },
+      "policy": {}
+    },
+    "setup_failed": {
+      "id": "setup_failed",
+      "github_url": "https://github.com/octocat/Hello-World",
+      "commit": "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
+      "ref": "master",
+      "expected_intent": null,
+      "verification_kind": "setup_failed",
+      "forbid_demo_intent": true,
+      "policy": {
+        "forbid_demo_intent": true,
+        "forbid_inventable_services": true
+      }
+    }
+  }
+}

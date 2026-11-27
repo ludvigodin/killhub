@@ -5,6 +5,7 @@
 ## Prerequisites
 
 - [20-e2e-fixtures-deploy.md](20-e2e-fixtures-deploy.md) **Done when** is true (fixtures + Vultr demo)
+- [20b-video-site-ui.md](20b-video-site-ui.md) **Done when** is true (feed UI)
 - Human confirms it is time to retire the build ladder (do not run mid-build)
 
 ## Read first
@@ -33,7 +34,7 @@ Prefer **folding** `LINT.md` / `VULTR.md` into canonical docs, then delete the `
 
 | Path | Why remove |
 |------|------------|
-| `plan/01-*.md` … `plan/20-*.md` | One-shot build steps; done |
+| `plan/01-*.md` … `plan/20-*.md` (incl. `10b-*`, `20b-*`) | One-shot build steps; done |
 | `plan/README.md` | Index for the ladder; obsolete after cleanup |
 | `plan/21-cleanup-docs.md` | This step — delete **last** after checklist |
 | Empty `plan/` directory | Remove if nothing remains |

@@ -89,11 +89,11 @@ Jobs are **server-owned** (Plane 1). Closing the tab does **not** cancel. Resume
 
 ### N2 — Status window
 
-- [ ] `StatusBadge` + `ProgressBar` + `current_step` from poll and/or SSE
-- [ ] `ProgressLog` chronological SSE `log` + evidence events (`span` / `finding` / `containment` / `lifecycle`)
-- [ ] Tolerate SSE keep-alives without UI flicker (D50)
-- [ ] `ScreenshotTimeline`: hydrate when shots exist; tolerate empty timeline (D31)
-- [ ] On load: snapshot + SSE reconnect
+- [x] `StatusBadge` + `ProgressBar` + `current_step` from poll and/or SSE
+- [x] `ProgressLog` chronological SSE `log` + evidence events (`span` / `finding` / `containment` / `lifecycle`)
+- [x] Tolerate SSE keep-alives without UI flicker (D50)
+- [x] `ScreenshotTimeline`: hydrate when shots exist; tolerate empty timeline (D31)
+- [x] On load: snapshot + SSE reconnect
 
 **Done when:** Live status/progress/logs/evidence update without refresh; reconnect restores state.
 
@@ -135,7 +135,7 @@ Jobs are **server-owned** (Plane 1). Closing the tab does **not** cancel. Resume
 
 - [x] **N-M0:** Frontend boots in compose
 - [ ] **N-M1:** Input creates job via Plane 1 API
-- [ ] **N-M2:** Live status, progress, logs
+- [x] **N-M2:** Live status, progress, logs
 - [ ] **N-M3:** Report shows profile + vulns + sandbox lifecycle
 - [ ] **N-M4:** Reconnect / cancel; public Vultr demo URL live
 

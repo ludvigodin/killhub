@@ -11,6 +11,10 @@ from errors import HarnessError
 # Logical helper ids → relative paths under HELPERS_ROOT.
 HELPER_CATALOG: dict[str, str] = {
     "env_probe": "env_probe.sh",
+    "mcp_stdio_verify": "mcp_stdio_verify.py",
+    "tooling_probe": "tooling_probe.sh",
+    "network_probe": "network_probe.sh",
+    "screenshot_capture": "screenshot_capture.py",
 }
 
 ARTIFACT_KINDS = frozenset({"screenshot", "lockfile", "log", "artifact"})
@@ -89,7 +93,7 @@ def resolve_copy_in_source(
 
 
 def validate_guest_path(guest_path: str) -> str:
-    """Guest paths: no `..`; must be absolute under /tmp/killhub, /tmp, or /workspace."""
+    """Guest paths: no `..`; absolute under Killhub-managed prefixes (D60)."""
     raw = (guest_path or "").strip()
     if not raw:
         raise HarnessError("guest path is required", code="path_forbidden")
@@ -99,10 +103,16 @@ def validate_guest_path(guest_path: str) -> str:
         raise HarnessError("guest path traversal rejected", code="path_forbidden")
     if not raw.startswith("/"):
         raise HarnessError("guest path must be absolute", code="path_forbidden")
-    allowed_prefixes = ("/tmp/killhub/", "/workspace/", "/tmp/")
+    # /opt/killhub: assessment helpers + tooling dirs (D63).
+    allowed_prefixes = (
+        "/tmp/killhub/",
+        "/workspace/",
+        "/tmp/",
+        "/opt/killhub/",
+    )
     if not any(raw == p.rstrip("/") or raw.startswith(p) for p in allowed_prefixes):
         raise HarnessError(
-            "guest path must be under /tmp/killhub, /tmp, or /workspace",
+            "guest path must be under /tmp/killhub, /tmp, /workspace, or /opt/killhub",
             code="path_forbidden",
         )
     return raw
