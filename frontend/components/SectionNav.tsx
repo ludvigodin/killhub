@@ -105,10 +105,10 @@ export function SectionNav({ items }: SectionNavProps) {
         </ul>
       </nav>
 
-      <aside className="hidden lg:block">
+      <aside className="hidden lg:block lg:self-stretch">
         <nav
           aria-label="Page sections"
-          className="sticky top-28 max-h-[calc(100vh-8rem)] overflow-y-auto py-1"
+          className="sticky top-28 z-30 max-h-[calc(100vh-8rem)] overflow-y-auto py-1"
         >
           <p className="type-eyebrow mb-3 text-(--muted)">On this page</p>
           <ul className="m-0 flex list-none flex-col gap-0.5 border-l border-(--line) p-0">
