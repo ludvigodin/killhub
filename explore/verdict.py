@@ -74,6 +74,18 @@ def containment_reports_bypass(containment: Mapping[str, Any]) -> bool:
     )
 
 
+def policy_bypass_reason(event_type: str, payload: Mapping[str, Any]) -> str | None:
+    """Select the gate reason from classified Plane 1 observation records."""
+    if event_type == "containment" and containment_reports_bypass(payload):
+        return "containment_policy_bypass"
+    if payload.get("classification") == "policy_bypass" and (
+        (event_type == "finding" and payload.get("source") in (None, "network", "containment"))
+        or (event_type == "log" and payload.get("probe_session") == "install_cp_deny")
+    ):
+        return "policy_bypass"
+    return None
+
+
 def recorded_policy_bypass(receipt: Mapping[str, Any]) -> str | None:
     """Get the durable gate reason, including a finding retained by a prior finalization."""
     containment = receipt.get("containment")
@@ -82,6 +94,11 @@ def recorded_policy_bypass(receipt: Mapping[str, Any]) -> str | None:
     dossier = receipt.get("dossier")
     if not isinstance(dossier, Mapping):
         return None
+    observation = dossier.get("policy_bypass")
+    if isinstance(observation, Mapping):
+        reason = observation.get("reason")
+        if reason in ("policy_bypass", "containment_policy_bypass"):
+            return reason
     # Network findings come from host-owned policy checks. Advisory and
     # planner output cannot set the hard-fail gate.
     findings = dossier.get("findings")
@@ -175,7 +192,12 @@ def build_verdict(
     """Build and validate a v1 verdict for the evidence currently produced by Killhub."""
     report = vuln_report or {}
     dossier = receipt.get("dossier") or {}
-    dimensions = (receipt.get("containment") or {}).get("dimensions") or {}
+    containment = receipt.get("containment") or {}
+    observation = dossier.get("containment_observation")
+    # Legacy matrices carry no generation. New records only score for their own VM.
+    if observation and observation.get("generation") != job.current_sandbox_generation:
+        containment = {}
+    dimensions = containment.get("dimensions") or {}
     axes = {name: _axis_result(name, dimensions.get(name)) for name in _AXES}
     findings = _findings(report, dossier)
     sca_ids = [item["id"] for item in findings if item["source"] == "sca"]
@@ -205,8 +227,30 @@ def build_verdict(
         )
         supply_chain_ids.append(finding_id)
 
-    if recorded_policy_bypass(receipt):
+    bypass = recorded_policy_bypass(receipt)
+    if bypass:
         label, summary = "SUSPICIOUS", "A recorded isolation check reported a policy bypass."
+        bypass_observation = dossier.get("policy_bypass") or {}
+        # Link the durable observation without publishing addresses or probe output.
+        findings.append(
+            {
+                "id": "containment-policy-bypass",
+                "severity": "critical",
+                "source": "containment" if bypass == "containment_policy_bypass" else "network",
+                "atlas_tactic": None,
+                "owasp_mcp": None,
+                "sensor": None,
+                "title": "Sandbox isolation policy bypass observed",
+                "detail": "A host-side isolation check recorded a boundary violation.",
+                "evidence": {
+                    key: bypass_observation[key]
+                    for key in ("event_id", "generation")
+                    if key in bypass_observation
+                },
+                "blocked": False,
+                "cited_by_review": False,
+            }
+        )
     elif status == "cancelled" or (status == "failed" and not (job.readiness or {}).get("passed")):
         label, summary = "ABORTED", "The job stopped before runtime assessment could be completed."
     else:
