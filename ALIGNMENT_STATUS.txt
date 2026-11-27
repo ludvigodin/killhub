@@ -1,0 +1,142 @@
+Killhub alignment handoff for Antigravity
+27 November 2026
+
+Current work and branch
+
+The current task is Step 06, Microsandbox teardown confirmation and reaping.
+The workspace is /home/hej/Dokument/hackathon/killhub. The shared branch is
+integration-alignment-0-22 at 1894a2f, with origin/main 06b4878 already merged as
+e294cdf. The local and remote integration tips matched after fetching both refs.
+
+Step 06 teardown edits are local and uncommitted. The new guard requires a
+successful msb remove or the sandbox's absence from a successful, validated JSON
+inventory. Destroy, replacement, offline restore, lost-sandbox recovery, and the
+reaper share this confirmation rule. Cleanup tracks the named generation and the
+reaper checks whether an expired row's name now belongs to a newer generation.
+Tests use an injected CLI runner and a real SQLite ledger. The failure cases
+reproduced before the fix and all eight focused cases now pass.
+The follow-up in progress checks that a late teardown confirmation updates the
+terminal receipt and makes its checkpoint eligible for collection.
+
+Verification for the teardown-confirmation patch
+
+Python reported 246 passed and one skipped live PostgreSQL test. Ruff, Biome,
+Knip, Next.js route type generation, TypeScript, the Turbopack production build,
+all four JSON Schema validations, and git diff --check passed.
+
+Protected files and collaboration
+
+Keep all Markdown files byte-for-byte intact. The 41 tracked Markdown files
+match baseline b41beda. Use integration-alignment-0-22 as the shared integration
+line and leave main untouched. Preserve local tooling files and use no
+monkeypatching. Read ALIGNMENT_PLAN.md, AGENTS.md, and the matching plan step.
+Run the full gate in plan/LINT.md for each step. A separate checkout should start
+from the shared commit above unless the local Step 06 changes have been shared.
+Avoid concurrent edits to explore/harness.py, explore/install.py, explore/reaper.py,
+explore/selfheal.py, explore/finalize.py, explore/service.py, and
+explore/tests/test_destroy_confirmation.py while Step 06 is being handed off.
+
+Task status
+
+01  Frontend scaffold  [baseline implemented]
+    Next.js UI and health route are present. The local production build and
+    frontend checks pass. A fresh Docker Compose smoke test was outside this pass.
+
+02  Explore scaffold  [baseline implemented]
+    The FastAPI worker, health route, and frontend proxy work in local verification.
+
+03  Durable ledger  [baseline implemented]
+    SQLite persistence, WAL, concurrent writes, and migrations are covered.
+    The live PostgreSQL acceptance test requires its own configured database.
+
+04  Internal worker API  [baseline implemented]
+    Authenticated create, snapshot, SSE, and cancel are exercised by the suite.
+    Live and replayed events use consistent progress fields.
+
+05  Jobs proxy and admission  [baseline implemented]
+    Git intake, job proxy, limits, and overload responses are covered locally.
+
+06  Microsandbox lifecycle and watchdog  [current, partial]
+    msb create/destroy and host/worker reaping are implemented. The local removal
+    confirmation fix is described above. Real VX1 validation of expiry, the
+    aligned Ubuntu image, telemetry flush, and host resource teardown is open.
+
+07  Exec, copy, and IPC  [partial]
+    msb exec and server-owned copy paths are implemented. Bounded guest-to-host
+    IPC ingestion and a real guest process-environment isolation audit are open.
+
+08  TAP, interception, and canaries  [partial]
+    Existing host/private destination policies, canary planting, and strict
+    offline network isolation are present. The aligned TAP, interception and
+    canary blocking pipeline and its real VX1 acceptance are open.
+
+09  Preflight and intake  [partial]
+    Git validation, preflight, SSE/SQLite fixes, and the loopback compose binding
+    are in the shared branch. Registry and typed fixture intake are still open.
+
+10  Inference configuration and isolation  [partial]
+    Host-owned planner/reviewer configuration, Vultr role selection and budget
+    accounting are published. Guest proxy, key isolation proof, and Layer 1
+    acceptance remain open.
+
+10b Fixture pins  [partial]
+    Baseline webapp, filesystem MCP and setup-failure pins exist in
+    explore/fixtures/m7.json. The full alignment fixture acceptance set is open.
+
+11  Bootstrap and discovery  [partial]
+    Bootstrap, pinned Git checkout, runtime-profile revisions and discovery
+    signals exist. Full DynamicInstallSpec production and live MCP inventory
+    hashes are still open.
+
+12  Same-job image replacement  [partial]
+    Replacement preserves the pinned commit and expiry in the code. Reapplying
+    the complete aligned guest instrumentation on a real VX1 VM is unverified.
+
+13  Install, integrity, and network phases  [partial]
+    Install and offline transition exist. Commit 1894a2f adds generation-scoped
+    before/after tracked checkout digests and tests. Real VM validation, the
+    monitored phase, and Layer 2 resource caps and telemetry are open.
+
+14  Readiness and tool drift  [partial]
+    Built-checkout readiness, MCP handshake, HTTP checks and setup failure
+    classifications exist. Baseline/final capability hashes and diffs are open.
+
+15  Containment and runtime evidence  [partial]
+    Baseline containment probes and the report matrix exist. Complete proof of
+    key isolation, canary blocking, monitored networking, runtime telemetry and
+    all three watchdog layers is open.
+
+16  Screenshots and view-only noVNC  [partial]
+    In-guest still capture and screenshot routes exist. Authenticated view-only
+    noVNC, input filtering, and stream close-on-destroy acceptance are open.
+
+17  Live status UI  [partial]
+    Snapshot/SSE progress, reconnect, logs and activity views are implemented.
+    Live sensor and noVNC producers and their UI acceptance are open.
+
+18  Findings, receipt, and finalize  [partial]
+    SCA, cited review, atomic terminal receipt and schema-valid verdict endpoint
+    are implemented. Live telemetry and PCAP endpoints and real teardown
+    acceptance still need work.
+
+19  Job report  [UI implemented and locally verified]
+    Desktop/mobile review, legacy receipts, cancellation, the verdict,
+    containment, checkout digests and linked findings were checked with
+    Playwright. Complete live evidence awaits the upstream producers in the
+    remaining steps.
+
+20  Real microVM E2E and deploy  [open]
+    No release acceptance is claimed. The most recent direct VX1 check in this
+    workspace was rejected by SSH authentication. Verify authorized access
+    before running real msb smoke tests. Local tests are evidence for code and
+    ledger behavior only.
+
+21  Documentation cleanup  [deferred]
+    M7 is open and the current user instruction protects every Markdown file.
+
+Suggested handoff boundary
+
+On a separate workspace, start from shared commit 1894a2f and pick an independent
+open component that avoids the Step 06 files listed above. If taking over
+Step 06 itself, use this working tree after coordination and verify real msb
+teardown and expiry before marking the task complete.
