@@ -195,6 +195,28 @@ def finalize_job(
 
     job = ledger.get_job(job_id)
     assert job is not None
+    inventory_comparison = None
+    if destroy and terminal == "completed" and job.sandbox_id:
+        from verify import compare_fixture_inventory
+
+        # Capture while the original generation still exists. The receipt is
+        # the durable boundary for this optional observation.
+        inventory_comparison = compare_fixture_inventory(job, cfg)
+        if inventory_comparison is not None:
+            # Cancellation or a watchdog decision may have arrived during the observation.
+            gates = evaluate_gates(job_id, settings=cfg)
+            terminal = str(gates["terminal"])
+            job = ledger.get_job(job_id)
+            assert job is not None
+            if job.status in TERMINAL and job.destroyed_at is not None:
+                return FinalizeResult(
+                    job_id=job_id,
+                    terminal_status=job.status,
+                    destroyed=True,
+                    destroy_failed=False,
+                    receipt=ledger.get_receipt(job_id),
+                    vuln_status=(ledger.get_vuln_report(job_id) or {}).get("status"),
+                )
     # Never clear readiness (D11 / D66).
     if readiness_before and job.readiness != readiness_before:
         ledger.update_job_fields(
@@ -294,6 +316,8 @@ def finalize_job(
         "vuln_review": (vuln_report or {}).get("summary"),
         "at": utc_now(),
     }
+    if inventory_comparison is not None:
+        dossier["mcp_inventory_comparison"] = inventory_comparison
 
     # The verdict, receipt, evidence fields, and terminal event commit together.
     ledger.finalize_job(

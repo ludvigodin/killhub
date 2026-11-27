@@ -3,6 +3,7 @@
 import pytest
 
 from helpers.mcp_stdio_verify import collect_inventory
+from verify import compare_mcp_inventory
 
 
 def test_inventory_is_order_independent_and_contains_only_counts_and_digests() -> None:
@@ -63,3 +64,19 @@ def test_incomplete_collection_keeps_other_inventory_evidence() -> None:
         "resources": {"status": "unavailable"},
         "prompts": {"status": "unsupported"},
     }
+
+
+def test_inventory_comparison_requires_two_complete_records() -> None:
+    recorded = {"status": "recorded", "count": 1, "sha256": "a" * 64}
+    partial = {"status": "unavailable"}
+    comparison = compare_mcp_inventory(
+        {"tools": recorded, "resources": recorded, "prompts": partial},
+        {
+            "tools": recorded,
+            "resources": {**recorded, "sha256": "b" * 64},
+            "prompts": partial,
+        },
+    )
+    assert comparison["tools"]["status"] == "unchanged"
+    assert comparison["resources"]["status"] == "changed"
+    assert comparison["prompts"] == {"status": "unavailable"}

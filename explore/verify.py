@@ -14,10 +14,12 @@ from profile import GUEST_REPO_ROOT, assert_runtime_ready_for_provision
 from typing import Any
 
 from config import Settings, get_settings
+from errors import HarnessError
 from fixtures import match_fixture
 from harness import copy_in, exec_command
 from jobs import get_ledger
 from ledger.store import utc_now
+from models import Job
 
 logger = logging.getLogger("killhub.verify")
 
@@ -321,6 +323,7 @@ def verify_mcp_stdio(
     *,
     job_id: str,
     settings: Settings,
+    final_inventory: bool = False,
 ) -> dict[str, Any]:
     mcp = profile.get("mcp") or {}
     launch = mcp.get("launch_command")
@@ -339,21 +342,32 @@ def verify_mcp_stdio(
     # Extra read-only collection is limited to the trusted fixture at its exact pin.
     source = profile.get("source") or {}
     fixture = match_fixture(str(source.get("url") or ""))
+    job = get_ledger(settings).get_job(job_id) if fixture else None
     inventory = bool(
         fixture
         and fixture.get("id") == "git_mcp_filesystem"
+        and job
+        and job.sandbox_id == environment_id
+        and job.current_sandbox_generation is not None
+        and job.resolved_commit == source.get("commit")
         and source.get("commit") == fixture.get("commit")
     )
+    if final_inventory and not inventory:
+        raise VerifyError("Final inventory requires the pinned fixture VM")
     inventory_option = " --inventory" if inventory else ""
     helper = f"{GUEST_HELPERS}/mcp_stdio_verify.py"
     # Refresh helper after offline snap so host-side fixes apply (D60/D63).
-    copy_in(
-        environment_id,
-        "mcp_stdio_verify",
-        helper,
-        job_id=job_id,
-        settings=settings,
-    )
+    if final_inventory:
+        # The baseline installed this helper in the same generation.
+        timeout = min(timeout, 5)
+    else:
+        copy_in(
+            environment_id,
+            "mcp_stdio_verify",
+            helper,
+            job_id=job_id,
+            settings=settings,
+        )
     # Run helper with cwd applied so relative launch bins resolve (D62 checkout).
     cmd = (
         f"cd {_shell_quote(cwd)} && "
@@ -365,7 +379,7 @@ def verify_mcp_stdio(
         ["sh", "-lc", cmd],
         job_id=job_id,
         settings=settings,
-        timeout=timeout + 60,
+        timeout=22 if final_inventory else timeout + 60,
     )
     evidence: dict[str, Any] = {}
     raw = (result.stdout or "").strip().splitlines()
@@ -388,6 +402,13 @@ def verify_mcp_stdio(
         "evidence": evidence,
         "stderr": (result.stderr or "")[:400],
     }
+    if inventory and job is not None:
+        # Scope is assigned by the worker, never by the guest's JSON result.
+        detail["inventory_scope"] = {
+            "generation": job.current_sandbox_generation,
+            "commit": job.resolved_commit,
+            "profile_revision": job.current_profile_revision,
+        }
     _log(
         job_id,
         f"mcp_stdio_verify → {'ok' if ok else 'FAILED'}",
@@ -396,6 +417,83 @@ def verify_mcp_stdio(
         **{k: v for k, v in detail.items() if k != "stderr"},
     )
     return detail
+
+
+def compare_mcp_inventory(initial: dict, final: dict) -> dict:
+    """Compare only complete lists. A missing or unsupported list proves no equality."""
+    comparison = {}
+    for collection in ("tools", "resources", "prompts"):
+        before = initial.get(collection)
+        after = final.get(collection)
+        if not all(
+            isinstance(record, dict)
+            and record.get("status") == "recorded"
+            and isinstance(record.get("sha256"), str)
+            and re.fullmatch(r"[0-9a-f]{64}", record["sha256"])
+            and type(record.get("count")) is int
+            and 0 <= record["count"] <= 256
+            for record in (before, after)
+        ):
+            comparison[collection] = {"status": "unavailable"}
+            continue
+        comparison[collection] = {
+            "status": "unchanged" if before["sha256"] == after["sha256"] else "changed",
+            "initial": {key: before[key] for key in ("count", "sha256")},
+            "final": {key: after[key] for key in ("count", "sha256")},
+        }
+    return comparison
+
+
+def compare_fixture_inventory(job: Job, settings: Settings) -> dict | None:
+    """Take the final observation for a ready fixture and report partial evidence safely."""
+    readiness = job.readiness or {}
+    detail = readiness.get("detail") or {}
+    initial = (detail.get("evidence") or {}).get("inventory")
+    scope = detail.get("inventory_scope")
+    fixture = match_fixture(job.github_url)
+    if not (
+        readiness.get("passed")
+        and isinstance(initial, dict)
+        and isinstance(scope, dict)
+        and fixture
+        and fixture.get("id") == "git_mcp_filesystem"
+        and fixture.get("commit") == job.resolved_commit
+    ):
+        return None
+    final: dict = {}
+    if (
+        job.sandbox_id
+        and not job.cancel_requested_at
+        and job.expires_at > utc_now()
+        and scope
+        == {
+            "generation": job.current_sandbox_generation,
+            "commit": job.resolved_commit,
+            "profile_revision": job.current_profile_revision,
+        }
+    ):
+        try:
+            profile = _current_runtime_profile(job.job_id, settings)
+            observation = verify_mcp_stdio(
+                job.sandbox_id, profile, job_id=job.job_id, settings=settings, final_inventory=True
+            )
+        except (VerifyError, HarnessError, ValueError, OSError):
+            # Expiry, replacement or a missing helper must not hold up teardown.
+            observation = {}
+        latest = get_ledger(settings).get_job(job.job_id)
+        if (
+            latest
+            and not latest.cancel_requested_at
+            and latest.sandbox_id == job.sandbox_id
+            and latest.current_sandbox_generation == job.current_sandbox_generation
+            and latest.current_profile_revision == job.current_profile_revision
+            and observation.get("ok")
+            and observation.get("inventory_scope") == scope
+        ):
+            value = (observation.get("evidence") or {}).get("inventory")
+            if isinstance(value, dict):
+                final = value
+    return {"scope": scope, "collections": compare_mcp_inventory(initial, final)}
 
 
 def verify_mcp_streamable_http(
