@@ -73,7 +73,7 @@ export function JobFeed() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col px-6 pb-12">
+    <div className="mx-auto flex w-full max-w-6xl flex-col px-6 pb-12">
       <SiteNav />
 
       <header className="feed-hero mx-auto w-full max-w-3xl pb-12 pt-6 text-center sm:pt-10">

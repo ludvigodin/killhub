@@ -93,7 +93,7 @@ body {
   line-height: 1.5;
 }
 
-/* Soft red heart-pulse wash behind page content */
+/* Soft red heart-pulse wash behind page content (fades in after first paint) */
 body::before {
   content: "";
   position: fixed;
@@ -111,9 +111,22 @@ body::before {
       color-mix(in srgb, var(--danger) 12%, transparent) 0%,
       transparent 58%
     );
-  opacity: 0.28;
+  opacity: 0;
   transform: scale(1);
-  animation: heart-pulse 2.6s ease-in-out infinite;
+  animation:
+    heart-pulse-in 1.4s ease-out forwards,
+    heart-pulse 2.6s ease-in-out 1.4s infinite;
+}
+
+@keyframes heart-pulse-in {
+  from {
+    opacity: 0;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0.22;
+    transform: scale(1);
+  }
 }
 
 @keyframes heart-pulse {

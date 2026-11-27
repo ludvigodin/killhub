@@ -187,6 +187,14 @@ Public API cheat sheet and full contracts: [API.md](API.md). Config: [`.env.exam
 
 ---
 
+## HackerVision (fun edition)
+
+Open a live job, hit **HackerVision**, and the retained SSE timeline drops into a tiny Three.js mainframe. Cabinets light up as events replay. When something actually bad shows up (high/critical finding, unexpected canary, policy bypass), a velociraptor starts walking the aisle.
+
+This is not a security control. Containment still happens in the sandbox. The raptor is just how the UI says "you should look at that event." Reduced-motion mode keeps the dino politely still. WebGL optional: the event scrubber works either way ([DECISIONS.md](DECISIONS.md) D84).
+
+---
+
 ## Out of scope (v1)
 
 Private repos / OAuth · multi-user billing · long-lived customer sandboxes · GPU · auto-patch CVEs · weaponizing exploits · non-Vultr clouds · alternate agent LLM providers · session video · separate Explore vs Test VM · install allowlists that block runnable commands

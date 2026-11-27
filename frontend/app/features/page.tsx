@@ -14,7 +14,7 @@ export const metadata: Metadata = {
 export default function FeaturesPage() {
   return (
     <main className="min-h-screen w-full">
-      <div className="mx-auto flex w-full max-w-5xl flex-col px-6 pb-24">
+      <div className="mx-auto flex w-full max-w-6xl flex-col px-6 pb-24">
         <SiteNav />
         <header className="pb-2 pt-4 sm:pt-6">
           <p className="type-eyebrow mb-2 text-(--accent)">Features</p>

@@ -91,7 +91,7 @@ export function DeepLinkStart({ owner, repo }: DeepLinkStartProps) {
   }, [owner, repo, router]);
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col px-6 py-12 sm:py-16">
+    <div className="mx-auto flex w-full max-w-6xl flex-col px-6 py-12 sm:py-16">
       <Link
         href="/"
         className="mb-8 text-sm text-(--muted) no-underline hover:text-(--ink)"

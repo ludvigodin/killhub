@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState, useTransition } from "react";
 import { createJob } from "@/lib/api";
 import {
@@ -37,6 +38,7 @@ function admissionHint(code?: string, status?: number): string | null {
 }
 
 export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
+  const router = useRouter();
   const [text, setText] = useState("");
   const [results, setResults] = useState<BatchResult[]>([]);
   const [batchError, setBatchError] = useState<string | null>(null);
@@ -109,6 +111,10 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
         setText("");
       }
       onCreated?.(out);
+      const firstJob = out.find((r) => r.ok && r.job_id)?.job_id;
+      if (firstJob) {
+        router.push(`/jobs/${encodeURIComponent(firstJob)}`);
+      }
     });
   }
 

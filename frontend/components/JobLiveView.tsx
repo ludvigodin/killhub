@@ -526,28 +526,26 @@ export function JobLiveView({
     errorItems.push({ message: error.message, code: error.code });
   }
 
+  const canCancel = Boolean(snapshot) && !terminal && !cancelling;
   const actions = (
     <div className="flex flex-wrap items-center justify-end gap-2">
-      <button
-        type="button"
-        onClick={() => void onCancel()}
-        disabled={busy || terminal || cancelling || !snapshot}
-        className="min-h-9 rounded px-2.5 text-sm font-medium text-(--muted) transition-colors enabled:hover:bg-(--danger-soft) enabled:hover:text-(--danger) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent) disabled:text-(--muted)/65"
-      >
-        {cancelling ? "Cancelling…" : "Cancel job"}
-      </button>
+      {canCancel ? (
+        <button
+          type="button"
+          onClick={() => void onCancel()}
+          disabled={busy}
+          className="min-h-9 rounded px-2.5 text-sm font-medium text-(--muted) transition-colors enabled:hover:bg-(--danger-soft) enabled:hover:text-(--danger) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent) disabled:text-(--muted)/65"
+        >
+          Cancel job
+        </button>
+      ) : null}
       <button
         type="button"
         aria-pressed={vision}
         onClick={() => setVision(!vision)}
-        aria-expanded={vision}
-        className="inline-flex min-h-9 items-center gap-2.5 rounded-md border border-(--line) bg-(--paper-deep) px-3 text-sm font-medium text-(--ink) transition-colors hover:border-(--muted) aria-pressed:border-(--accent) aria-pressed:bg-(--accent-soft) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent)"
+        className="inline-flex min-h-9 items-center rounded-md border border-(--line) bg-(--paper-deep) px-3 text-sm font-medium text-(--ink) transition-colors hover:border-(--muted) aria-pressed:border-(--accent) aria-pressed:bg-(--accent-soft) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent)"
       >
         HackerVision
-        <span
-          aria-hidden="true"
-          className={`size-1.5 border-r border-b border-current opacity-70 ${vision ? "translate-y-0.5 rotate-[225deg]" : "-translate-y-0.5 rotate-45"}`}
-        />
       </button>
     </div>
   );
@@ -583,9 +581,7 @@ export function JobLiveView({
   if (showFindings) {
     navItems.push({ id: "section-findings", label: "Findings" });
   }
-  if (!vision) {
-    navItems.push({ id: "section-activity", label: "Activity" });
-  }
+  navItems.push({ id: "section-activity", label: "Activity" });
   if (showReport) {
     navItems.push({ id: "section-receipt", label: "Receipt" });
   }
@@ -615,8 +611,6 @@ export function JobLiveView({
           </div>
         </section>
       ) : null}
-
-      {vision ? <HackerVision entries={logs} /> : null}
 
       {snapshot ? (
         <>
@@ -726,7 +720,7 @@ export function JobLiveView({
         <FindingsSummary snapshot={snapshot} />
       ) : null}
 
-      {!vision ? <ProgressLog entries={logs} /> : null}
+      <ProgressLog entries={logs} />
 
       {showReport && snapshot ? (
         <div id="section-receipt" className={SECTION_SCROLL_MT}>
@@ -796,6 +790,10 @@ export function JobLiveView({
       ) : (
         sections
       )}
+
+      {vision ? (
+        <HackerVision entries={logs} onClose={() => setVision(false)} />
+      ) : null}
     </div>
   );
 }

@@ -10,59 +10,62 @@ export type SectionNavItem = {
 /** Clears sticky SiteNav when scrolling to hash targets. */
 export const SECTION_SCROLL_MT = "scroll-mt-28";
 
+/** Matches `top-28` sticky offset (SiteNav clearance). */
+const STICKY_OFFSET_PX = 112;
+
 type SectionNavProps = {
   items: SectionNavItem[];
 };
+
+function activeSectionId(ids: string[]): string | null {
+  let current: string | null = ids[0] ?? null;
+  for (const id of ids) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    // Last section whose top has reached / passed the sticky line wins.
+    if (el.getBoundingClientRect().top - STICKY_OFFSET_PX <= 1) {
+      current = id;
+    }
+  }
+  return current;
+}
 
 export function SectionNav({ items }: SectionNavProps) {
   const [activeId, setActiveId] = useState<string | null>(items[0]?.id ?? null);
 
   const itemKey = items.map((item) => item.id).join("|");
 
-  // Stabilize on id list — avoid rebinding IntersectionObserver every render.
+  // Stabilize on id list — avoid rebinding scroll listeners every render.
   // biome-ignore lint/correctness/useExhaustiveDependencies: itemKey encodes items[].id
   useEffect(() => {
     if (items.length === 0) return;
 
-    const elements = items
-      .map((item) => document.getElementById(item.id))
-      .filter((el): el is HTMLElement => el != null);
-    if (elements.length === 0) return;
+    const ids = items.map((item) => item.id);
+    let frame = 0;
 
-    const visible = new Map<string, number>();
-    const order = items.map((item) => item.id);
+    function update() {
+      frame = 0;
+      const next = activeSectionId(ids);
+      if (next) setActiveId(next);
+    }
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          const id = entry.target.id;
-          if (!id) continue;
-          if (entry.isIntersecting) {
-            visible.set(id, entry.intersectionRatio);
-          } else {
-            visible.delete(id);
-          }
-        }
-        if (visible.size === 0) return;
-        let bestId = order[0] ?? null;
-        let bestRatio = -1;
-        for (const id of order) {
-          const ratio = visible.get(id);
-          if (ratio != null && ratio >= bestRatio) {
-            bestRatio = ratio;
-            bestId = id;
-          }
-        }
-        if (bestId) setActiveId(bestId);
-      },
-      {
-        rootMargin: "-25% 0px -55% 0px",
-        threshold: [0, 0.1, 0.25, 0.5, 1],
-      },
-    );
+    function onScrollOrResize() {
+      if (frame) return;
+      frame = window.requestAnimationFrame(update);
+    }
 
-    for (const el of elements) observer.observe(el);
-    return () => observer.disconnect();
+    update();
+    // Sections can mount a tick after the nav (async job data) — retry once.
+    const retry = window.setTimeout(update, 50);
+
+    window.addEventListener("scroll", onScrollOrResize, { passive: true });
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      window.clearTimeout(retry);
+      if (frame) window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", onScrollOrResize);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
   }, [itemKey]);
 
   if (items.length === 0) return null;
@@ -71,18 +74,18 @@ export function SectionNav({ items }: SectionNavProps) {
     event.preventDefault();
     const el = document.getElementById(id);
     if (!el) return;
+    setActiveId(id);
     el.scrollIntoView({ behavior: "smooth", block: "start" });
     history.replaceState(null, "", `#${id}`);
-    setActiveId(id);
   }
 
   return (
     <>
       <nav
         aria-label="Page sections"
-        className="sticky top-[4.75rem] z-40 -mx-6 mb-2 border-b border-(--line)/50 bg-(--paper)/85 px-6 py-2.5 backdrop-blur-md lg:hidden"
+        className="sticky top-19 z-40 -mx-6 mb-2 border-b border-(--line)/50 bg-(--paper)/85 px-6 py-2.5 backdrop-blur-md lg:hidden"
       >
-        <ul className="m-0 flex list-none gap-1.5 overflow-x-auto p-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <ul className="m-0 flex list-none gap-1.5 overflow-x-auto p-0 scrollbar-none [&::-webkit-scrollbar]:hidden">
           {items.map((item) => {
             const active = item.id === activeId;
             return (
