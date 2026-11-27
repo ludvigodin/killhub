@@ -1,100 +1,397 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://killhub.local/schemas/environment_profile.v1.json",
-  "title": "Killhub environment_profile v1",
+  "$id": "https://killhub.dev/schemas/environment_profile.v1.json",
+  "title": "Killhub Environment Profile (v1)",
+  "description": "Versioned executable profile schema for Plane 2 disposable Microsandbox provisioning, process supervision, readiness probes, MCP transport/assessment, network mode, and cgroup limits (DECISIONS.md D34, D35, D51, D62, D69, D72).",
   "type": "object",
-  "required": ["schema_version", "intent"],
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "intent",
+    "oci_image",
+    "source",
+    "services",
+    "commands",
+    "processes",
+    "probes",
+    "network_mode",
+    "cgroup_limits"
+  ],
   "properties": {
-    "schema_version": { "const": "1" },
+    "schema_version": {
+      "type": "string",
+      "const": "1",
+      "description": "Profile schema version. Bump on breaking contract changes (D51)."
+    },
     "intent": {
       "type": "string",
-      "enum": ["bootstrap", "git_mcp", "webapp", "demo"]
+      "enum": ["git_mcp", "webapp", "demo"],
+      "description": "Execution intent selected by the Environment/Install Planner Agent (D34)."
+    },
+    "oci_image": {
+      "type": "string",
+      "minLength": 1,
+      "default": "ubuntu-24.04-killhub",
+      "description": "Plane 2 microVM OCI/rootfs image; defaults to the pre-baked Ubuntu 24.04 Killhub detonation image (D36, D69)."
+    },
+    "os_image": {
+      "type": "string",
+      "default": "ubuntu-24.04",
+      "description": "Logical OS identifier."
+    },
+    "runtime": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Primary language/runtime hint (e.g. python, node, mixed)."
+    },
+    "workdir": {
+      "type": "string",
+      "minLength": 1,
+      "default": "/workspace",
+      "description": "Default guest working directory for commands."
+    },
+    "summary": {
+      "type": "string",
+      "description": "Human-readable explanation of how the target is built and verified."
+    },
+    "verification_target": {
+      "type": "string",
+      "enum": ["original_application", "generated_demo"],
+      "default": "original_application",
+      "description": "Whether readiness proves the original target checkout or a generated fallback demo (D54, D62)."
     },
     "source": {
       "type": "object",
-      "required": ["type", "url"],
+      "additionalProperties": false,
+      "required": ["type", "commit"],
       "properties": {
-        "type": { "const": "git" },
-        "url": { "type": "string", "minLength": 1 },
-        "ref": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": ["github_repo", "npm_package", "pypi_package", "fixture"],
+          "description": "Source intake kind (D15, D62)."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Public HTTPS GitHub repository URL when type=github_repo."
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Package specifier or fixture identifier."
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Requested branch, tag, or version constraint."
+        },
         "commit": {
           "type": "string",
-          "pattern": "^[0-9a-f]{40}$"
+          "pattern": "^[a-f0-9]{40}$",
+          "description": "Resolved 40-character lowercase git commit SHA or pinned 40-char fixture revision hash (D62)."
+        },
+        "package_name": {
+          "type": ["string", "null"]
+        },
+        "entrypoint": {
+          "type": ["string", "null"]
         }
-      },
-      "additionalProperties": true
+      }
     },
-    "runtime": { "type": "string" },
-    "os_image": { "type": "string" },
-    "oci_image": { "type": "string" },
-    "workdir": { "type": "string" },
-    "services": { "type": "array" },
-    "packages": { "type": "array" },
-    "install_commands": { "type": "array" },
-    "run_commands": { "type": "array" },
-    "processes": { "type": "array" },
-    "ports": { "type": "array" },
-    "summary": { "type": "string" },
-    "verification_target": {
+    "services": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ServiceSpec"
+      },
+      "description": "In-guest auxiliary services (datastores, mocks) started before target processes."
+    },
+    "packages": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Declared packages attempted during provisioning (D29)."
+    },
+    "commands": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["install", "run"],
+      "properties": {
+        "install": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CommandSpec"
+          },
+          "description": "Provisioning and build commands executed during install phase."
+        },
+        "run": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CommandSpec"
+          },
+          "description": "Target launch commands (must execute built checkout for original_application, D62)."
+        }
+      }
+    },
+    "processes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ProcessSpec"
+      },
+      "description": "Supervised long-running or oneshot guest processes."
+    },
+    "probes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ProbeSpec"
+      },
+      "description": "Readiness probes used to verify target health."
+    },
+    "ports": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 65535
+      },
+      "description": "Guest TCP ports exposed internally for probing."
+    },
+    "mcp": {
+      "$ref": "#/$defs/McpConfig"
+    },
+    "security_assessment": {
+      "$ref": "#/$defs/SecurityAssessmentConfig"
+    },
+    "network_mode": {
       "type": "string",
-      "enum": ["original_application", "generated_demo"]
+      "enum": ["install", "monitored_detonation", "offline_verify"],
+      "description": "Plane 2 network phase mode (D43, D70)."
     },
-    "mcp": { "type": "object" },
-    "probes": { "type": "array" },
-    "healthcheck": { "type": "object" },
-    "policy": { "type": "object" }
-  },
-  "allOf": [
-    {
-      "if": { "properties": { "intent": { "const": "bootstrap" } } },
-      "then": {
-        "required": ["oci_image", "workdir", "install_commands", "run_commands"]
-      }
-    },
-    {
-      "if": {
-        "properties": {
-          "intent": { "enum": ["git_mcp", "webapp", "demo"] }
-        }
-      },
-      "then": {
-        "required": [
-          "source",
-          "runtime",
-          "os_image",
-          "workdir",
-          "services",
-          "packages",
-          "install_commands",
-          "run_commands",
-          "processes",
-          "ports",
-          "summary",
-          "verification_target"
-        ],
-        "properties": {
-          "source": {
-            "type": "object",
-            "required": ["type", "url", "commit"]
-          }
-        }
-      }
-    },
-    {
-      "if": { "properties": { "intent": { "const": "git_mcp" } } },
-      "then": {
-        "required": ["mcp"],
-        "properties": {
-          "mcp": {
-            "type": "object",
-            "required": ["transport", "launch_command", "readiness"],
-            "properties": {
-              "transport": { "enum": ["stdio", "streamable_http"] }
-            }
-          }
+    "cgroup_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["memory_max", "memory_swap_max", "pids_max", "cpu_max"],
+      "properties": {
+        "memory_max": {
+          "type": "string",
+          "pattern": "^[0-9]+[KMG]?$",
+          "default": "512M",
+          "description": "Layer 2 cgroup v2 memory.max cap for target workload (D72)."
+        },
+        "memory_swap_max": {
+          "type": "string",
+          "const": "0",
+          "default": "0",
+          "description": "Disable swap in target cgroup v2."
+        },
+        "pids_max": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 64,
+          "description": "Layer 2 cgroup v2 pids.max cap (D72)."
+        },
+        "cpu_max": {
+          "type": "string",
+          "pattern": "^[0-9]+ [0-9]+$",
+          "default": "100000 100000",
+          "description": "Layer 2 cgroup v2 cpu.max quota period pair (D72)."
         }
       }
     }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "intent": { "const": "git_mcp" }
+        }
+      },
+      "then": {
+        "required": ["mcp"]
+      }
+    }
   ],
-  "additionalProperties": true
+  "$defs": {
+    "CommandSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timeout_seconds"],
+      "oneOf": [
+        { "required": ["argv"] },
+        { "required": ["shell"] }
+      ],
+      "properties": {
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "shell": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cwd": {
+          "type": "string",
+          "minLength": 1
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        }
+      }
+    },
+    "ServiceSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "ports", "healthcheck"],
+      "anyOf": [
+        { "required": ["image"] },
+        { "required": ["package"] }
+      ],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "kind": {
+          "type": "string",
+          "enum": ["postgres", "redis", "mongodb", "custom"]
+        },
+        "image": { "type": "string", "minLength": 1 },
+        "package": { "type": "string", "minLength": 1 },
+        "ports": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "healthcheck": {
+          "$ref": "#/$defs/ProbeSpec"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "optional": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "ProbeSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "type": {
+          "type": "string",
+          "enum": ["http", "tcp", "command", "mcp_handshake"]
+        },
+        "url": { "type": "string", "format": "uri" },
+        "host": { "type": "string", "minLength": 1 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "expected_statuses": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 100, "maximum": 599 }
+        },
+        "body_contains": { "type": "string" },
+        "command": { "$ref": "#/$defs/CommandSpec" },
+        "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 300 }
+      }
+    },
+    "ProcessSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "command", "supervise"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "command": { "$ref": "#/$defs/CommandSpec" },
+        "supervise": {
+          "type": "string",
+          "enum": ["oneshot", "restart"]
+        },
+        "stop_signal": {
+          "type": "string",
+          "default": "SIGTERM"
+        },
+        "ready_after_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "ready_probe": { "type": "string", "minLength": 1 }
+      }
+    },
+    "SecurityAssessmentConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "discovery_method": {
+          "type": "string",
+          "enum": ["mcp_inspector_cli", "python_mcp_sdk_fallback"]
+        },
+        "run_detonation_scenarios": {
+          "type": "boolean",
+          "default": true
+        },
+        "allow_empty_tools": {
+          "type": "boolean",
+          "default": false
+        },
+        "max_scenarios": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 25
+        }
+      }
+    },
+    "McpConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transport", "launch_command", "readiness"],
+      "properties": {
+        "transport": {
+          "type": "string",
+          "enum": ["stdio", "streamable_http"]
+        },
+        "launch_command": {
+          "$ref": "#/$defs/CommandSpec"
+        },
+        "cwd": { "type": "string", "minLength": 1 },
+        "entrypoint": { "type": "string", "minLength": 1 },
+        "url": { "type": "string", "format": "uri" },
+        "readiness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "transport", "timeout_seconds"],
+          "properties": {
+            "type": { "type": "string", "const": "mcp_handshake" },
+            "transport": { "type": "string", "enum": ["stdio", "streamable_http"] },
+            "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 300 },
+            "allow_empty_tools": { "type": "boolean", "default": false }
+          }
+        },
+        "security_assessment": {
+          "$ref": "#/$defs/SecurityAssessmentConfig"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "transport": { "const": "streamable_http" } }
+          },
+          "then": {
+            "required": ["url"]
+          }
+        }
+      ]
+    }
+  }
 }
