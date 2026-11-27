@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import jobs
+from admission import reset_admission_store_for_tests
 from config import get_settings
 
 TOKEN = "test-internal-token"
@@ -24,9 +25,11 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
     monkeypatch.setenv("ENV_TTL_SECONDS", "3600")
     monkeypatch.setenv("REAPER_ENABLED", "false")
     monkeypatch.setenv("MSB_AUTO_CREATE", "false")
+    monkeypatch.setenv("ADMISSION_STORE", "memory")
     # Preflight has dedicated tests; default suite stays offline-stable.
     monkeypatch.setenv("PREFLIGHT_ENABLED", "false")
     get_settings.cache_clear()
+    reset_admission_store_for_tests()
     jobs.reset_ledger_for_tests()
 
     from main import app
@@ -35,6 +38,7 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
         yield test_client
 
     jobs.reset_ledger_for_tests()
+    reset_admission_store_for_tests()
     get_settings.cache_clear()
 
 

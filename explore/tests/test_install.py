@@ -55,6 +55,7 @@ RUNTIME_PROFILE: dict[str, Any] = {
 
 @pytest.fixture(autouse=True)
 def _env(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr("screenshots.ensure_playwright_tooling", lambda *args, **kwargs: {})
     monkeypatch.setenv("LEDGER_URL", f"sqlite:///{(tmp_path / 'l.db').as_posix()}")
     monkeypatch.setenv("REAPER_ENABLED", "false")
     monkeypatch.setenv("PREFLIGHT_ENABLED", "false")
@@ -79,6 +80,11 @@ def _env(tmp_path, monkeypatch: pytest.MonkeyPatch):
         (tmp_path / "helpers" / name).write_text("#!/bin/sh\necho ok\n", encoding="utf-8")
     get_settings.cache_clear()
     reset_ledger_for_tests()
+    # provision_and_go_offline may call Playwright install for webapp intent (D63).
+    monkeypatch.setattr(
+        "screenshots.ensure_playwright_tooling",
+        lambda *a, **k: {"status": "skipped", "reason": "unit_test"},
+    )
     yield
     reset_ledger_for_tests()
     get_settings.cache_clear()
@@ -273,6 +279,10 @@ def test_repair_retries_install_failures(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(
         "install.preinstall_assessment_tooling",
         lambda *a, **k: {"probe_exit": 0},
+    )
+    monkeypatch.setattr(
+        "screenshots.ensure_playwright_tooling",
+        lambda *a, **k: {"status": "skipped"},
     )
     monkeypatch.setattr(
         "install.probe_control_plane_during_install",

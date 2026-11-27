@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+from admission import (
+    AdmissionRejected,
+    AdmissionStoreError,
+    get_admission_store,
+)
 from config import Settings, get_settings
 from jobs import get_ledger
 from ledger import Ledger
 from ledger.store import utc_now
 from models import CleanupState, Job
+
+logger = logging.getLogger("killhub.admission")
 
 TERMINAL = frozenset({"completed", "failed", "cancelled"})
 QUEUED_STATUSES = frozenset({"pending", "queued"})
@@ -34,14 +42,17 @@ class AdmissionError(Exception):
         self.status_code = status_code
 
 
-def _enforce_admission(cfg: Settings) -> None:
-    """Reject create when concurrency + queue capacity is exhausted (D40)."""
-    if cfg.inference_budget_reject:
+def _raise_admission(exc: AdmissionRejected | AdmissionStoreError) -> None:
+    if isinstance(exc, AdmissionStoreError):
         raise AdmissionError(
-            "Inference budget exhausted",
-            code="inference_budget",
-            status_code=429,
-        )
+            "Admission store unavailable",
+            code="admission_unavailable",
+            status_code=503,
+        ) from exc
+    raise AdmissionError(exc.message, code=exc.code, status_code=exc.status_code) from exc
+
+
+def _ledger_capacity_full(cfg: Settings) -> bool:
     ledger = get_ledger(cfg)
     jobs = ledger.list_jobs()
     running = sum(1 for j in jobs if j.status in RUNNING_STATUSES)
@@ -49,32 +60,95 @@ def _enforce_admission(cfg: Settings) -> None:
     capacity = cfg.max_concurrent_jobs + cfg.max_queued_jobs
     active = running + queued
     if active >= capacity:
-        raise AdmissionError(
-            "Job concurrency and queue are full",
-            code="queue_full",
-            status_code=503,
-        )
+        return True
     if running >= cfg.max_concurrent_jobs and queued >= cfg.max_queued_jobs:
+        return True
+    return False
+
+
+def _enforce_admission(
+    cfg: Settings,
+    *,
+    client_ip: str | None = None,
+) -> None:
+    """Reject create when concurrency / queue / rate / budget gates fire (D40, D71)."""
+    store = get_admission_store(cfg)
+    try:
+        store.ping()
+    except AdmissionStoreError as exc:
+        _raise_admission(exc)
+
+    if cfg.inference_budget_reject:
         raise AdmissionError(
-            "Job concurrency and queue are full",
-            code="queue_full",
-            status_code=503,
+            "Inference budget exhausted",
+            code="inference_budget",
+            status_code=429,
         )
 
+    try:
+        store.check_rolling_inference(
+            tokens=0,
+            budget=cfg.inference_budget_tokens_rolling,
+            window_seconds=cfg.inference_budget_rolling_window_seconds,
+        )
+        # Per-IP / global POST rate limits: Next.js edge (D40). Explore owns
+        # concurrency / queue + rolling inference. client_ip is accepted for
+        # future Internal API throttling without double-counting edge hits.
+        _ = client_ip
+        if store.backend == "valkey":
+            store.try_admit(
+                max_concurrent=cfg.max_concurrent_jobs,
+                max_queued=cfg.max_queued_jobs,
+            )
+        elif _ledger_capacity_full(cfg):
+            raise AdmissionRejected(
+                "Job concurrency and queue are full",
+                code="queue_full",
+                status_code=503,
+            )
+    except (AdmissionRejected, AdmissionStoreError) as exc:
+        _raise_admission(exc)
 
-def create_job(github_url: str, *, settings: Settings | None = None) -> Job:
+
+def release_admission_slot(
+    *,
+    was_running: bool,
+    settings: Settings | None = None,
+) -> None:
+    """Best-effort slot release for Valkey-backed counters (D71)."""
+    cfg = settings or get_settings()
+    store = get_admission_store(cfg)
+    if store.backend != "valkey":
+        return
+    store.on_terminal(was_running=was_running)
+
+
+def create_job(
+    github_url: str,
+    *,
+    settings: Settings | None = None,
+    client_ip: str | None = None,
+) -> Job:
     """Admit + create ledger row, then Plane-1 pre-flight (D45) before any msb."""
     from preflight import apply_preflight_to_job, run_preflight
 
     cfg = settings or get_settings()
-    _enforce_admission(cfg)
+    _enforce_admission(cfg, client_ip=client_ip)
     ledger = get_ledger(cfg)
-    job = ledger.create_job(github_url, env_ttl_seconds=cfg.env_ttl_seconds)
+    try:
+        job = ledger.create_job(github_url, env_ttl_seconds=cfg.env_ttl_seconds)
+    except Exception:
+        # Undo Valkey queue reservation if ledger create fails.
+        release_admission_slot(was_running=False, settings=cfg)
+        raise
     result = run_preflight(job.github_url, settings=cfg)
     if not result.meta.get("skipped"):
         apply_preflight_to_job(job.job_id, result, settings=cfg)
     refreshed = ledger.get_job(job.job_id)
     assert refreshed is not None
+    # Preflight may terminal-fail the job before claim — release queued slot.
+    if refreshed.status in TERMINAL:
+        release_admission_slot(was_running=False, settings=cfg)
     return refreshed
 
 
@@ -163,6 +237,8 @@ def _run_cancel_finalizer(ledger: Ledger, job_id: str) -> None:
     now = utc_now()
     job = ledger.get_job(job_id)
     assert job is not None
+    # Capture before status → finalizing so Valkey release picks queued vs running.
+    was_running = job.status in RUNNING_STATUSES or job.status == "finalizing"
     ledger.update_job_fields(
         job_id,
         finalizer=True,
@@ -247,11 +323,13 @@ def _run_cancel_finalizer(ledger: Ledger, job_id: str) -> None:
         payload={"status": "cancelled"},
         finalizer=True,
     )
+    release_admission_slot(was_running=was_running)
 
 
 def claim_pending_job() -> Job | None:
     """Background worker: pick the oldest pending job and move it to analyzing."""
-    ledger = get_ledger()
+    cfg = get_settings()
+    ledger = get_ledger(cfg)
     for job in ledger.list_jobs():
         if job.status != "pending":
             continue
@@ -277,6 +355,9 @@ def claim_pending_job() -> Job | None:
                 message="background worker claimed job",
                 payload={"kind": "agent"},
             )
+            store = get_admission_store(cfg)
+            if store.backend == "valkey":
+                store.on_claimed()
             return updated
         except Ledger.WriterFrozenError:
             continue

@@ -199,10 +199,14 @@ def test_finalize_reclaims_when_already_terminal_but_sandbox_live(
     """Discover used to flip failed before destroy; finalize must still reclaim."""
     job_id = _seed(readiness_passed=False, verification_kind="setup_failed")
     ledger = get_ledger()
-    ledger.update_job_fields(
+    # Terminal + receipt without destroy (D61); sandbox still live for reclaim.
+    ledger.finalize_job(
         job_id,
-        finalizer=True,
         status="failed",
+        receipt={
+            "verification": {"kind": "setup_failed"},
+            "dossier": {"outcome": "setup_failed", "reason": "forbid_demo"},
+        },
         progress=100,
         current_step="setup_failed (fixture)",
         error="forbid_demo",

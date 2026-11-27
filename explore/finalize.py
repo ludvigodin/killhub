@@ -180,6 +180,7 @@ def finalize_job(
                 summary=f"Scan aborted: {exc.message}",
                 findings=[],
                 status="failed",
+                finalizer=True,
             )
             ledger.append_event(
                 job_id,
@@ -197,6 +198,7 @@ def finalize_job(
                 summary=f"Scanner crash ({exc.__class__.__name__}); report partial.",
                 findings=[],
                 status="failed",
+                finalizer=True,
             )
 
     gates = evaluate_gates(job_id, settings=cfg)
@@ -346,6 +348,13 @@ def finalize_job(
         },
         finalizer=True,
     )
+    try:
+        from service import release_admission_slot
+
+        # Finalize runs after claim → always releasing a running slot (D71).
+        release_admission_slot(was_running=True)
+    except Exception:  # noqa: BLE001 — admission must not block terminal
+        pass
 
     return FinalizeResult(
         job_id=job_id,

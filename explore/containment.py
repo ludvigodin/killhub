@@ -874,15 +874,13 @@ def run_containment_probes(
         if d in dimensions
     )
     if bypass and job.status not in {"failed", "cancelled", "completed"}:
-        ledger.append_event(
-            job_id,
-            typ="status",
-            message="failed",
-            payload={"status": "failed", "reason": "containment_bypass"},
-        )
-        ledger.update_job_fields(
+        # Receipt above already holds the containment matrix; finalize atomically (D61).
+        ledger.finalize_job(
             job_id,
             status="failed",
+            receipt={},
+            event_message="failed",
+            event_payload={"reason": "containment_bypass"},
             current_step="containment policy bypass",
             progress=100,
             error="containment policy_bypass",

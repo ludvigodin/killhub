@@ -1,8 +1,12 @@
-"""SQLite DDL for the Plane 1 ledger (DATABASE.md / D41 / D64)."""
+"""Ledger DDL for Plane 1 (DATABASE.md / D41 / D64 / D73).
 
-SCHEMA_SQL = """
-PRAGMA foreign_keys = ON;
+Field names are identical across SQLite and PostgreSQL. JSON-shaped columns
+are stored as TEXT containing JSON on both engines so application semantics
+stay the same.
+"""
 
+# Shared table/index DDL (no engine-specific pragmas).
+_TABLES_SQL = """
 CREATE TABLE IF NOT EXISTS jobs (
     job_id TEXT PRIMARY KEY,
     github_url TEXT NOT NULL,
@@ -102,3 +106,10 @@ CREATE TABLE IF NOT EXISTS ledger_meta (
     value TEXT NOT NULL
 );
 """
+
+SCHEMA_SQL = f"""
+PRAGMA foreign_keys = ON;
+{_TABLES_SQL}
+"""
+
+SCHEMA_SQL_POSTGRES = _TABLES_SQL

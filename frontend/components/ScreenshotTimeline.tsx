@@ -14,11 +14,11 @@ type ScreenshotTimelineProps = {
 export function ScreenshotTimeline({ jobId, shots }: ScreenshotTimelineProps) {
   return (
     <section aria-label="Screenshot timeline">
-      <p className="mb-2 text-sm uppercase tracking-wide text-[var(--muted)]">
+      <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
         Screenshots
       </p>
       {shots.length === 0 ? (
-        <p className="border border-dashed border-[var(--line)] bg-white/40 px-3 py-4 text-sm text-[var(--muted)]">
+        <p className="border border-dashed border-(--line) bg-white/40 px-3 py-4 text-sm text-(--muted)">
           No stills yet — optional for this job (CLI MCP / early fail stay
           empty).
         </p>
@@ -30,7 +30,7 @@ export function ScreenshotTimeline({ jobId, shots }: ScreenshotTimelineProps) {
               `/api/jobs/${encodeURIComponent(jobId)}/screenshots/${encodeURIComponent(shot.screenshot_id)}`;
             return (
               <li key={shot.screenshot_id} className="min-w-0">
-                <figure className="overflow-hidden border border-[var(--line)] bg-white/70">
+                <figure className="overflow-hidden border border-(--line) bg-white/70">
                   {/* biome-ignore lint/performance/noImgElement: local API bytes, not next/image CDN */}
                   <img
                     src={src}
@@ -41,8 +41,8 @@ export function ScreenshotTimeline({ jobId, shots }: ScreenshotTimelineProps) {
                       e.currentTarget.dataset.ready = "true";
                     }}
                   />
-                  <figcaption className="border-t border-[var(--line)] px-3 py-2 text-xs text-[var(--muted)]">
-                    <span className="font-medium text-[var(--ink)]">
+                  <figcaption className="border-t border-(--line) px-3 py-2 text-xs text-(--muted)">
+                    <span className="font-medium text-(--ink)">
                       {shot.step || "still"}
                     </span>
                     {shot.caption ? ` · ${shot.caption}` : null}

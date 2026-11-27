@@ -133,11 +133,14 @@ def normalize_memory(memory: str) -> str:
 def default_bootstrap_plan(settings: Settings | None = None) -> EnvironmentPlan:
     """Bootstrap plan with mandatory Killhub install-phase net policy (D39)."""
     from net_policy import install_phase_policy
+    from registry import require_host_registry_pull_ready
 
     cfg = settings or get_settings()
     image = (cfg.msb_default_image or "debian").strip()
     if not image:
         raise HarnessError("MSB_DEFAULT_IMAGE is required", code="config")
+    # Private Vultr CR refs fail closed without host robot creds (D74).
+    require_host_registry_pull_ready(image, cfg)
     policy = install_phase_policy(cfg)
     return EnvironmentPlan(
         image=image,
@@ -156,11 +159,14 @@ def plan_for_image(
     replace: bool = False,
 ) -> EnvironmentPlan:
     """Build an EnvironmentPlan for a specific OCI image (Killhub net policy)."""
+    from registry import require_host_registry_pull_ready
+
     cfg = settings or get_settings()
-    base = default_bootstrap_plan(cfg)
     cleaned = (image or "").strip()
     if not cleaned:
         raise HarnessError("oci_image is required", code="config")
+    require_host_registry_pull_ready(cleaned, cfg)
+    base = default_bootstrap_plan(cfg)
     return EnvironmentPlan(
         image=cleaned,
         cpus=base.cpus,
@@ -505,10 +511,13 @@ def create_environment(
     """
     from canaries import generate_canaries, persist_canaries, plant_file_canaries
     from net_policy import install_phase_policy
+    from registry import require_host_registry_pull_ready
 
     cfg = settings or get_settings()
     msb = cli or MsbCli(cfg)
     env_plan = apply_killhub_net_policy(plan or default_bootstrap_plan(cfg), cfg)
+    # Host-side Vultr CR pull gate (D74) — never put robot secrets in plan.env.
+    require_host_registry_pull_ready(env_plan.image, cfg)
     policy = install_phase_policy(cfg)
     ledger = get_ledger(cfg)
     job = ledger.get_job(job_id)
@@ -1238,6 +1247,22 @@ def copy_out(
     msb.copy(f"{environment_id}:{src}", remote_dest)
     msb.scp_get(remote_dest, dest)
     enforce_copy_size(dest, settings=cfg)
+    storage_ref = str(dest)
+    # Screenshots upload in screenshots.py (sets ledger storage_path). Other
+    # artifact kinds upload here for durable off-host copies (D72).
+    if artifact_kind != "screenshot":
+        try:
+            from object_storage import maybe_upload_local_file
+
+            storage_ref = maybe_upload_local_file(
+                dest,
+                kind=artifact_kind,
+                job_id=job_id,
+                filename=name,
+                settings=cfg,
+            )
+        except Exception:  # noqa: BLE001 — local copy remains; upload is best-effort
+            logger.exception("object upload after copy_out failed for %s", job_id)
     get_ledger(cfg).append_event(
         job_id,
         typ="log",
@@ -1247,6 +1272,7 @@ def copy_out(
             "guest_src": src,
             "artifact_kind": artifact_kind,
             "host_dest": str(dest),
+            "storage_ref": storage_ref,
             "bytes": dest.stat().st_size,
         },
     )

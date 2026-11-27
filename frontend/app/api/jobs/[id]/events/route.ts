@@ -11,7 +11,7 @@ export async function GET(
   const after = url.searchParams.get("after");
   const lastEventId = request.headers.get("Last-Event-ID");
 
-  const qs = after ? `?after=${encodeURIComponent(after)}` : "";
+  const qs = after && !lastEventId ? `?after=${encodeURIComponent(after)}` : "";
   const headers: HeadersInit = {};
   if (lastEventId) {
     headers["Last-Event-ID"] = lastEventId;
@@ -19,7 +19,7 @@ export async function GET(
 
   const upstream = await exploreFetch(
     `/internal/jobs/${encodeURIComponent(id)}/events${qs}`,
-    { headers },
+    { headers, signal: request.signal },
   );
 
   if (!upstream.ok) {

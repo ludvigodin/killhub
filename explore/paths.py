@@ -26,6 +26,12 @@ FORBIDDEN_ENV_KEYS = frozenset(
         "INTERNAL_API_TOKEN",
         "OPENCODE_API_KEY",
         "OPENCODE_CONFIG",
+        "OBJECT_STORAGE_ACCESS_KEY",
+        "OBJECT_STORAGE_SECRET_KEY",
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "VULTR_CR_ROBOT_USERNAME",
+        "VULTR_CR_ROBOT_PASSWORD",
     }
 )
 
@@ -142,14 +148,16 @@ def resolve_copy_out_dest(
     if not safe_name or safe_name in {".", ".."}:
         raise HarnessError("invalid artifact filename", code="path_forbidden")
 
-    if kind == "screenshot":
-        base = Path(cfg.screenshot_storage)
-    else:
-        base = Path(cfg.artifact_storage)
-    if not base.is_absolute():
-        base = Path(__file__).resolve().parent.parent / base
+    # Local staging roots stay filesystem paths even when STORAGE_BACKEND=s3 (D72).
+    from object_storage import (
+        filesystem_root_for_artifacts,
+        filesystem_root_for_screenshots,
+    )
 
-    root = base.resolve()
+    if kind == "screenshot":
+        root = filesystem_root_for_screenshots(cfg)
+    else:
+        root = filesystem_root_for_artifacts(cfg)
     dest_dir = (root / job_id).resolve()
     if not _under_root(dest_dir, root) and dest_dir != root / job_id:
         if not str(dest_dir).startswith(str(root) + os.sep):
@@ -183,4 +191,14 @@ def guest_env_has_forbidden_keys(env_text: str) -> list[str]:
             continue
         if key.endswith("_API_KEY") and key.startswith(("VULTR_", "OPENCODE_", "KILLHUB_")):
             found.append(key)
+        if key.startswith("OBJECT_STORAGE_") and key.endswith(
+            ("_KEY", "_SECRET", "_PASSWORD", "_TOKEN"),
+        ):
+            if key not in found:
+                found.append(key)
+        if key.startswith("VULTR_CR_") and key.endswith(
+            ("_PASSWORD", "_TOKEN", "_SECRET", "_USERNAME"),
+        ):
+            if key not in found:
+                found.append(key)
     return found

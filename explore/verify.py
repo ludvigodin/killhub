@@ -683,25 +683,38 @@ def verify_readiness(
         readiness=readiness,
         verification=verification,
     )
-    ledger.append_event(
-        job_id,
-        typ="status",
-        message=new_status,
-        payload={
-            "status": new_status,
-            "readiness_passed": passed,
-            "verification_kind": verification.get("kind"),
-        },
-    )
-    ledger.update_job_fields(
-        job_id,
-        status=new_status,
-        current_step="readiness passed" if passed else "readiness failed",
-        progress=90 if passed else 100,
-        readiness=readiness,
-        verification=verification,
-        verify_result=last_detail,
-    )
+    job_fields = {
+        "current_step": "readiness passed" if passed else "readiness failed",
+        "progress": 90 if passed else 100,
+        "readiness": readiness,
+        "verification": verification,
+        "verify_result": last_detail,
+    }
+    event_payload = {
+        "readiness_passed": passed,
+        "verification_kind": verification.get("kind"),
+    }
+    if passed:
+        ledger.append_event(
+            job_id,
+            typ="status",
+            message=new_status,
+            payload={"status": new_status, **event_payload},
+        )
+        ledger.update_job_fields(job_id, status=new_status, **job_fields)
+    else:
+        # Failed readiness is terminal: receipt + status event + status atomically (D61).
+        ledger.finalize_job(
+            job_id,
+            status="failed",
+            receipt={
+                "verification": verification,
+                "dossier": {"outcome": "setup_failed", "readiness": readiness},
+            },
+            event_message=new_status,
+            event_payload=event_payload,
+            **job_fields,
+        )
 
     # Confirm sandbox still present (not destroyed by this step).
     job_after = ledger.get_job(job_id)

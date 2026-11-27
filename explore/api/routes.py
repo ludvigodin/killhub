@@ -1,9 +1,11 @@
 """Internal Worker API routes (D52, D55, D61)."""
 
+from __future__ import annotations
+
 import asyncio
 import json
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
@@ -39,13 +41,25 @@ def _error(status_code: int, message: str, code: str) -> HTTPException:
 
 
 @router.post("/jobs", status_code=status.HTTP_201_CREATED)
-def post_job(body: CreateJobBody) -> Dict[str, str]:
+def post_job(
+    body: CreateJobBody,
+    x_forwarded_for: Optional[str] = Header(default=None),
+    x_real_ip: Optional[str] = Header(default=None),
+    x_client_ip: Optional[str] = Header(default=None),
+) -> Dict[str, str]:
     try:
         validate_github_url(body.github_url)
     except ValueError as exc:
         raise _error(400, str(exc), "invalid_url") from exc
+    client_ip: Optional[str] = None
+    if x_client_ip:
+        client_ip = x_client_ip.strip()
+    elif x_real_ip:
+        client_ip = x_real_ip.strip()
+    elif x_forwarded_for:
+        client_ip = x_forwarded_for.split(",")[0].strip()
     try:
-        job = create_job(body.github_url)
+        job = create_job(body.github_url, client_ip=client_ip)
     except AdmissionError as exc:
         raise _error(exc.status_code, exc.message, exc.code) from exc
     except ValueError as exc:
@@ -85,16 +99,60 @@ def list_screenshots(job_id: str) -> List[Dict[str, Any]]:
     return ledger.list_screenshots(job_id)
 
 
-@router.get("/jobs/{job_id}/screenshots/{shot_id}")
-def get_screenshot_bytes(job_id: str, shot_id: str) -> FileResponse:
+@router.get("/jobs/{job_id}/screenshots/{shot_id}", response_model=None)
+def get_screenshot_bytes(job_id: str, shot_id: str) -> Union[FileResponse, Response]:
     ledger = get_ledger()
     meta = ledger.get_screenshot(job_id, shot_id)
     if meta is None:
         raise _error(404, "screenshot not found", "not_found")
-    path = Path(meta["storage_path"])
-    if not path.is_file():
-        raise _error(404, "screenshot file missing", "not_found")
-    return FileResponse(path, media_type="image/png", filename=f"{shot_id}.png")
+    ref = str(meta.get("storage_path") or "")
+    from object_storage import (
+        ObjectStorageError,
+        is_s3_ref,
+        make_s3_ref,
+        object_key,
+        object_storage_config,
+        read_bytes,
+        resolve_storage_backend,
+    )
+
+    # Prefer hot local cache; fall back to object storage (D72).
+    if ref and not is_s3_ref(ref):
+        path = Path(ref)
+        if path.is_file():
+            return FileResponse(path, media_type="image/png", filename=f"{shot_id}.png")
+
+    fetch_ref = ref if is_s3_ref(ref) else ""
+    if not fetch_ref and resolve_storage_backend() == "s3":
+        conf = object_storage_config()
+        if conf.bucket:
+            key = object_key(
+                kind="screenshot",
+                job_id=job_id,
+                filename=f"{shot_id}.png",
+                prefix=conf.prefix,
+            )
+            fetch_ref = make_s3_ref(conf.bucket, key)
+
+    if fetch_ref:
+        try:
+            data = read_bytes(fetch_ref)
+        except ObjectStorageError as exc:
+            raise _error(503, str(exc), "object_storage_misconfigured") from exc
+        except FileNotFoundError as exc:
+            raise _error(404, "screenshot file missing", "not_found") from exc
+        except Exception as exc:  # noqa: BLE001
+            raise _error(
+                502,
+                "screenshot object fetch failed",
+                "object_storage_error",
+            ) from exc
+        return Response(
+            content=data,
+            media_type="image/png",
+            headers={"Content-Disposition": f'inline; filename="{shot_id}.png"'},
+        )
+    raise _error(404, "screenshot file missing", "not_found")
 
 
 def _sse_format(event_id: str, event_type: str, data: Dict[str, Any]) -> str:

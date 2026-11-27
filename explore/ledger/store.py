@@ -1,17 +1,20 @@
-"""SQLite ledger helpers: create job, append event, snapshot, revisions, generations."""
+"""Durable ledger helpers: create job, append event, snapshot, revisions, generations.
+
+Supports SQLite (default) and PostgreSQL via ``LEDGER_URL`` (D41, D73).
+"""
 
 from __future__ import annotations
 
 import json
 import re
-import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import unquote, urlparse
 
-from ledger.schema import SCHEMA_SQL
+from ledger.db import DbConnection, Row, open_ledger_connection
+from ledger.migrations import migrate
+from ledger.url import LedgerTarget, parse_ledger_url, parse_sqlite_path
 from models import (
     CleanupState,
     EnvironmentProfileRevision,
@@ -25,35 +28,12 @@ from models import (
     SandboxState,
 )
 
+# Re-export for callers that imported parse_sqlite_path from store.
+__all__ = ["Ledger", "parse_ledger_url", "parse_sqlite_path"]
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def parse_sqlite_path(ledger_url: str) -> Path:
-    """Resolve SQLAlchemy-style SQLite URLs to a filesystem path.
-
-    - `sqlite:///relative.db` → cwd-relative
-    - `sqlite:////abs/path.db` → absolute `/abs/path.db`
-    """
-    prefix = "sqlite://"
-    if not ledger_url.startswith(prefix):
-        parsed = urlparse(ledger_url)
-        if parsed.scheme and parsed.scheme != "sqlite":
-            raise ValueError(f"Unsupported ledger engine URL: {ledger_url}")
-        raise ValueError(f"Invalid LEDGER_URL: {ledger_url}")
-
-    rest = ledger_url[len(prefix) :]
-    if rest.startswith("//"):
-        # sqlite:////abs/path → rest="//abs/path"
-        return Path(unquote(rest[1:])).resolve()
-    if rest.startswith("/"):
-        # sqlite:///relative → rest="/relative"
-        path = Path(unquote(rest[1:]))
-        if not path.is_absolute():
-            path = Path.cwd() / path
-        return path.resolve()
-    raise ValueError(f"Invalid LEDGER_URL: {ledger_url}")
 
 
 def validate_github_url(url: str) -> str:
@@ -61,6 +41,27 @@ def validate_github_url(url: str) -> str:
     if not re.match(r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", cleaned):
         raise ValueError("github_url must be a public https://github.com/org/repo URL")
     return cleaned
+
+
+TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
+VULN_REPORT_STATUSES = frozenset({"ok", "partial", "failed"})
+FINDING_SOURCES = frozenset(
+    {"sca", "mcp_assessment", "intentional_app", "canary", "network", "containment", "preflight"}
+)
+# Destroy lifecycle phases that prove teardown (D57); never pruned before a receipt exists.
+_PROTECTED_LIFECYCLE_PHASES = frozenset({"destroyed", "destroy_failed"})
+
+
+def _is_protected_event(typ: str, payload_json: str | None) -> bool:
+    if typ not in {"status", "lifecycle"}:
+        return False
+    try:
+        payload = json.loads(payload_json or "{}")
+    except ValueError:
+        return False
+    if typ == "status":
+        return payload.get("status") in TERMINAL_STATUSES
+    return payload.get("phase") in _PROTECTED_LIFECYCLE_PHASES
 
 
 def _dumps(value: Any) -> str:
@@ -90,34 +91,51 @@ def _event_byte_size(
 
 
 class Ledger:
-    """Durable SQLite job/event store owned by the explore sidecar (D41)."""
+    """Durable job/event store owned by the explore sidecar (D41, D73)."""
 
-    def __init__(self, db_path: Path, *, max_job_log_bytes: int = 2_000_000) -> None:
-        self.db_path = Path(db_path)
+    def __init__(
+        self,
+        db_path: Path | None = None,
+        *,
+        max_job_log_bytes: int = 2_000_000,
+        _conn: DbConnection | None = None,
+        _target: LedgerTarget | None = None,
+    ) -> None:
         self.max_job_log_bytes = max_job_log_bytes
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(
-            self.db_path,
-            isolation_level=None,  # manage transactions explicitly
-            check_same_thread=False,
-        )
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA foreign_keys = ON")
-        self._conn.execute("PRAGMA journal_mode = WAL")
-        self._conn.execute("PRAGMA busy_timeout = 5000")
-        self._conn.executescript(SCHEMA_SQL)
-        self._conn.execute(
-            "INSERT OR REPLACE INTO ledger_meta(key, value) VALUES (?, ?)",
-            ("engine", "sqlite"),
-        )
-        self._conn.execute(
-            "INSERT OR REPLACE INTO ledger_meta(key, value) VALUES (?, ?)",
-            ("schema_version", "1"),
+        if _conn is not None:
+            self._conn = _conn
+            self._target = _target or LedgerTarget(
+                engine=getattr(_conn, "engine", "sqlite"),
+                path=db_path,
+            )
+            self.db_path = db_path
+        elif db_path is not None:
+            self.db_path = Path(db_path)
+            self._target = LedgerTarget(engine="sqlite", path=self.db_path)
+            self._conn = open_ledger_connection(self._target)
+        else:
+            raise ValueError("Ledger requires db_path or an open connection")
+        path_for_migrate = self.db_path if self._target.engine == "sqlite" else None
+        self.schema_version = migrate(
+            self._conn,
+            path_for_migrate,
+            engine=self._target.engine,
         )
 
     @classmethod
     def from_url(cls, ledger_url: str, *, max_job_log_bytes: int = 2_000_000) -> Ledger:
-        return cls(parse_sqlite_path(ledger_url), max_job_log_bytes=max_job_log_bytes)
+        target = parse_ledger_url(ledger_url)
+        conn = open_ledger_connection(target)
+        return cls(
+            target.path,
+            max_job_log_bytes=max_job_log_bytes,
+            _conn=conn,
+            _target=target,
+        )
+
+    @property
+    def engine(self) -> str:
+        return self._target.engine
 
     def close(self) -> None:
         self._conn.close()
@@ -150,7 +168,7 @@ class Ledger:
         jid = job_id or str(uuid.uuid4())
         cleanup = CleanupState(status="pending", attempts=0, updated_at=now)
 
-        self._conn.execute("BEGIN IMMEDIATE")
+        self._conn.begin()
         try:
             self._conn.execute(
                 """
@@ -185,9 +203,9 @@ class Ledger:
                 payload={"status": status, "github_url": github_url},
                 timestamp=now,
             )
-            self._conn.execute("COMMIT")
+            self._conn.commit()
         except Exception:
-            self._conn.execute("ROLLBACK")
+            self._conn.rollback()
             raise
 
         job = self.get_job(jid)
@@ -208,8 +226,15 @@ class Ledger:
     def list_recent_jobs(self, *, limit: int = 48) -> list[Job]:
         """Newest-first job rows for the public feed (D69)."""
         capped = max(1, min(int(limit), 200))
+        # created_at is second-precision; tie-break with insertion order (rowid)
+        # so same-second creates stay newest-first. Postgres uses ctid.
+        order = (
+            "ORDER BY created_at DESC, ctid DESC"
+            if getattr(self._conn, "engine", "sqlite") == "postgres"
+            else "ORDER BY created_at DESC, rowid DESC"
+        )
         rows = self._conn.execute(
-            "SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            f"SELECT * FROM jobs {order} LIMIT ?",
             (capped,),
         ).fetchall()
         return [self._row_to_job(r) for r in rows]
@@ -273,6 +298,26 @@ class Ledger:
     class WriterFrozenError(RuntimeError):
         """Raised when ordinary writers mutate a cancel-frozen job (D61)."""
 
+    class ReceiptRequiredError(RuntimeError):
+        """Raised when a job would go terminal before its receipt is persisted (D61)."""
+
+    def _has_receipt(self, job_id: str) -> bool:
+        row = self._conn.execute(
+            "SELECT 1 FROM job_receipts WHERE job_id = ?", (job_id,)
+        ).fetchone()
+        return row is not None
+
+    def _assert_receipt_before_terminal(self, job: Job, new_status: Any) -> None:
+        if (
+            new_status in TERMINAL_STATUSES
+            and new_status != job.status
+            and not self._has_receipt(job.job_id)
+        ):
+            raise Ledger.ReceiptRequiredError(
+                f"job {job.job_id} cannot become {new_status} before its receipt is "
+                "persisted (D61); use finalize_job()"
+            )
+
     def _assert_ordinary_writable(self, job: Job) -> None:
         if job.cancel_requested_at is not None:
             raise Ledger.WriterFrozenError(
@@ -281,9 +326,18 @@ class Ledger:
         if job.status in {"completed", "failed", "cancelled"}:
             raise Ledger.WriterFrozenError(f"job {job.job_id} is terminal ({job.status})")
 
-    def update_job_fields(self, job_id: str, *, finalizer: bool = False, **fields: Any) -> Job:
-        """Patch allowlisted job columns. Ordinary writers freeze after cancel (D61)."""
-        allowed = {
+    _JOB_JSON_FIELDS = frozenset(
+        {
+            "steps_completed",
+            "readiness",
+            "verification",
+            "verify_result",
+            "inference_usage",
+            "cleanup",
+        }
+    )
+    _UPDATABLE_JOB_FIELDS = frozenset(
+        {
             "resolved_commit",
             "status",
             "progress",
@@ -303,48 +357,50 @@ class Ledger:
             "destroyed_at",
             "cancel_requested_at",
         }
-        unknown = set(fields) - allowed
+    )
+
+    def _check_job_fields(self, fields: dict[str, Any]) -> None:
+        unknown = set(fields) - self._UPDATABLE_JOB_FIELDS
         if unknown:
             raise ValueError(f"unsupported job fields: {sorted(unknown)}")
 
-        json_fields = {
-            "steps_completed",
-            "readiness",
-            "verification",
-            "verify_result",
-            "inference_usage",
-            "cleanup",
-        }
+    def _write_job_fields_unlocked(self, job_id: str, fields: dict[str, Any]) -> None:
+        sets: list[str] = []
+        values: list[Any] = []
+        for key, value in fields.items():
+            sets.append(f"{key} = ?")
+            if key in self._JOB_JSON_FIELDS:
+                if key == "cleanup" and isinstance(value, CleanupState):
+                    values.append(_dumps(value.to_dict()))
+                else:
+                    values.append(_dumps(value) if value is not None else None)
+            else:
+                values.append(value)
+        sets.append("updated_at = ?")
+        values.append(utc_now())
+        values.append(job_id)
+        self._conn.execute(f"UPDATE jobs SET {', '.join(sets)} WHERE job_id = ?", values)
 
-        self._conn.execute("BEGIN IMMEDIATE")
+    def update_job_fields(self, job_id: str, *, finalizer: bool = False, **fields: Any) -> Job:
+        """Patch allowlisted job columns. Ordinary writers freeze after cancel (D61).
+
+        A terminal ``status`` is refused until the job's receipt exists (D61);
+        use ``finalize_job`` to write both atomically.
+        """
+        self._check_job_fields(fields)
+        self._conn.begin()
         try:
             job = self.get_job(job_id)
             if job is None:
                 raise KeyError(f"unknown job_id: {job_id}")
             if not finalizer:
                 self._assert_ordinary_writable(job)
-            sets: list[str] = []
-            values: list[Any] = []
-            for key, value in fields.items():
-                sets.append(f"{key} = ?")
-                if key in json_fields:
-                    if key == "cleanup" and isinstance(value, CleanupState):
-                        values.append(_dumps(value.to_dict()))
-                    else:
-                        values.append(_dumps(value) if value is not None else None)
-                else:
-                    values.append(value)
-            now = utc_now()
-            sets.append("updated_at = ?")
-            values.append(now)
-            values.append(job_id)
-            self._conn.execute(
-                f"UPDATE jobs SET {', '.join(sets)} WHERE job_id = ?",
-                values,
-            )
-            self._conn.execute("COMMIT")
+            if "status" in fields:
+                self._assert_receipt_before_terminal(job, fields["status"])
+            self._write_job_fields_unlocked(job_id, fields)
+            self._conn.commit()
         except Exception:
-            self._conn.execute("ROLLBACK")
+            self._conn.rollback()
             raise
         job = self.get_job(job_id)
         assert job is not None
@@ -361,7 +417,7 @@ class Ledger:
         payload: dict[str, Any] | None = None,
         finalizer: bool = False,
     ) -> JobEvent:
-        self._conn.execute("BEGIN IMMEDIATE")
+        self._conn.begin()
         try:
             job = self.get_job(job_id)
             if job is None:
@@ -374,9 +430,9 @@ class Ledger:
                 message=message,
                 payload=payload or {},
             )
-            self._conn.execute("COMMIT")
+            self._conn.commit()
         except Exception:
-            self._conn.execute("ROLLBACK")
+            self._conn.rollback()
             raise
         return event
 
@@ -472,7 +528,7 @@ class Ledger:
 
         rows = self._conn.execute(
             """
-            SELECT event_id, byte_size FROM job_events
+            SELECT event_id, type, payload, byte_size FROM job_events
             WHERE job_id = ?
             ORDER BY CAST(event_id AS INTEGER) ASC
             """,
@@ -481,12 +537,19 @@ class Ledger:
         if len(rows) <= 1:
             return
 
+        # Terminal status / destroy evidence may only go once the receipt holds the dossier.
+        protect = not self._has_receipt(job_id)
+
         # Reserve room for the gap event (~512 bytes upper bound).
         budget = max(self.max_job_log_bytes - 512, 0)
         running = total
         to_delete: list[str] = []
+        blocked = False
         for row in rows[:-1]:  # never delete the newest event in this pass
             if running <= budget:
+                break
+            if protect and _is_protected_event(row["type"], row["payload"]):
+                blocked = True  # prefix-only: stop here rather than leave a middle hole
                 break
             to_delete.append(row["event_id"])
             running -= int(row["byte_size"])
@@ -535,8 +598,14 @@ class Ledger:
         )
 
         # Prefix-only second pass if still over budget (may prune a prior gap).
+        # Stop when only gap+newest remain — never delete the newest event, so
+        # further passes cannot make progress and would recurse forever.
         remaining = len(rows) - len(to_delete) + 1  # + gap
-        if self.retained_event_bytes(job_id) > self.max_job_log_bytes and remaining > 1:
+        if (
+            not blocked
+            and remaining > 2
+            and self.retained_event_bytes(job_id) > self.max_job_log_bytes
+        ):
             self._prune_events_unlocked(job_id)
 
     # --- profile revisions (D64) -----------------------------------------------
@@ -551,7 +620,7 @@ class Ledger:
         storage_path: str | None = None,
         finalizer: bool = False,
     ) -> EnvironmentProfileRevision:
-        self._conn.execute("BEGIN IMMEDIATE")
+        self._conn.begin()
         try:
             job = self.get_job(job_id)
             if job is None:
@@ -584,9 +653,9 @@ class Ledger:
                 """,
                 (revision, now, job_id),
             )
-            self._conn.execute("COMMIT")
+            self._conn.commit()
         except Exception:
-            self._conn.execute("ROLLBACK")
+            self._conn.rollback()
             raise
         return EnvironmentProfileRevision(
             job_id=job_id,
@@ -634,7 +703,7 @@ class Ledger:
         memory: str | None = None,
         finalizer: bool = False,
     ) -> SandboxGeneration:
-        self._conn.execute("BEGIN IMMEDIATE")
+        self._conn.begin()
         try:
             job = self.get_job(job_id)
             if job is None:
@@ -677,9 +746,9 @@ class Ledger:
                 """,
                 (generation, environment_id, now, job_id),
             )
-            self._conn.execute("COMMIT")
+            self._conn.commit()
         except Exception:
-            self._conn.execute("ROLLBACK")
+            self._conn.rollback()
             raise
         return SandboxGeneration(
             job_id=job_id,
@@ -712,7 +781,7 @@ class Ledger:
         *,
         destroyed_at: str | None = None,
     ) -> SandboxGeneration:
-        self._conn.execute("BEGIN IMMEDIATE")
+        self._conn.begin()
         try:
             self._conn.execute(
                 """
@@ -726,9 +795,9 @@ class Ledger:
                 "UPDATE jobs SET updated_at = ? WHERE job_id = ?",
                 (utc_now(), job_id),
             )
-            self._conn.execute("COMMIT")
+            self._conn.commit()
         except Exception:
-            self._conn.execute("ROLLBACK")
+            self._conn.rollback()
             raise
         gens = {g.generation: g for g in self.list_sandbox_generations(job_id)}
         if generation not in gens:
@@ -799,41 +868,6 @@ class Ledger:
             "status": row["status"],
         }
 
-    def upsert_vuln_report(
-        self,
-        job_id: str,
-        *,
-        summary: str,
-        findings: list[dict[str, Any]],
-        status: str,
-        mcp_assessment: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        if status not in {"ok", "partial", "failed"}:
-            raise ValueError(f"invalid vuln_report status: {status}")
-        with self._conn:
-            self._conn.execute(
-                """
-                INSERT INTO vuln_reports (
-                    job_id, summary, findings, mcp_assessment, status
-                ) VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(job_id) DO UPDATE SET
-                    summary = excluded.summary,
-                    findings = excluded.findings,
-                    mcp_assessment = excluded.mcp_assessment,
-                    status = excluded.status
-                """,
-                (
-                    job_id,
-                    summary,
-                    _dumps(findings),
-                    _dumps(mcp_assessment) if mcp_assessment is not None else None,
-                    status,
-                ),
-            )
-        report = self.get_vuln_report(job_id)
-        assert report is not None
-        return report
-
     def upsert_receipt(
         self,
         job_id: str,
@@ -849,7 +883,7 @@ class Ledger:
             "lifecycle": lifecycle,
             "dossier": dossier or {},
         }
-        self._conn.execute("BEGIN IMMEDIATE")
+        self._conn.begin()
         try:
             if self.get_job(job_id) is None:
                 raise KeyError(f"unknown job_id: {job_id}")
@@ -871,13 +905,140 @@ class Ledger:
                     _dumps(payload["dossier"]),
                 ),
             )
-            self._conn.execute("COMMIT")
+            self._conn.commit()
         except Exception:
-            self._conn.execute("ROLLBACK")
+            self._conn.rollback()
             raise
         receipt = self.get_receipt(job_id)
         assert receipt is not None
         return receipt
+
+    def finalize_job(
+        self,
+        job_id: str,
+        *,
+        status: JobStatus,
+        receipt: dict[str, Any],
+        event_message: str | None = None,
+        event_payload: dict[str, Any] | None = None,
+        **fields: Any,
+    ) -> Job:
+        """Persist the receipt, then the terminal status + status event, atomically (D61).
+
+        ``receipt`` takes the ``upsert_receipt`` keys (verification, containment,
+        lifecycle, dossier); keys left out keep any existing receipt value. Runs with
+        finalizer rights, so it also works on cancel-frozen jobs.
+        """
+        if status not in TERMINAL_STATUSES:
+            raise ValueError(f"finalize_job needs a terminal status, got {status!r}")
+        unknown = set(receipt) - {"verification", "containment", "lifecycle", "dossier"}
+        if unknown:
+            raise ValueError(f"unsupported receipt keys: {sorted(unknown)}")
+        self._check_job_fields(fields)
+
+        self._conn.begin()
+        try:
+            job = self.get_job(job_id)
+            if job is None:
+                raise KeyError(f"unknown job_id: {job_id}")
+            existing = self.get_receipt(job_id) or {}
+            merged = {
+                key: receipt[key] if key in receipt else existing.get(key)
+                for key in ("verification", "containment", "lifecycle", "dossier")
+            }
+            self._conn.execute(
+                """
+                INSERT INTO job_receipts (job_id, verification, containment, lifecycle, dossier)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(job_id) DO UPDATE SET
+                    verification = excluded.verification,
+                    containment = excluded.containment,
+                    lifecycle = excluded.lifecycle,
+                    dossier = excluded.dossier
+                """,
+                (
+                    job_id,
+                    _dumps(merged["verification"]),
+                    _dumps(merged["containment"]),
+                    _dumps(merged["lifecycle"]),
+                    _dumps(merged["dossier"] or {}),
+                ),
+            )
+            self._insert_event_unlocked(
+                job_id,
+                typ="status",
+                message=event_message or status,
+                payload={"status": status, **(event_payload or {})},
+            )
+            self._write_job_fields_unlocked(job_id, {**fields, "status": status})
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        job = self.get_job(job_id)
+        assert job is not None
+        return job
+
+    def upsert_vuln_report(
+        self,
+        job_id: str,
+        *,
+        summary: str,
+        findings: list[dict[str, Any]],
+        status: str,
+        mcp_assessment: dict[str, Any] | None = None,
+        finalizer: bool = False,
+    ) -> dict[str, Any]:
+        """Write the job's VulnReport (DATABASE.md VulnReport, D48, D53)."""
+        if status not in VULN_REPORT_STATUSES:
+            raise ValueError(f"vuln report status must be one of {sorted(VULN_REPORT_STATUSES)}")
+        normalized: list[dict[str, Any]] = []
+        for i, finding in enumerate(findings):
+            if not finding.get("id"):
+                raise ValueError(f"finding {i} missing id")
+            if finding.get("source") not in FINDING_SOURCES:
+                raise ValueError(f"finding {i} has unknown source {finding.get('source')!r}")
+            # Stream-lifted findings may omit these; keep them renderable.
+            normalized.append(
+                {
+                    **finding,
+                    "severity": finding.get("severity") or "medium",
+                    "title": finding.get("title") or str(finding["id"]),
+                }
+            )
+        findings = normalized
+        self._conn.begin()
+        try:
+            job = self.get_job(job_id)
+            if job is None:
+                raise KeyError(f"unknown job_id: {job_id}")
+            if not finalizer:
+                self._assert_ordinary_writable(job)
+            self._conn.execute(
+                """
+                INSERT INTO vuln_reports (job_id, summary, findings, mcp_assessment, status)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(job_id) DO UPDATE SET
+                    summary = excluded.summary,
+                    findings = excluded.findings,
+                    mcp_assessment = excluded.mcp_assessment,
+                    status = excluded.status
+                """,
+                (
+                    job_id,
+                    summary,
+                    _dumps(findings),
+                    _dumps(mcp_assessment) if mcp_assessment is not None else None,
+                    status,
+                ),
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        report = self.get_vuln_report(job_id)
+        assert report is not None
+        return report
 
     def get_receipt(self, job_id: str) -> dict[str, Any] | None:
         row = self._conn.execute(
@@ -950,7 +1111,7 @@ class Ledger:
 
     # --- row mappers -----------------------------------------------------------
 
-    def _row_to_job(self, row: sqlite3.Row) -> Job:
+    def _row_to_job(self, row: Row) -> Job:
         return Job(
             job_id=row["job_id"],
             github_url=row["github_url"],
@@ -977,7 +1138,7 @@ class Ledger:
             updated_at=row["updated_at"],
         )
 
-    def _row_to_event(self, row: sqlite3.Row) -> JobEvent:
+    def _row_to_event(self, row: Row) -> JobEvent:
         return JobEvent(
             event_id=row["event_id"],
             job_id=row["job_id"],
@@ -987,7 +1148,7 @@ class Ledger:
             timestamp=row["timestamp"],
         )
 
-    def _row_to_generation(self, row: sqlite3.Row) -> SandboxGeneration:
+    def _row_to_generation(self, row: Row) -> SandboxGeneration:
         return SandboxGeneration(
             job_id=row["job_id"],
             generation=int(row["generation"]),

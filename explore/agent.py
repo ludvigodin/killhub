@@ -269,14 +269,18 @@ def ensure_inference_ready(settings: Settings | None = None) -> tuple[str, str, 
 
 
 def chat_completion(
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     *,
     job_id: str | None = None,
     settings: Settings | None = None,
     timeout: float = 60.0,
     client: httpx.Client | None = None,
 ) -> InferenceResult:
-    """OpenAI-compatible chat call against Vultr Serverless Inference only."""
+    """OpenAI-compatible chat call against Vultr Serverless Inference only.
+
+    ``messages[].content`` may be a string or a multimodal content-part array
+    (vision / file parts — D75). Provider remains Vultr-only (D25).
+    """
     cfg = settings or get_settings()
     load_trusted_config(cfg)  # validate lockdown before any network call
     base, api_key, model = ensure_inference_ready(cfg)
@@ -375,6 +379,36 @@ def record_inference_usage(
             code="inference_budget",
         )
 
+    # Rolling (cross-job) budget via admission store (D40 / D71).
+    try:
+        from admission import (
+            AdmissionRejected,
+            AdmissionStoreError,
+            get_admission_store,
+        )
+
+        store = get_admission_store(cfg)
+        added = int(result.total_tokens or 0)
+        store.check_rolling_inference(
+            tokens=added,
+            budget=cfg.inference_budget_tokens_rolling,
+            window_seconds=cfg.inference_budget_rolling_window_seconds,
+        )
+        store.record_inference_tokens(
+            added,
+            window_seconds=cfg.inference_budget_rolling_window_seconds,
+        )
+    except AdmissionRejected as exc:
+        ledger.append_event(
+            job_id,
+            typ="log",
+            message="rolling inference budget exceeded",
+            payload={"kind": "inference", "usage": usage},
+        )
+        raise AgentError(exc.message, code=exc.code) from exc
+    except AdmissionStoreError as exc:
+        logger.error("rolling inference store error: %s", exc)
+
     ledger.update_job_fields(
         job_id,
         inference_model=result.model,
@@ -422,5 +456,5 @@ class EnvironmentAgent:
     def call_tool(self, name: str, **kwargs: Any) -> dict[str, Any]:
         return self.tools.call(name, **kwargs)
 
-    def infer(self, messages: list[dict[str, str]]) -> InferenceResult:
+    def infer(self, messages: list[dict[str, Any]]) -> InferenceResult:
         return chat_completion(messages, job_id=self.job_id, settings=self.settings)

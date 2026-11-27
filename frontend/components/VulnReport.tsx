@@ -51,10 +51,10 @@ export function VulnReport({ report }: VulnReportProps) {
   if (!report) {
     return (
       <section aria-label="Vulnerability report">
-        <p className="mb-2 text-sm uppercase tracking-wide text-[var(--muted)]">
+        <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
           Vulnerability report
         </p>
-        <p className="text-sm text-[var(--muted)]">
+        <p className="text-sm text-(--muted)">
           Scan not available yet — report appears after finalize.
         </p>
       </section>
@@ -73,10 +73,10 @@ export function VulnReport({ report }: VulnReportProps) {
   return (
     <section aria-label="Vulnerability report" className="space-y-4">
       <div>
-        <p className="mb-1 text-sm uppercase tracking-wide text-[var(--muted)]">
+        <p className="mb-1 text-sm uppercase tracking-wide text-(--muted)">
           Vulnerability report
         </p>
-        <p className="text-xs text-[var(--muted)]">
+        <p className="text-xs text-(--muted)">
           Default report is scan-based (SCA / advisories). This is not a generic
           app pentest. Findings do not erase readiness evidence.
         </p>
@@ -85,63 +85,65 @@ export function VulnReport({ report }: VulnReportProps) {
       <p className="text-sm">
         Status:{" "}
         <span className="font-medium">{report.status || "unknown"}</span>
-        {findings.length === 0 ? " · clean bill / no findings" : null}
       </p>
 
       {report.summary ? (
-        <p className="border border-[var(--line)] bg-white/50 px-3 py-2 text-sm leading-relaxed">
-          {report.summary}
+        <p className="border border-(--line) bg-white/50 px-3 py-2 text-sm leading-relaxed">
+          {report.summary ===
+          "No scan findings. Clean bill for this job's scanned surfaces."
+            ? "No findings recorded. This historical summary does not establish scan coverage."
+            : report.summary}
         </p>
       ) : null}
 
       {report.mcp_assessment ? (
-        <div className="border border-[var(--line)] bg-white/50 px-3 py-2 text-sm">
-          <p className="text-xs uppercase tracking-wide text-[var(--muted)]">
+        <div className="border border-(--line) bg-white/50 px-3 py-2 text-sm">
+          <p className="text-xs uppercase tracking-wide text-(--muted)">
             MCP assessment (agent-planned)
           </p>
           <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs">
             {JSON.stringify(report.mcp_assessment, null, 2)}
           </pre>
-          <p className="mt-2 text-xs text-[var(--muted)]">
+          <p className="mt-2 text-xs text-(--muted)">
             Shown only when the profile enabled assessment — separate from SCA.
           </p>
         </div>
       ) : null}
 
       {sources.length === 0 ? (
-        <p className="text-sm text-[var(--muted)]">No findings to list.</p>
+        <p className="text-sm text-(--muted)">No findings to list.</p>
       ) : (
         sources.map((source) => (
           <div key={source}>
-            <p className="mb-2 text-sm font-medium text-[var(--ink)]">
+            <p className="mb-2 text-sm font-medium text-(--ink)">
               {SOURCE_LABEL[source] || source}
             </p>
             <ul className="space-y-2">
               {(bySource[source] || []).map((f, i) => (
                 <li
                   key={f.id || `${source}-${i}`}
-                  className="border-b border-[var(--line)] pb-2 text-sm last:border-0"
+                  className="border-b border-(--line) pb-2 text-sm last:border-0"
                 >
                   <div className="flex flex-wrap items-baseline gap-2">
-                    <span className="font-mono text-xs uppercase text-[var(--accent)]">
+                    <span className="font-mono text-xs uppercase text-(--accent)">
                       {f.severity || "info"}
                     </span>
                     {f.id ? (
-                      <span className="font-mono text-xs text-[var(--muted)]">
+                      <span className="font-mono text-xs text-(--muted)">
                         [{f.id}]
                       </span>
                     ) : null}
                   </div>
                   <p className="mt-0.5">{f.title || "Finding"}</p>
                   {f.package ? (
-                    <p className="font-mono text-xs text-[var(--muted)]">
+                    <p className="font-mono text-xs text-(--muted)">
                       {f.package}
                     </p>
                   ) : null}
                   {f.advisory_url ? (
                     <a
                       href={f.advisory_url}
-                      className="text-xs text-[var(--accent)]"
+                      className="text-xs text-(--accent)"
                       target="_blank"
                       rel="noreferrer"
                     >

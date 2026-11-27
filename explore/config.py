@@ -30,6 +30,29 @@ class Settings(BaseSettings):
     )
     vultr_inference_api_key: str = Field(default="", alias="VULTR_INFERENCE_API_KEY")
     vultr_inference_model: str = Field(default="", alias="VULTR_INFERENCE_MODEL")
+    # Optional extras on the same Killhub subscription (D75 under D25).
+    vultr_inference_embedding_model: str = Field(
+        default="",
+        alias="VULTR_INFERENCE_EMBEDDING_MODEL",
+    )
+    vultr_inference_vision_model: str = Field(
+        default="",
+        alias="VULTR_INFERENCE_VISION_MODEL",
+    )
+    # When set, cite-checked vuln_review drafts via POST /chat/completions/RAG.
+    vultr_rag_collection: str = Field(default="", alias="VULTR_RAG_COLLECTION")
+    # When true + collection set, upsert this job's finding snippets into the store.
+    vultr_rag_seed_findings: bool = Field(
+        default=False,
+        alias="VULTR_RAG_SEED_FINDINGS",
+    )
+    # AI draft for vuln_review (still cite-filtered — D48). Fail closed → deterministic.
+    enable_vuln_review_llm: bool = Field(default=True, alias="ENABLE_VULN_REVIEW_LLM")
+    # Optional screenshot captioning; never gates completion (D31).
+    enable_screenshot_vision: bool = Field(
+        default=False,
+        alias="ENABLE_SCREENSHOT_VISION",
+    )
 
     # OpenCode (trusted config only — D38; empty → explore/opencode/opencode.json)
     opencode_config: str = Field(default="", alias="OPENCODE_CONFIG")
@@ -43,6 +66,12 @@ class Settings(BaseSettings):
     msb_default_cpus: int = Field(default=2, alias="MSB_DEFAULT_CPUS")
     msb_default_memory: str = Field(default="4Gi", alias="MSB_DEFAULT_MEMORY")
     msb_net_policy: str = Field(default="", alias="MSB_NET_POLICY")
+    # Vultr Container Registry — host/msb pull only (D74); never guest env.
+    # Example pin: ewr.vultrcr.com/killhub/bootstrap@sha256:<digest>
+    vultr_cr_endpoint: str = Field(default="", alias="VULTR_CR_ENDPOINT")
+    vultr_cr_robot_username: str = Field(default="", alias="VULTR_CR_ROBOT_USERNAME")
+    vultr_cr_robot_password: str = Field(default="", alias="VULTR_CR_ROBOT_PASSWORD")
+    vultr_cr_require_creds: bool = Field(default=True, alias="VULTR_CR_REQUIRE_CREDS")
     # Comma-separated hostnames/IPs/CIDRs denied on every create (D39).
     control_plane_deny_hosts: str = Field(
         default="",
@@ -100,12 +129,42 @@ class Settings(BaseSettings):
         default=200_000,
         alias="INFERENCE_BUDGET_TOKENS_PER_JOB",
     )
+    # Rolling (cross-job) inference token budget; 0 disables (D40 / D71).
+    inference_budget_tokens_rolling: int = Field(
+        default=0,
+        alias="INFERENCE_BUDGET_TOKENS_ROLLING",
+    )
+    inference_budget_rolling_window_seconds: int = Field(
+        default=3600,
+        alias="INFERENCE_BUDGET_ROLLING_WINDOW_SECONDS",
+    )
+    # Admission shared store: memory (default) | valkey (D71).
+    admission_store: str = Field(default="memory", alias="ADMISSION_STORE")
+    valkey_url: str = Field(default="", alias="VALKEY_URL")
+    redis_url: str = Field(default="", alias="REDIS_URL")
+    # Edge rate limits (also honored by explore when client IP is forwarded).
+    rate_limit_window_ms: int = Field(default=60_000, alias="RATE_LIMIT_WINDOW_MS")
+    rate_limit_post_jobs_per_ip: int = Field(
+        default=10,
+        alias="RATE_LIMIT_POST_JOBS_PER_IP",
+    )
+    rate_limit_post_jobs_global: int = Field(
+        default=60,
+        alias="RATE_LIMIT_POST_JOBS_GLOBAL",
+    )
 
-    # Ledger / artifacts (paths only for now — D41 / D60)
+    # Ledger / artifacts (D41 / D60 / D73 / D72) — sqlite:// default; postgresql:// hosted
     ledger_url: str = Field(
         default="sqlite:///./storage/ledger/killhub.db",
         alias="LEDGER_URL",
     )
+    # filesystem (default) | s3 | object — Plane 1 only; never inject into sandboxes.
+    storage_backend: str = Field(
+        default="filesystem",
+        alias="STORAGE_BACKEND",
+    )
+    # Local staging roots (also used when STORAGE_BACKEND=filesystem).
+    # Legacy: SCREENSHOT_STORAGE=s3|object selects object backend with default path.
     screenshot_storage: str = Field(
         default="./storage/screenshots",
         alias="SCREENSHOT_STORAGE",
@@ -117,6 +176,36 @@ class Settings(BaseSettings):
     profile_storage: str = Field(
         default="./storage/profiles",
         alias="PROFILE_STORAGE",
+    )
+    # Vultr Object Storage (S3-compatible) — required when backend is s3/object (D72).
+    object_storage_endpoint: str = Field(
+        default="",
+        alias="OBJECT_STORAGE_ENDPOINT",
+    )
+    object_storage_region: str = Field(
+        default="us-east-1",
+        alias="OBJECT_STORAGE_REGION",
+    )
+    object_storage_bucket: str = Field(
+        default="",
+        alias="OBJECT_STORAGE_BUCKET",
+    )
+    object_storage_access_key: str = Field(
+        default="",
+        alias="OBJECT_STORAGE_ACCESS_KEY",
+    )
+    object_storage_secret_key: str = Field(
+        default="",
+        alias="OBJECT_STORAGE_SECRET_KEY",
+    )
+    object_storage_prefix: str = Field(
+        default="killhub",
+        alias="OBJECT_STORAGE_PREFIX",
+    )
+    # Nightly ledger backup may also upload when true (and object backend configured).
+    ledger_backup_upload: bool = Field(
+        default=False,
+        alias="LEDGER_BACKUP_UPLOAD",
     )
     # When true with MSB_AUTO_CREATE, run bootstrap discover after create (D36).
     discover_on_claim: bool = Field(default=False, alias="DISCOVER_ON_CLAIM")

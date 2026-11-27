@@ -60,7 +60,7 @@ export function JobFeed() {
         >
           Killhub
         </p>
-        <p className="mb-8 max-w-xl text-lg leading-relaxed text-[var(--muted)]">
+        <p className="mb-8 max-w-xl text-lg leading-relaxed text-(--muted)">
           Drop public GitHub URLs into the feed. Each entry is a disposable
           sandbox — watch it verify, then keep the receipt.
         </p>
@@ -77,7 +77,7 @@ export function JobFeed() {
           >
             Entries
           </h2>
-          <p className="text-sm text-[var(--muted)]">
+          <p className="text-sm text-(--muted)">
             {loading ? "Loading…" : `${jobs.length} recent`}
           </p>
         </div>
@@ -85,7 +85,7 @@ export function JobFeed() {
         {error ? <p className="text-sm text-[#9b2c2c]">{error}</p> : null}
 
         {!loading && jobs.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-[var(--line)] bg-white/40 px-6 py-16 text-center">
+          <div className="rounded-lg border border-dashed border-(--line) bg-white/40 px-6 py-16 text-center">
             <p
               className="mb-2 text-2xl font-semibold tracking-tight"
               style={{
@@ -94,7 +94,7 @@ export function JobFeed() {
             >
               Your feed is empty
             </p>
-            <p className="mx-auto max-w-md text-[var(--muted)]">
+            <p className="mx-auto max-w-md text-(--muted)">
               Paste the first public GitHub URL above — or a whole list — and
               entries appear here as Killhub claims each job.
             </p>

@@ -36,10 +36,10 @@ export function JobEntryCard({ job, index = 0 }: JobEntryCardProps) {
   return (
     <Link
       href={`/jobs/${encodeURIComponent(job.job_id)}`}
-      className="job-entry group flex flex-col overflow-hidden rounded-lg border border-[var(--line)] bg-white/55 no-underline shadow-[0_1px_0_rgba(21,32,43,0.04)] transition duration-300 ease-out hover:-translate-y-0.5 hover:border-[var(--accent)] hover:bg-white/80 hover:shadow-[0_12px_28px_rgba(21,32,43,0.08)]"
+      className="job-entry group flex flex-col overflow-hidden rounded-lg border border-(--line) bg-white/55 no-underline shadow-[0_1px_0_rgba(21,32,43,0.04)] transition duration-300 ease-out hover:-translate-y-0.5 hover:border-(--accent) hover:bg-white/80 hover:shadow-[0_12px_28px_rgba(21,32,43,0.08)]"
       style={{ animationDelay: `${delay}ms` }}
     >
-      <div className="relative aspect-[16/10] overflow-hidden bg-[var(--paper-deep)]">
+      <div className="relative aspect-16/10 overflow-hidden bg-(--paper-deep)">
         {shot ? (
           // biome-ignore lint/performance/noImgElement: dynamic API screenshot bytes
           <img
@@ -57,7 +57,7 @@ export function JobEntryCard({ job, index = 0 }: JobEntryCardProps) {
             aria-hidden
           >
             <span
-              className="text-5xl font-semibold text-[var(--accent)] opacity-80"
+              className="text-5xl font-semibold text-(--accent) opacity-80"
               style={{
                 fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
               }}
@@ -68,7 +68,7 @@ export function JobEntryCard({ job, index = 0 }: JobEntryCardProps) {
         )}
         <div className="absolute inset-x-0 bottom-0 h-1.5 bg-black/10">
           <div
-            className="h-full bg-[var(--accent)] transition-[width] duration-700 ease-out"
+            className="h-full bg-(--accent) transition-[width] duration-700 ease-out"
             style={{ width: `${Math.max(0, Math.min(100, job.progress))}%` }}
           />
         </div>
@@ -76,7 +76,7 @@ export function JobEntryCard({ job, index = 0 }: JobEntryCardProps) {
       <div className="flex flex-1 flex-col gap-2 px-3.5 py-3">
         <div className="flex items-start justify-between gap-2">
           <p
-            className="truncate text-base font-semibold tracking-tight text-[var(--ink)]"
+            className="truncate text-base font-semibold tracking-tight text-(--ink)"
             style={{
               fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
             }}
@@ -85,10 +85,10 @@ export function JobEntryCard({ job, index = 0 }: JobEntryCardProps) {
           </p>
           <StatusBadge status={job.status} />
         </div>
-        <p className="line-clamp-2 text-sm text-[var(--muted)]">
+        <p className="line-clamp-2 text-sm text-(--muted)">
           {job.current_step || "Waiting…"}
         </p>
-        <p className="mt-auto text-xs tracking-wide text-[var(--muted)]">
+        <p className="mt-auto text-xs tracking-wide text-(--muted)">
           {relativeTime(job.created_at)}
         </p>
       </div>
