@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+from time import monotonic
 from typing import Any, AsyncIterator, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
@@ -13,9 +14,11 @@ from pydantic import BaseModel, Field
 
 from api.auth import require_internal_token
 from config import get_settings
-from fixtures import intake_catalog
+from fixtures import intake_catalog, resolve_intake_fixture
 from jobs import get_ledger
+from ledger import Ledger
 from ledger.store import validate_github_url
+from novnc_bridge import console_metadata
 from service import (
     AdmissionError,
     cancel_job,
@@ -32,7 +35,8 @@ router = APIRouter(
 
 
 class CreateJobBody(BaseModel):
-    github_url: str = Field(min_length=1)
+    github_url: str | None = Field(default=None, min_length=1)
+    fixture_id: str | None = Field(default=None, min_length=1, max_length=96)
 
 
 def _error(status_code: int, message: str, code: str) -> HTTPException:
@@ -54,10 +58,18 @@ def post_job(
     x_real_ip: Optional[str] = Header(default=None),
     x_client_ip: Optional[str] = Header(default=None),
 ) -> Dict[str, str]:
-    try:
-        validate_github_url(body.github_url)
-    except ValueError as exc:
-        raise _error(400, str(exc), "invalid_url") from exc
+    # Resolve fixture selection before admission so invalid selectors reserve no capacity.
+    if (body.github_url is None) == (body.fixture_id is None):
+        raise _error(400, "Provide one GitHub URL or fixture ID", "invalid_target")
+    github_url = body.github_url
+    if body.fixture_id is not None:
+        try:
+            github_url = resolve_intake_fixture(
+                body.fixture_id, restricted=get_settings().public_demo_fixtures_only
+            )
+        except ValueError as exc:
+            raise _error(400, str(exc), "invalid_fixture") from exc
+    assert github_url is not None
     client_ip: Optional[str] = None
     if x_client_ip:
         client_ip = x_client_ip.strip()
@@ -66,7 +78,7 @@ def post_job(
     elif x_forwarded_for:
         client_ip = x_forwarded_for.split(",")[0].strip()
     try:
-        job = create_job(body.github_url, client_ip=client_ip)
+        job = create_job(github_url, client_ip=client_ip)
     except AdmissionError as exc:
         raise _error(exc.status_code, exc.message, exc.code) from exc
     except ValueError as exc:
@@ -104,7 +116,24 @@ def get_job(job_id: str) -> Dict[str, Any]:
     snap = get_public_snapshot(job_id)
     if snap is None:
         raise _error(404, "job not found", "not_found")
+    settings = get_settings()
+    console = console_metadata(settings, get_ledger(settings), job_id)
+    if console is not None:
+        snap["novnc"] = console
     return snap
+
+
+@router.get("/jobs/{job_id}/verdict")
+def get_verdict(job_id: str) -> Dict[str, Any]:
+    """Read the durable verdict. A legacy or unfinished job may be missing one."""
+    ledger = get_ledger()
+    if ledger.get_job(job_id) is None:
+        raise _error(404, "job not found", "not_found")
+    receipt = ledger.get_receipt(job_id) or {}
+    verdict = (receipt.get("dossier") or {}).get("detonation_verdict")
+    if verdict is None:
+        raise _error(404, "verdict not yet available", "verdict_not_ready")
+    return verdict
 
 
 @router.delete("/jobs/{job_id}")
@@ -187,38 +216,22 @@ def _sse_format(event_id: str, event_type: str, data: Dict[str, Any]) -> str:
 
 
 async def _event_stream(
+    ledger: Ledger,
     job_id: str,
     *,
     after: Optional[str],
     keepalive_seconds: int,
 ) -> AsyncIterator[str]:
-    ledger = get_ledger()
-    cursor = after
+    cursor = after or None
     terminal = frozenset({"completed", "failed", "cancelled"})
-
-    for event in ledger.list_events(job_id, after_event_id=cursor):
-        body: Dict[str, Any] = {
-            "event_id": event.event_id,
-            "type": event.type,
-            "message": event.message,
-            "payload": event.payload,
-            "timestamp": event.timestamp,
-        }
-        if event.type == "status" and "status" in event.payload:
-            body["status"] = event.payload["status"]
-        if event.type == "progress":
-            for key in ("progress", "current_step"):
-                if key in event.payload:
-                    body[key] = event.payload[key]
-        yield _sse_format(event.event_id, event.type, body)
-        cursor = event.event_id
-
-    job = ledger.get_job(job_id)
-    if job is not None and job.status in terminal:
-        return
+    heartbeat_interval = max(1, keepalive_seconds)
+    heartbeat_due = monotonic() + heartbeat_interval
+    settings = get_settings()
+    last_console = None
 
     while True:
-        await asyncio.sleep(min(keepalive_seconds, 2))
+        # Read the status before the events so a terminal transition during the
+        # query cannot close the stream before its committed status event is sent.
         job = ledger.get_job(job_id)
         if job is None:
             yield _sse_format(
@@ -228,15 +241,8 @@ async def _event_stream(
             )
             return
 
-        new_events = ledger.list_events(job_id, after_event_id=cursor)
-        if not new_events:
-            yield ": keepalive\n\n"
-            if job.status in terminal:
-                return
-            await asyncio.sleep(max(keepalive_seconds - 2, 0))
-            continue
-
-        for event in new_events:
+        events = ledger.list_events(job_id, after_event_id=cursor)
+        for event in events:
             body = {
                 "event_id": event.event_id,
                 "type": event.type,
@@ -246,12 +252,32 @@ async def _event_stream(
             }
             if event.type == "status" and "status" in event.payload:
                 body["status"] = event.payload["status"]
+            # Replay and live delivery use the same shape expected by the browser.
+            if event.type == "progress":
+                for key in ("progress", "current_step"):
+                    if key in event.payload:
+                        body[key] = event.payload[key]
             yield _sse_format(event.event_id, event.type, body)
             cursor = event.event_id
 
-        job = ledger.get_job(job_id)
-        if job is not None and job.status in terminal:
+        # Availability belongs to the current socket, so derive it on connection
+        # and on change. Omitting the SSE id preserves the durable replay cursor.
+        console = console_metadata(settings, ledger, job_id)
+        if console is not None and console != last_console:
+            payload = json.dumps({"payload": console}, separators=(",", ":"))
+            yield f"event: novnc\ndata: {payload}\n\n"
+            last_console = console
+
+        if job.status in terminal:
             return
+
+        if events:
+            heartbeat_due = monotonic() + heartbeat_interval
+        elif monotonic() >= heartbeat_due:
+            yield ": keepalive\n\n"
+            heartbeat_due = monotonic() + heartbeat_interval
+        # Poll the durable ledger even between keep-alives to pick up other writers.
+        await asyncio.sleep(min(1.0, max(0.0, heartbeat_due - monotonic())))
 
 
 @router.get("/jobs/{job_id}/events/recent")
@@ -303,6 +329,7 @@ async def job_events(
     settings = get_settings()
     return StreamingResponse(
         _event_stream(
+            ledger,  # Continue from the same ledger that validated the cursor.
             job_id,
             after=cursor,
             keepalive_seconds=settings.sse_keepalive_seconds,

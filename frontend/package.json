@@ -10,10 +10,11 @@
     "lint:fix": "biome check --write .",
     "knip": "knip",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "node --experimental-strip-types --test lib/github.test.ts lib/time.test.ts lib/queue.test.ts lib/jobTimeline.test.ts lib/mainframe.test.ts lib/raptorMotion.test.ts",
+    "test": "node --experimental-strip-types --test lib/github.test.ts lib/time.test.ts lib/queue.test.ts lib/screenshots.test.ts lib/jobTimeline.test.ts lib/mainframe.test.ts lib/raptorMotion.test.ts",
     "format": "biome format --write ."
   },
   "dependencies": {
+    "@novnc/novnc": "1.7.0",
     "next": "16.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",

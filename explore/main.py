@@ -15,6 +15,7 @@ from api.routes import router as internal_router
 from config import get_settings
 from harness import HarnessError, MsbCli
 from jobs import init_ledger, reset_ledger_for_tests
+from novnc_bridge import router as novnc_router
 from reaper import reaper_loop, recover_interrupted_jobs
 from worker import worker_loop
 
@@ -71,6 +72,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="Killhub explore", version="0.0.4", lifespan=lifespan)
 app.include_router(internal_router)
+# This ASGI route owns the upgrade. The edge must expose only the public console path.
+app.include_router(novnc_router)
 
 
 @app.middleware("http")

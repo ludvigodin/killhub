@@ -7,13 +7,14 @@ import json
 from typing import Any
 from urllib.error import HTTPError
 
+import fakeredis
 import pytest
 from fastapi.testclient import TestClient
 
 from errors import HarnessError
 from harness import EnvironmentPlan, MsbCli, create_environment
 from jobs import get_ledger
-from preflight import apply_preflight_to_job, run_preflight
+from preflight import run_preflight
 from service import create_job
 
 
@@ -54,7 +55,8 @@ def test_deny_list_hard_fail_no_msb(client: TestClient, auth_header, monkeypatch
     job_id = res.json()["job_id"]
     snap = client.get(f"/internal/jobs/{job_id}", headers=auth_header).json()
     assert snap["status"] == "failed"
-    assert snap["destroyed_at"] is not None
+    # A rejected target never acquired a VM and cannot have a removal timestamp.
+    assert snap["destroyed_at"] is None
     assert snap["sandbox_id"] is None
 
     events = get_ledger().list_events(job_id)
@@ -137,36 +139,63 @@ def test_not_found_hard_fail(monkeypatch) -> None:
     get_settings.cache_clear()
 
 
-def test_archived_is_soft(client: TestClient, auth_header, monkeypatch) -> None:
+@pytest.mark.parametrize("private", [False, True])
+def test_preflight_finishes_before_job_publication(
+    client: TestClient, auth_header, monkeypatch, private: bool
+) -> None:
     _ = client, auth_header
     monkeypatch.setenv("PREFLIGHT_ENABLED", "true")
     from config import get_settings
 
     get_settings.cache_clear()
 
+    from admission import reset_admission_store_for_tests
+    from admission.valkey import ValkeyAdmissionStore
+
+    # Exercise the reservation with a real Valkey admission store over fakeredis.
+    fake = fakeredis.FakeRedis(decode_responses=True)
+    store = ValkeyAdmissionStore(fake)
+    reset_admission_store_for_tests()
+    monkeypatch.setenv("ADMISSION_STORE", "valkey")
+    monkeypatch.setenv("VALKEY_URL", "redis://localhost:6379")
+    monkeypatch.setattr("admission.factory._connect_valkey", lambda _url: fake)
+
     def fake_urlopen(req: object, timeout: float = 0) -> _FakeResp:
         _ = timeout
+        # Simulate a second ledger reader while the metadata request is in flight.
+        assert get_ledger().list_jobs() == []
+        assert store.gauges() == {"running": 0, "queued": 1}
         return _FakeResp(
             {
-                "private": False,
+                "private": private,
                 "archived": True,
                 "disabled": False,
                 "size": 10,
                 "default_branch": "main",
-                "visibility": "public",
+                "visibility": "private" if private else "public",
             }
         )
 
     monkeypatch.setattr("preflight.urllib.request.urlopen", fake_urlopen)
-    result = run_preflight("https://github.com/heroku/node-js-getting-started")
-    assert result.ok_to_bootstrap is True
-    assert any(f.code == "repo_archived" and not f.hard for f in result.findings)
-
-    # Soft findings still emit on a real job (isolated ledger via client fixture).
     job = create_job("https://github.com/heroku/node-js-getting-started")
-    assert job.status == "pending"
-    events = get_ledger().list_events(job.job_id)
-    assert any(e.type == "finding" and e.payload.get("code") == "repo_archived" for e in events)
+    ledger = get_ledger()
+    events = ledger.list_events(job.job_id)
+    if private:
+        assert job.status == "failed"
+        assert store.gauges() == {"running": 0, "queued": 0}
+        assert job.sandbox_id is None
+        assert ledger.try_claim_pending_job(job.job_id) is None
+        assert ledger.list_sandbox_generations(job.job_id) == []
+        receipt = ledger.get_receipt(job.job_id)
+        assert receipt is not None
+        assert receipt["lifecycle"]["sandbox_created"] is False
+        assert any(e.payload.get("code") == "repo_private" for e in events)
+    else:
+        assert job.status == "pending"
+        assert store.gauges() == {"running": 0, "queued": 1}
+        assert any(e.payload.get("code") == "repo_archived" for e in events)
+        claimed = ledger.try_claim_pending_job(job.job_id)
+        assert claimed is not None and claimed.status == "analyzing"
     get_settings.cache_clear()
 
 
@@ -226,7 +255,7 @@ def test_gitlab_unreachable_is_soft(monkeypatch) -> None:
     get_settings.cache_clear()
 
 
-def test_apply_hard_fail_marks_terminal(client, auth_header, monkeypatch) -> None:
+def test_ledger_records_preflight_rejection_with_job(client, auth_header, monkeypatch) -> None:
     _ = client, auth_header
     monkeypatch.setenv("PREFLIGHT_ENABLED", "true")
     from config import get_settings
@@ -234,10 +263,6 @@ def test_apply_hard_fail_marks_terminal(client, auth_header, monkeypatch) -> Non
 
     get_settings.cache_clear()
     ledger = get_ledger()
-    job = ledger.create_job(
-        "https://github.com/heroku/node-js-getting-started",
-        env_ttl_seconds=600,
-    )
     result = PreflightResult(
         ok_to_bootstrap=False,
         findings=[
@@ -249,7 +274,13 @@ def test_apply_hard_fail_marks_terminal(client, auth_header, monkeypatch) -> Non
             )
         ],
     )
-    apply_preflight_to_job(job.job_id, result)
+    # A rejected job and its receipt should already be terminal when first visible.
+    job = ledger.create_job(
+        "https://github.com/heroku/node-js-getting-started",
+        env_ttl_seconds=600,
+        preflight=result,
+    )
+    assert job.status == "failed"
     refreshed = ledger.get_job(job.job_id)
     assert refreshed is not None
     assert refreshed.status == "failed"

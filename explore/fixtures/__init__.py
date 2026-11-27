@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -61,9 +62,9 @@ def require_fixture(fixture_id: str) -> dict[str, Any]:
 def intake_catalog(*, restricted: bool) -> dict[str, Any]:
     catalog = []
     for fixture in sorted(list_fixtures().values(), key=lambda f: f["id"]):
-        if fixture.get("match_by_url") is False or not fixture.get("commit"):
-            continue
-        if restricted and not fixture.get("public_demo"):
+        try:
+            resolve_intake_fixture(fixture["id"], restricted=restricted)
+        except ValueError:
             continue
         catalog.append(
             {
@@ -72,3 +73,22 @@ def intake_catalog(*, restricted: bool) -> dict[str, Any]:
             }
         )
     return {"restricted": restricted, "fixtures": catalog}
+
+
+def resolve_intake_fixture(fixture_id: str, *, restricted: bool) -> str:
+    """Resolve only catalog fixtures whose URL also selects the same discovery pin."""
+    fixture = list_fixtures().get(fixture_id)
+    if (
+        fixture is None
+        or fixture.get("id") != fixture_id
+        or fixture.get("match_by_url") is False
+        or (restricted and not fixture.get("public_demo"))
+        or not re.fullmatch(r"[0-9a-f]{40}", str(fixture.get("commit") or ""))
+    ):
+        raise ValueError("Fixture is unavailable for intake")
+    url = str(fixture.get("github_url") or "")
+    matched = match_fixture(url)
+    # Hidden variants can share a URL with public fixtures. Never switch variants.
+    if not matched or matched.get("id") != fixture_id:
+        raise ValueError("Fixture is unavailable for intake")
+    return url

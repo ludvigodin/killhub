@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""In-guest MCP stdio verify helper (D51) — preinstalled in install phase (D63).
+"""Plane 2 MCP stdio readiness and read-only fixture inventory (D51, D63).
 
 Launches a subprocess from argv after `--`, speaks JSON-RPC over stdio.
 Supports newline-delimited JSON (NDJSON) used by current MCP filesystem
@@ -8,12 +8,80 @@ servers, with optional Content-Length framing via `--framing content-length`.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import select
 import subprocess
 import sys
 import time
+from collections.abc import Callable
+
+_MAX_MESSAGE_BYTES = 2_000_000
+_MAX_INVENTORY_PAGES = 4
+_MAX_INVENTORY_ENTRIES = 256
+_INVENTORY_TIMEOUT = 8
+
+
+def collect_inventory(
+    capabilities: dict,
+    first_tools: dict,
+    request: Callable[[str, dict], dict],
+) -> dict:
+    """Return stable hashes and counts without surfacing guest descriptions or schemas."""
+    inventory = {}
+    for collection, primary_key in (("tools", "name"), ("resources", "uri"), ("prompts", "name")):
+        if collection != "tools" and collection not in capabilities:
+            inventory[collection] = {"status": "unsupported"}
+            continue
+
+        method = f"{collection}/list"
+        entries = {}
+        cursors = set()
+        try:
+            page = first_tools if collection == "tools" else request(method, {})
+            for page_number in range(_MAX_INVENTORY_PAGES):
+                items = page.get(collection)
+                if (
+                    not isinstance(items, list)
+                    or len(entries) + len(items) > _MAX_INVENTORY_ENTRIES
+                ):
+                    raise ValueError("invalid or oversized inventory")
+                for item in items:
+                    key = item.get(primary_key) if isinstance(item, dict) else None
+                    if not isinstance(key, str) or not key or key in entries:
+                        raise ValueError("invalid or duplicate inventory identity")
+                    entries[key] = item
+                cursor = page.get("nextCursor")
+                if cursor is None:
+                    break
+                if (
+                    not isinstance(cursor, str)
+                    or not cursor
+                    or len(cursor) > 1024
+                    or cursor in cursors
+                    or page_number + 1 == _MAX_INVENTORY_PAGES
+                ):
+                    raise ValueError("invalid or incomplete inventory pagination")
+                cursors.add(cursor)
+                page = request(method, {"cursor": cursor})
+
+            # Sort by identity, then sort object keys. The digest includes each
+            # complete metadata record but the records stay inside the guest.
+            data = json.dumps(
+                [entries[key] for key in sorted(entries)],
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+            inventory[collection] = {
+                "status": "recorded",
+                "count": len(entries),
+                "sha256": hashlib.sha256(data).hexdigest(),
+            }
+        except (TimeoutError, ValueError, TypeError, RecursionError, OSError):
+            inventory[collection] = {"status": "unavailable"}
+    return inventory
 
 
 def _write_ndjson(proc: subprocess.Popen[bytes], msg: dict) -> None:
@@ -62,7 +130,7 @@ def _read_ndjson(proc: subprocess.Popen[bytes], timeout: float) -> dict:
     line = b""
     while b"\n" not in line:
         line += _read_exact(proc, 1, deadline)
-        if len(line) > 2_000_000:
+        if len(line) > _MAX_MESSAGE_BYTES:
             raise ValueError("MCP NDJSON line too large")
     return json.loads(line.decode("utf-8"))
 
@@ -79,8 +147,8 @@ def _read_content_length(proc: subprocess.Popen[bytes], timeout: float) -> dict:
         if line.lower().startswith("content-length:"):
             length = int(line.split(":", 1)[1].strip())
             break
-    if length is None:
-        raise ValueError(f"missing Content-Length in headers: {headers!r}")
+    if length is None or not 0 < length <= _MAX_MESSAGE_BYTES:
+        raise ValueError("missing or invalid MCP Content-Length")
     body = _read_exact(proc, length, deadline)
     return json.loads(body.decode("utf-8"))
 
@@ -114,7 +182,7 @@ def main(argv: list[str]) -> int:
     if "--" not in argv:
         print(
             "usage: mcp_stdio_verify.py [--timeout N] [--allow-empty-tools] "
-            "[--framing ndjson|content-length] -- <launch...>",
+            "[--inventory] [--framing ndjson|content-length] -- <launch...>",
             file=sys.stderr,
         )
         return 2
@@ -126,6 +194,7 @@ def main(argv: list[str]) -> int:
         return 2
     timeout = 20.0
     allow_empty = "--allow-empty-tools" in opts
+    inventory_requested = "--inventory" in opts
     framing = "ndjson"
     if "--timeout" in opts:
         i = opts.index("--timeout")
@@ -184,6 +253,39 @@ def main(argv: list[str]) -> int:
             "allow_empty_tools": allow_empty,
             "framing": framing,
         }
+        if ok and inventory_requested:
+            # Inventory has a separate total budget and cannot change readiness.
+            deadline = time.monotonic() + _INVENTORY_TIMEOUT
+            request_id = 2
+
+            def list_page(method: str, params: dict) -> dict:
+                nonlocal request_id
+                request_id += 1
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("MCP inventory deadline")
+                write(
+                    proc, {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
+                )
+                response = read(proc, remaining)
+                if not isinstance(response, dict) or response.get("id") != request_id:
+                    raise ValueError("unexpected MCP inventory response")
+                result = response.get("result")
+                if not isinstance(result, dict):
+                    raise ValueError("missing MCP inventory result")
+                return result
+
+            capabilities = (init.get("result") or {}).get("capabilities")
+            first_tools = tools_msg.get("result")
+            if (
+                init.get("id") == 1
+                and tools_msg.get("id") == 2
+                and isinstance(capabilities, dict)
+                and isinstance(first_tools, dict)
+            ):
+                evidence["inventory"] = collect_inventory(capabilities, first_tools, list_page)
+            else:
+                evidence["inventory"] = {"status": "unavailable"}
         print(json.dumps(evidence))
         return 0 if ok else 1
     except Exception as exc:  # noqa: BLE001

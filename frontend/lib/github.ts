@@ -1,4 +1,4 @@
-/** Public allowlisted HTTPS git URL validation (D78). Field name remains github_url. */
+/** Plane 1 validation for GitHub intake and parsing for stored repository links. */
 
 const ALLOWED_HOSTS = new Set([
   "github.com",
@@ -99,15 +99,13 @@ function parsePublicGitUrl(raw: string): {
 }
 
 export function isPublicGithubUrl(raw: string): boolean {
-  return parsePublicGitUrl(raw) !== null;
+  return parsePublicGitUrl(raw)?.host === "github.com";
 }
 
 export function validateGithubUrl(raw: string): string {
   const parsed = parsePublicGitUrl(raw);
-  if (!parsed) {
-    throw new Error(
-      "URL must be a public HTTPS git link on github.com, gitlab.com, bitbucket.org, or codeberg.org",
-    );
+  if (parsed?.host !== "github.com") {
+    throw new Error("URL must be a public HTTPS GitHub repository");
   }
   return parsed.url;
 }

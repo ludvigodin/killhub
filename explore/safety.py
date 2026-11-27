@@ -67,12 +67,17 @@ def summary_safety(
         r in {"policy_bypass", "containment_policy_bypass"} for r in reasons
     )
 
+    # A persisted runtime verdict can add evidence beyond the legacy scan.
+    detonation = (dossier or {}).get("detonation_verdict") if isinstance(dossier, dict) else None
+    runtime = detonation.get("verdict") if isinstance(detonation, dict) else None
+    runtime_status = runtime.get("status") if isinstance(runtime, dict) else None
+
     verify = verification
     if not isinstance(verify, dict):
         verify = receipt.get("verification") if isinstance(receipt, dict) else None
     target = verify.get("kind") if isinstance(verify, dict) else None
 
-    gaps = False
+    gaps = runtime_status in ("ABORTED", "INCONCLUSIVE")
     if not isinstance(vuln_report, dict):
         gaps = True
     else:
@@ -96,7 +101,12 @@ def summary_safety(
     if claim != "proven":
         gaps = True
 
-    if bypass or counts["critical"] or counts["high"]:
+    if (
+        runtime_status in ("SUSPICIOUS", "MALICIOUS")
+        or bypass
+        or counts["critical"]
+        or counts["high"]
+    ):
         return "high_risk"
     if counts["medium"] or counts["low"] or counts["other"] or counts["missing_severity"]:
         return "review"

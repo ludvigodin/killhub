@@ -8,10 +8,12 @@ import {
   SEVERITY_TONE,
   type SeverityLevel,
 } from "@/lib/findings";
+import type { DetonationVerdict } from "@/lib/job-artifacts";
 import { SectionHeader } from "./SectionHeader";
 
 type VulnReportProps = {
   report: VulnReportData | null | undefined;
+  verdictFindings?: DetonationVerdict["findings"];
 };
 
 const SOURCE_ORDER = [
@@ -24,6 +26,8 @@ const SOURCE_ORDER = [
   "containment",
   "preflight",
   "intentional_app",
+  "runtime_sensor",
+  "kill_switch",
 ] as const;
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -36,16 +40,19 @@ const SOURCE_LABEL: Record<string, string> = {
   containment: "Containment",
   preflight: "Pre-flight",
   intentional_app: "Intentional app patterns",
+  runtime_sensor: "Runtime sensors",
+  kill_switch: "Kill switch",
 };
 
-function groupBySource(findings: VulnFinding[]): Record<string, VulnFinding[]> {
-  const out: Record<string, VulnFinding[]> = {};
+function groupBySource(findings: VulnFinding[]): Map<string, VulnFinding[]> {
+  const out = new Map<string, VulnFinding[]>();
   for (const f of findings) {
     const src = (f.source || "unknown").toLowerCase();
-    if (!out[src]) out[src] = [];
-    out[src].push(f);
+    const group = out.get(src);
+    if (group) group.push(f);
+    else out.set(src, [f]);
   }
-  for (const list of Object.values(out)) {
+  for (const list of out.values()) {
     list.sort((a, b) => {
       const ai = SEVERITY_ORDER.indexOf(
         normalizeSeverity(a.severity) as SeverityLevel,
@@ -67,8 +74,8 @@ function severityTone(raw: string | undefined): { bg: string; fg: string } {
   return { bg: "var(--paper-deep)", fg: "var(--muted)" };
 }
 
-export function VulnReport({ report }: VulnReportProps) {
-  if (!report) {
+export function VulnReport({ report, verdictFindings }: VulnReportProps) {
+  if (!report && !verdictFindings?.length) {
     return (
       <section aria-label="Vulnerability report" className="space-y-3">
         <SectionHeader size="sm" eyebrow="Scan" title="Vulnerability report" />
@@ -79,13 +86,23 @@ export function VulnReport({ report }: VulnReportProps) {
     );
   }
 
-  const findings = Array.isArray(report.findings) ? report.findings : [];
+  // Keep one target for each verdict citation and retain the scanner's advisory details.
+  const byId = new Map<string, VulnFinding>(
+    (verdictFindings ?? []).map((finding) => [finding.id, finding]),
+  );
+  const withoutId: VulnFinding[] = [];
+  for (const finding of report?.findings ?? []) {
+    if (finding.id)
+      byId.set(finding.id, { ...byId.get(finding.id), ...finding });
+    else withoutId.push(finding);
+  }
+  const findings = [...byId.values(), ...withoutId];
   const counts = countSeverities(findings);
-  const statusTone = reportStatusTone(report.status);
+  const statusTone = reportStatusTone(report?.status);
   const bySource = groupBySource(findings);
   const sources = [
-    ...SOURCE_ORDER.filter((s) => bySource[s]?.length),
-    ...Object.keys(bySource).filter(
+    ...SOURCE_ORDER.filter((s) => bySource.has(s)),
+    ...[...bySource.keys()].filter(
       (s) => !(SOURCE_ORDER as readonly string[]).includes(s),
     ),
   ];
@@ -95,16 +112,19 @@ export function VulnReport({ report }: VulnReportProps) {
       aria-label="Vulnerability report"
       className="min-w-0 space-y-4 wrap-anywhere"
     >
-      <SectionHeader
-        size="sm"
-        eyebrow="Scan"
-        title="Vulnerability report"
-        description="Default report is scan-based (SCA / advisories). This is not a generic app pentest. Findings do not erase readiness evidence."
-      />
+      <div>
+        <p className="mb-1 text-sm uppercase tracking-wide text-(--muted)">
+          Vulnerability report
+        </p>
+        <p className="text-xs text-(--muted)">
+          Dependency advisories, runtime observations, and containment findings
+          are listed by source.
+        </p>
+      </div>
 
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
         <p>
-          Status:{" "}
+          Dependency scan:{" "}
           <span className="font-medium" style={{ color: statusTone.fg }}>
             {statusTone.label}
           </span>
@@ -138,7 +158,7 @@ export function VulnReport({ report }: VulnReportProps) {
         </ul>
       ) : null}
 
-      {report.summary ? (
+      {report?.summary ? (
         <p className="border border-(--line) bg-(--paper-deep)/50 px-3 py-2 text-sm leading-relaxed">
           {report.summary ===
           "No scan findings. Clean bill for this job's scanned surfaces."
@@ -147,7 +167,7 @@ export function VulnReport({ report }: VulnReportProps) {
         </p>
       ) : null}
 
-      {report.mcp_assessment ? (
+      {report?.mcp_assessment ? (
         <div className="border border-(--line) bg-(--paper-deep)/50 px-3 py-2 text-sm">
           <p className="text-xs uppercase tracking-wide text-(--muted)">
             MCP tool behavior
@@ -180,12 +200,13 @@ export function VulnReport({ report }: VulnReportProps) {
               {SOURCE_LABEL[source] || source}
             </p>
             <ul className="space-y-2">
-              {(bySource[source] || []).map((f, i) => {
+              {(bySource.get(source) || []).map((f, i) => {
                 const tone = severityTone(f.severity);
                 const detail = formatFindingDetail(f.detail);
                 return (
                   <li
                     key={f.id || `${source}-${i}`}
+                    id={f.id ? `finding-${f.id}` : undefined}
                     className="border-b border-(--line) pb-2 text-sm last:border-0"
                   >
                     <div className="flex flex-wrap items-baseline gap-2">
@@ -199,6 +220,14 @@ export function VulnReport({ report }: VulnReportProps) {
                         <span className="font-mono text-xs text-(--muted)">
                           [{f.id}]
                         </span>
+                      ) : null}
+                      {f.cited_by_review ? (
+                        <span className="text-xs text-(--muted)">
+                          Cited in review
+                        </span>
+                      ) : null}
+                      {f.blocked ? (
+                        <span className="text-xs text-(--muted)">Blocked</span>
                       ) : null}
                     </div>
                     <p className="mt-0.5">{f.title || "Finding"}</p>

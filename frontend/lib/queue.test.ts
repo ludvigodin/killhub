@@ -1,3 +1,5 @@
+/** Plane 1 queue display checks using synthetic worker values. */
+
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { formatExpectedWait, formatQueueLine, isInQueue } from "./queue.ts";

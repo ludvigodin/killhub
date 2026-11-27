@@ -161,9 +161,10 @@ class SandboxGeneration:
 
 @dataclass
 class ReconcileReport:
-    """Startup reconciliation result (msb inventory wiring lands with harness)."""
+    """Expired generations and terminal cleanup still owed by the reaper."""
 
     job_count: int
     live_generations: list[SandboxGeneration]
     expired_generations: list[SandboxGeneration]
     orphan_notes: list[str] = field(default_factory=list)
+    cleanup_retry_generations: list[SandboxGeneration] = field(default_factory=list)

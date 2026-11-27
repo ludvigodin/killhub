@@ -1,4 +1,4 @@
-/** In-queue UX helpers for pending / queued jobs (D40). */
+/** Plane 1 display helpers for the worker’s advisory queue position and ETA (D40). */
 
 const QUEUE_STATUSES = new Set(["pending", "queued"]);
 

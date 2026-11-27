@@ -6,6 +6,7 @@ Does not mark the job completed. Readiness is plan 14.
 from __future__ import annotations
 
 import logging
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -13,9 +14,12 @@ from profile import GUEST_REPO_ROOT, assert_runtime_ready_for_provision
 from typing import Any
 
 from config import Settings, get_settings
-from harness import MsbCli, copy_in, exec_command, wait_until_ready
+from errors import HarnessError
+from harness import MsbCli, copy_in, exec_command, stop_and_remove_sandbox, wait_until_ready
 from heartbeat import with_heartbeat
 from jobs import get_ledger
+from ledger import Ledger
+from models import Job
 from net_policy import verify_phase_policy
 from paths import HELPER_CATALOG
 
@@ -62,9 +66,7 @@ def _current_runtime_profile(job_id: str, settings: Settings) -> dict[str, Any]:
     runtime = [r for r in revs if r.phase == "runtime"]
     if not runtime:
         raise InstallError("no runtime profile revision", code="no_runtime_profile")
-    profile = runtime[-1].profile
-    assert_runtime_ready_for_provision(profile)
-    return profile
+    return assert_runtime_ready_for_provision(runtime[-1].profile, stored=True)
 
 
 def _log(
@@ -444,7 +446,11 @@ def run_install_commands(
             settings=settings,
         )
     )
-    for i, spec in enumerate(profile.get("install_commands") or []):
+    # Provisioning passes a validated canonical profile. Direct callers can
+    # still supply the former command list.
+    commands = profile.get("commands")
+    install_specs = commands["install"] if commands is not None else profile.get("install_commands")
+    for i, spec in enumerate(install_specs or []):
         if not isinstance(spec, dict):
             steps.append(
                 StepResult(name=f"install_commands[{i}]", ok=False, detail="not an object")
@@ -486,6 +492,48 @@ def run_install_commands(
     return steps
 
 
+def record_checkout_integrity(
+    job: Job, *, before_install: bool, settings: Settings, cli: MsbCli
+) -> None:
+    """Measure the pinned checkout around install without exporting guest output."""
+    if not job.sandbox_id or job.current_sandbox_generation is None or not job.resolved_commit:
+        return
+    helper = f"{GUEST_HELPERS}/pkg_hash.py"
+    digest = None
+    try:
+        # Refresh the host-owned helper and skip Python site initialization in Plane 2.
+        copy_in(job.sandbox_id, "pkg_hash", helper, settings=settings, cli=cli)
+        result = exec_command(
+            job.sandbox_id,
+            ["/usr/bin/python3", "-I", "-S", helper, GUEST_REPO_ROOT, job.resolved_commit],
+            settings=settings,
+            cli=cli,
+            timeout=30,
+        )
+        candidate = result.stdout.strip()
+        if result.exit_code == 0 and re.fullmatch(r"[0-9a-f]{64}", candidate):
+            digest = candidate
+    except HarnessError:
+        # A missed measurement is unknown, never a pipeline failure or a clean result.
+        pass
+    ledger = get_ledger(settings)
+    if ledger.record_checkout_digest(
+        job.job_id, job.current_sandbox_generation, before_install=before_install, digest=digest
+    ):
+        try:
+            _log(
+                job.job_id,
+                "Checkout digest captured" if digest else "Checkout digest unavailable",
+                settings=settings,
+                kind="checkout_integrity",
+                phase="before_install" if before_install else "after_install",
+                generation=job.current_sandbox_generation,
+            )
+        except Ledger.WriterFrozenError:
+            # Cancel may take ownership between committing evidence and emitting the log.
+            pass
+
+
 def transition_to_verify_offline(
     environment_id: str,
     *,
@@ -520,12 +568,11 @@ def transition_to_verify_offline(
             group, sandbox=environment_id, checkpoint="post-install", full=True
         ),
     )
-    # Remove install-phase VM before restore (never two concurrent).
-    stop = msb.stop(environment_id, force=False)
-    remove = msb.remove(environment_id, force=True)
-    if not remove.ok and "not found" not in (remove.stderr + remove.stdout).lower():
+    # Restore only after a confirmed removal, including when transport is interrupted.
+    removal = stop_and_remove_sandbox(environment_id, cli=msb)
+    if not removal.confirmed:
         raise InstallError(
-            f"failed to remove sandbox before offline restore: {remove.stderr[:200]}",
+            f"failed to remove sandbox before offline restore: {removal.error}",
             code="offline_remove_failed",
         )
     with_heartbeat(
@@ -550,7 +597,7 @@ def transition_to_verify_offline(
             "environment_id": environment_id,
             "snapshot_group": group,
             "net": {"no_net": True, "phase": policy.phase},
-            "stop_ok": stop.ok,
+            "stop_ok": removal.stop_ok,
         },
     )
     return {"snapshot_group": group, "phase": policy.phase}
@@ -674,6 +721,8 @@ def provision_and_go_offline(
             code="cp_bypass",
         )
 
+    # Compare the same pinned paths before target commands and after the last install attempt.
+    record_checkout_integrity(job, before_install=True, settings=cfg, cli=msb)
     active = getattr(cfg, "active_checks", True)
     if active:
         from activity import prepare_guest
@@ -719,6 +768,7 @@ def provision_and_go_offline(
                 code="sandbox_lost",
             )
 
+    record_checkout_integrity(job, before_install=False, settings=cfg, cli=msb)
     if active:
         from activity import collect_and_analyze
 

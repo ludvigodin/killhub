@@ -13,8 +13,9 @@ from typing import Any
 from config import Settings, get_settings
 from harness import MsbCli
 from jobs import get_ledger
+from ledger import Ledger
 from ledger.store import TERMINAL_STATUSES, utc_now
-from models import CleanupState
+from models import CleanupState, Job
 
 logger = logging.getLogger("killhub.stall")
 
@@ -45,6 +46,7 @@ def fail_job(
     settings: Settings | None = None,
     cli: MsbCli | None = None,
     destroy: bool = True,
+    observed: Job | None = None,
 ) -> dict[str, Any]:
     """Destroy any live sandbox (best effort) and finalize the job as failed."""
     from harness import destroy_environment
@@ -53,13 +55,16 @@ def fail_job(
     cfg = settings or get_settings()
     ledger = get_ledger(cfg)
     job = ledger.get_job(job_id)
-    if job is None or job.status in TERMINAL_STATUSES:
+    if job is None or job.status in TERMINAL_STATUSES or (observed is not None and job != observed):
+        # A heartbeat after the reaper's scan invalidates the stale observation.
         return {"job_id": job_id, "reason": code, "finalized": False}
 
-    confirmed = False
+    # The absolute-expiry reaper may already have confirmed this generation.
+    confirmed = bool(job.sandbox_id and job.destroyed_at)
+    was_running = job.status not in {"pending", "queued"}
     destroy_error: str | None = None
     attempts = job.cleanup.attempts
-    if destroy and job.sandbox_id:
+    if destroy and job.sandbox_id and not confirmed:
         msb = cli or MsbCli(cfg)
         attempts = attempts + 1
         now_cleanup = utc_now()
@@ -85,7 +90,14 @@ def fail_job(
         )
         confirmed = bool(result.confirmed)
         destroy_error = result.error
-        job = ledger.get_job(job_id) or job
+        current = ledger.get_job(job_id)
+        if (
+            current is None
+            or current.status in TERMINAL_STATUSES
+            or current.current_sandbox_generation != job.current_sandbox_generation
+        ):
+            return {"job_id": job_id, "reason": code, "finalized": False}
+        job = current
 
     now = utc_now()
     status = "cancelled" if job.cancel_requested_at else "failed"
@@ -117,6 +129,7 @@ def fail_job(
     if confirmed and job.sandbox_id:
         lifecycle = {
             "confirmed": True,
+            "cleanup": "destroyed",
             "environment_id": job.sandbox_id,
             "generation": job.current_sandbox_generation,
             "destroyed_at": fields.get("destroyed_at", now),
@@ -124,14 +137,23 @@ def fail_job(
             "phase": "destroyed",
         }
 
+    prior_receipt = ledger.get_receipt(job_id) or {}
     receipt: dict[str, Any] = {
         "verification": verification,
         "dossier": {
+            **(prior_receipt.get("dossier") or {}),
             "outcome": status,
             "code": code,
             "interrupted_step": job.current_step,
         },
     }
+    if destroy and job.sandbox_id and not confirmed:
+        lifecycle = {
+            "confirmed": False,
+            "cleanup": "destroy_failed",
+            "destroy_error": destroy_error,
+            "reason": code,
+        }
     if lifecycle is not None:
         receipt["lifecycle"] = lifecycle
 
@@ -139,11 +161,15 @@ def fail_job(
         ledger.finalize_job(
             job_id,
             status=status,  # type: ignore[arg-type]
+            include_verdict=True,
+            expected_job=job,
             receipt=receipt,
             event_message=reason,
             event_payload={"reason": code},
             **fields,
         )
+    except Ledger.WriterFrozenError:
+        return {"job_id": job_id, "reason": code, "finalized": False}
     except Exception:  # noqa: BLE001
         logger.exception("finalize failed for stalled job %s", job_id)
         return {
@@ -154,7 +180,7 @@ def fail_job(
         }
 
     try:
-        release_admission_slot(was_running=True, settings=cfg)
+        release_admission_slot(was_running=was_running, settings=cfg)
     except Exception:  # noqa: BLE001
         logger.exception("admission release failed for %s", job_id)
 
@@ -180,6 +206,8 @@ def classify_stale_job(
     created_age = _age_seconds(job.created_at, now=now)
     updated_age = _age_seconds(job.updated_at, now=now)
     expires = _parse_iso(job.expires_at)
+    if expires is not None and expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
     waiting = job.status in {"pending", "queued"}
 
     job_timeout = max(int(settings.job_timeout_seconds or 0), 0)
@@ -246,6 +274,7 @@ def reap_stale_jobs(
                 settings=cfg,
                 cli=msb,
                 destroy=bool(job.sandbox_id),
+                observed=job,
             )
         )
     return actions

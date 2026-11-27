@@ -6,10 +6,11 @@ Supports SQLite (default) and PostgreSQL via ``LEDGER_URL`` (D41, D73).
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from active_report import (
     ACTIVE_SOURCES,
@@ -32,6 +33,9 @@ from models import (
     SandboxGeneration,
     SandboxState,
 )
+
+if TYPE_CHECKING:
+    from preflight import PreflightResult
 
 # Re-export for callers that imported parse_sqlite_path from store.
 __all__ = ["Ledger", "parse_ledger_url", "parse_sqlite_path"]
@@ -169,10 +173,18 @@ class Ledger:
         *,
         env_ttl_seconds: int,
         job_id: str | None = None,
+        resolved_commit: str | None = None,
         status: JobStatus = "pending",
         current_step: str = "accepted",
+        preflight: PreflightResult | None = None,
     ) -> Job:
         github_url = validate_github_url(github_url)
+        # Known fixture pins must be present in the row before a worker can claim it.
+        if resolved_commit is not None and (
+            not isinstance(resolved_commit, str)
+            or not re.fullmatch(r"[0-9a-f]{40}", resolved_commit)
+        ):
+            raise ValueError("resolved_commit must be a full lowercase Git SHA")
         now = utc_now()
         expires = (
             (datetime.now(timezone.utc) + timedelta(seconds=env_ttl_seconds))
@@ -182,6 +194,9 @@ class Ledger:
         )
         jid = job_id or str(uuid.uuid4())
         cleanup = CleanupState(status="pending", attempts=0, updated_at=now)
+        if preflight is not None and not preflight.ok_to_bootstrap:
+            # A rejected row must never have a claimable status, even inside this transaction.
+            status, current_step = "finalizing", "recording preflight rejection"
 
         self._conn.begin()
         try:
@@ -195,7 +210,7 @@ class Ledger:
                     event_cursor, expires_at, cleanup, destroyed_at,
                     cancel_requested_at, created_at, updated_at
                 ) VALUES (
-                    ?, ?, NULL, ?, 0, ?, '[]', NULL, NULL, NULL,
+                    ?, ?, ?, ?, 0, ?, '[]', NULL, NULL, NULL,
                     NULL, NULL, NULL, NULL, NULL, NULL,
                     NULL, ?, ?, NULL, NULL, ?, ?
                 )
@@ -203,6 +218,7 @@ class Ledger:
                 (
                     jid,
                     github_url,
+                    resolved_commit,
                     status,
                     current_step,
                     expires,
@@ -211,22 +227,130 @@ class Ledger:
                     now,
                 ),
             )
-            event = self._insert_event_unlocked(
+            self._insert_event_unlocked(
                 jid,
                 typ="status",
                 message=f"job created ({status})",
                 payload={"status": status, "github_url": github_url},
                 timestamp=now,
             )
+            # Claimers only see the row after its preflight evidence and any rejection commit.
+            if preflight is not None and not preflight.meta.get("skipped"):
+                self._record_preflight_unlocked(jid, preflight)
+            job = self.get_job(jid)
+            assert job is not None
             self._conn.commit()
         except Exception:
             self._conn.rollback()
             raise
-
-        job = self.get_job(jid)
-        assert job is not None
-        assert job.event_cursor == event.event_id
         return job
+
+    def _record_preflight_unlocked(self, job_id: str, result: PreflightResult) -> None:
+        """Publish the Plane 1 decision within the new job's ledger transaction."""
+        self._insert_event_unlocked(
+            job_id,
+            typ="log",
+            message="preflight completed" if result.ok_to_bootstrap else "preflight hard-fail",
+            payload={
+                "kind": "preflight",
+                "ok_to_bootstrap": result.ok_to_bootstrap,
+                "finding_count": len(result.findings),
+                "hard_count": len(result.hard_findings),
+                "meta": {
+                    k: v
+                    for k, v in result.meta.items()
+                    if k in {"owner", "repo", "host", "skipped"}
+                },
+            },
+        )
+        for finding in result.findings:
+            self._insert_event_unlocked(
+                job_id, typ="finding", message=finding.message, payload=finding.to_event_payload()
+            )
+        if result.ok_to_bootstrap:
+            return
+
+        job = self.get_job(job_id)
+        assert job is not None
+        self._finalize_unlocked(
+            job,
+            "failed",
+            {
+                "verification": {"kind": "preflight_failed"},
+                "containment": {"status": "skipped", "reason": "preflight_hard_fail"},
+                "lifecycle": {"preflight": False, "sandbox_created": False},
+                "dossier": {
+                    "outcome": "failed",
+                    "reason": "preflight_hard_fail",
+                    "findings": [f.to_event_payload() for f in result.findings],
+                },
+            },
+            "failed",
+            {"reason": "preflight"},
+            {
+                "progress": 100,
+                "current_step": "preflight hard-fail",
+                "error": "; ".join(f.message for f in result.hard_findings)[:500]
+                or "preflight hard-fail",
+            },
+            include_verdict=True,
+        )
+
+    def try_claim_pending_job(self, job_id: str) -> Job | None:
+        """Claim or expire a waiting row before it consumes a worker slot."""
+        with self._conn:
+            # Concurrent workers must decide using one locked status and deadline.
+            lock = " FOR UPDATE" if self._conn.engine == "postgres" else ""
+            row = self._conn.execute("SELECT * FROM jobs WHERE job_id = ?" + lock, (job_id,))
+            raw = row.fetchone()
+            if raw is None:
+                return None
+            job = self._row_to_job(raw)
+            if (
+                job.status not in {"pending", "queued"}
+                or job.cancel_requested_at is not None
+                or job.sandbox_id
+            ):
+                return None
+
+            try:
+                deadline = datetime.fromisoformat(job.expires_at.replace("Z", "+00:00"))
+            except ValueError:
+                deadline = None
+            if deadline is None or deadline.tzinfo is None:
+                self._finalize_before_sandbox_unlocked(
+                    job, status="failed", code="invalid_deadline", reason="Job deadline is invalid."
+                )
+            elif deadline <= datetime.now(timezone.utc):
+                self._finalize_before_sandbox_unlocked(
+                    job,
+                    status="failed",
+                    code="job_expired",
+                    reason="Job deadline elapsed before a worker could provision a sandbox.",
+                )
+            else:
+                self._write_job_fields_unlocked(
+                    job_id,
+                    {
+                        "status": "analyzing",
+                        "current_step": "analyzing",
+                        "progress": 5,
+                        "steps_completed": ["pending"],
+                    },
+                )
+                self._insert_event_unlocked(
+                    job_id,
+                    typ="status",
+                    message="analyzing",
+                    payload={"status": "analyzing", "kind": "agent"},
+                )
+                self._insert_event_unlocked(
+                    job_id,
+                    typ="log",
+                    message="background worker claimed job",
+                    payload={"kind": "agent"},
+                )
+            return self.get_job(job_id)
 
     def get_job(self, job_id: str) -> Job | None:
         row = self._conn.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
@@ -384,6 +508,8 @@ class Ledger:
             "vuln_report": report,
             "screenshot_ids": [s["screenshot_id"] for s in self.list_screenshots(job_id)],
             "receipt": receipt,
+            # Historical receipts predate verdicts and remain readable.
+            "detonation_verdict": ((receipt or {}).get("dossier") or {}).get("detonation_verdict"),
         }
 
     class WriterFrozenError(RuntimeError):
@@ -472,7 +598,14 @@ class Ledger:
         values.append(job_id)
         self._conn.execute(f"UPDATE jobs SET {', '.join(sets)} WHERE job_id = ?", values)
 
-    def update_job_fields(self, job_id: str, *, finalizer: bool = False, **fields: Any) -> Job:
+    def update_job_fields(
+        self,
+        job_id: str,
+        *,
+        finalizer: bool = False,
+        expected_job: Job | None = None,
+        **fields: Any,
+    ) -> Job:
         """Patch allowlisted job columns. Ordinary writers freeze after cancel (D61).
 
         A terminal ``status`` is refused until the job's receipt exists (D61);
@@ -481,9 +614,16 @@ class Ledger:
         self._check_job_fields(fields)
         self._conn.begin()
         try:
-            job = self.get_job(job_id)
+            lock = " FOR UPDATE" if expected_job is not None and self.engine == "postgres" else ""
+            row = self._conn.execute(
+                "SELECT * FROM jobs WHERE job_id = ?" + lock, (job_id,)
+            ).fetchone()
+            job = self._row_to_job(row) if row is not None else None
             if job is None:
                 raise KeyError(f"unknown job_id: {job_id}")
+            if expected_job is not None and job != expected_job:
+                # A finalizer must not reopen a job that changed during its earlier work.
+                raise self.WriterFrozenError("job changed before fields were updated")
             if not finalizer:
                 self._assert_ordinary_writable(job)
             if "status" in fields:
@@ -497,6 +637,54 @@ class Ledger:
         assert job is not None
         return job
 
+    def add_inference_usage(
+        self,
+        job_id: str,
+        *,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        total_tokens: int,
+        budget_tokens: int,
+        role: str | None,
+    ) -> dict[str, Any]:
+        """Accumulate billed tokens without losing concurrent job or role updates."""
+        counts = {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+            "calls": 1,
+        }
+
+        def accumulate(previous: dict[str, Any]) -> dict[str, int]:
+            return {key: int(previous.get(key) or 0) + added for key, added in counts.items()}
+
+        # BEGIN IMMEDIATE serializes SQLite writers. PostgreSQL locks this job row.
+        query = "SELECT * FROM jobs WHERE job_id = ?"
+        if self.engine == "postgres":
+            query += " FOR UPDATE"
+        self._conn.begin()
+        try:
+            row = self._conn.execute(query, (job_id,)).fetchone()
+            if row is None:
+                raise KeyError(job_id)
+            job = self._row_to_job(row)
+            self._assert_ordinary_writable(job)
+            previous = job.inference_usage or {}
+            usage = {**previous, **accumulate(previous), "budget_tokens": budget_tokens}
+            if role is not None:
+                by_role = dict(previous.get("by_role") or {})
+                by_role[role] = {"model": model, **accumulate(by_role.get(role, {}))}
+                usage["by_role"] = by_role
+            self._write_job_fields_unlocked(
+                job_id, {"inference_model": model, "inference_usage": usage}
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        return usage
+
     # --- events ----------------------------------------------------------------
 
     def append_event(
@@ -507,20 +695,68 @@ class Ledger:
         message: str,
         payload: dict[str, Any] | None = None,
         finalizer: bool = False,
+        expected_sandbox: tuple[int | None, str | None] | None = None,
     ) -> JobEvent:
+        """Commit replay and durable containment evidence in the same transaction."""
+        from verdict import policy_bypass_reason, recorded_policy_bypass
+
+        evidence = payload or {}
+        bypass = policy_bypass_reason(typ, evidence)
+        matrix = typ == "containment" and "claim" in evidence
         self._conn.begin()
         try:
-            job = self.get_job(job_id)
-            if job is None:
+            # Serialize evidence with finalization on PostgreSQL; SQLite begins IMMEDIATE.
+            lock = " FOR UPDATE" if self.engine == "postgres" else ""
+            row = self._conn.execute(
+                "SELECT * FROM jobs WHERE job_id = ?" + lock, (job_id,)
+            ).fetchone()
+            if row is None:
                 raise KeyError(f"unknown job_id: {job_id}")
+            job = self._row_to_job(row)
             if not finalizer:
                 self._assert_ordinary_writable(job)
+            if expected_sandbox is not None and expected_sandbox != (
+                job.current_sandbox_generation,
+                job.sandbox_id,
+            ):
+                raise self.WriterFrozenError("sandbox changed before evidence was recorded")
+            if (matrix or bypass) and job.status in TERMINAL_STATUSES:
+                raise self.WriterFrozenError("job ended before evidence was recorded")
             event = self._insert_event_unlocked(
                 job_id,
                 typ=typ,
                 message=message,
-                payload=payload or {},
+                payload=evidence,
             )
+            if matrix or bypass:
+                prior = self.get_receipt(job_id) or {}
+                dossier = prior.get("dossier") or {}
+                observation = {
+                    "event_id": event.event_id,
+                    "generation": job.current_sandbox_generation,
+                }
+                if bypass:
+                    # A later clean check must never clear an observed boundary violation.
+                    dossier.setdefault("policy_bypass", {"reason": bypass, **observation})
+                if matrix:
+                    if "policy_bypass" not in dossier and (legacy := recorded_policy_bypass(prior)):
+                        dossier["policy_bypass"] = {"reason": legacy}
+                    dossier["containment_at"] = evidence.get("at") or event.timestamp
+                    dossier["containment_observation"] = observation
+                self._conn.execute(
+                    """
+                    INSERT INTO job_receipts (job_id, verification, containment, dossier)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(job_id) DO UPDATE SET
+                        containment = excluded.containment, dossier = excluded.dossier
+                    """,
+                    (
+                        job_id,
+                        _dumps(job.verification),
+                        _dumps(evidence if matrix else prior.get("containment")),
+                        _dumps(dossier),
+                    ),
+                )
             self._conn.commit()
         except Exception:
             self._conn.rollback()
@@ -881,6 +1117,48 @@ class Ledger:
         ).fetchall()
         return [self._row_to_generation(r) for r in rows]
 
+    def record_checkout_digest(
+        self, job_id: str, generation: int, *, before_install: bool, digest: str | None
+    ) -> bool:
+        """Record only for the active, writable generation. Preserve its first baseline."""
+        if digest is not None and not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError("invalid checkout SHA-256")
+        with self._conn:
+            # PostgreSQL serializes against cancel and generation updates on the job row.
+            lock = " FOR UPDATE" if self._conn.engine == "postgres" else ""
+            row = self._conn.execute("SELECT * FROM jobs WHERE job_id = ?" + lock, (job_id,))
+            raw = row.fetchone()
+            if raw is None:
+                return False
+            job = self._row_to_job(raw)
+            if (
+                job.current_sandbox_generation != generation
+                or job.sandbox_id is None
+                or job.cancel_requested_at is not None
+                or job.status in TERMINAL_STATUSES
+            ):
+                return False
+            if before_install:
+                # A retry invalidates the prior after reading while retaining its baseline.
+                self._conn.execute(
+                    """
+                    INSERT INTO sandbox_checkout_integrity (job_id, generation, digest_before)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT (job_id, generation) DO UPDATE SET
+                        digest_after = NULL
+                    """,
+                    (job_id, generation, digest),
+                )
+            else:
+                self._conn.execute(
+                    """
+                    UPDATE sandbox_checkout_integrity SET digest_after = ?
+                    WHERE job_id = ? AND generation = ?
+                    """,
+                    (digest, job_id, generation),
+                )
+        return True
+
     def mark_generation_state(
         self,
         job_id: str,
@@ -1110,6 +1388,8 @@ class Ledger:
         *,
         status: JobStatus,
         receipt: dict[str, Any],
+        include_verdict: bool = False,
+        expected_job: Job | None = None,
         event_message: str | None = None,
         event_payload: dict[str, Any] | None = None,
         **fields: Any,
@@ -1129,10 +1409,28 @@ class Ledger:
 
         self._conn.begin()
         try:
-            job = self.get_job(job_id)
-            if job is None:
+            lock = " FOR UPDATE" if self._conn.engine == "postgres" else ""
+            row = self._conn.execute("SELECT * FROM jobs WHERE job_id = ?" + lock, (job_id,))
+            raw = row.fetchone()
+            if raw is None:
                 raise KeyError(f"unknown job_id: {job_id}")
-            self._finalize_unlocked(job_id, status, receipt, event_message, event_payload, fields)
+            job = self._row_to_job(raw)
+            if expected_job is not None and job != expected_job:
+                # A stale cleanup writer must not overwrite a competing terminal receipt.
+                raise Ledger.WriterFrozenError("job changed before finalization")
+            if job.status in TERMINAL_STATUSES:
+                # A retry or a competing watchdog must leave the winning receipt intact.
+                self._conn.commit()
+                return job
+            self._finalize_unlocked(
+                job,
+                status,
+                receipt,
+                event_message,
+                event_payload,
+                fields,
+                include_verdict=include_verdict,
+            )
             self._conn.commit()
         except Exception:
             self._conn.rollback()
@@ -1143,18 +1441,45 @@ class Ledger:
 
     def _finalize_unlocked(
         self,
-        job_id: str,
+        job: Job,
         status: JobStatus,
         receipt: dict[str, Any],
         event_message: str | None,
         event_payload: dict[str, Any] | None,
         fields: dict[str, Any],
+        *,
+        include_verdict: bool,
     ) -> None:
+        job_id = job.job_id
         existing = self.get_receipt(job_id) or {}
         merged = {
             key: receipt[key] if key in receipt else existing.get(key)
             for key in ("verification", "containment", "lifecycle", "dossier")
         }
+        # Terminal writers own their dossier, while these observations belong to
+        # the ledger transaction that recorded them.
+        prior_dossier = existing.get("dossier") or {}
+        for key in ("policy_bypass", "containment_at", "containment_observation"):
+            if key in prior_dossier:
+                merged["dossier"] = {**(merged["dossier"] or {}), key: prior_dossier[key]}
+        if include_verdict:
+            from verdict import build_verdict
+
+            # The current generation owns both readings, even when its VM is gone.
+            integrity = self._conn.execute(
+                """
+                SELECT digest_before, digest_after FROM sandbox_checkout_integrity
+                WHERE job_id = ? AND generation = ?
+                """,
+                (job_id, job.current_sandbox_generation),
+            ).fetchone()
+            # Validate and persist the verdict in the same transaction as terminal state.
+            merged["dossier"] = {
+                **(merged["dossier"] or {}),
+                "detonation_verdict": build_verdict(
+                    job, status, merged, self.get_vuln_report(job_id), integrity=integrity
+                ),
+            }
         self._conn.execute(
             """
             INSERT INTO job_receipts (job_id, verification, containment, lifecycle, dossier)
@@ -1192,7 +1517,9 @@ class Ledger:
             now = utc_now()
             status = "cancelled" if job.cancel_requested_at else "failed"
             reason = reason or "Worker restarted and the recorded sandbox is absent from inventory."
+            # Recovery still publishes a schema-valid verdict with the original evidence.
             lifecycle = {
+                "cleanup": "destroyed",
                 "confirmed": True,
                 "environment_id": job.sandbox_id,
                 "generation": job.current_sandbox_generation,
@@ -1209,12 +1536,13 @@ class Ledger:
                 job.job_id, typ="lifecycle", message=reason, payload=lifecycle
             )
             self._finalize_unlocked(
-                job.job_id,
+                job,
                 status,
                 {
                     "verification": job.verification,
                     "lifecycle": lifecycle,
                     "dossier": {
+                        **((self.get_receipt(job.job_id) or {}).get("dossier") or {}),
                         "outcome": status,
                         "code": "worker_restart",
                         "interrupted_step": job.current_step,
@@ -1231,6 +1559,7 @@ class Ledger:
                         status="destroyed", attempts=job.cleanup.attempts, updated_at=now
                     ),
                 },
+                include_verdict=True,
             )
             self._conn.commit()
         except Exception:
@@ -1252,30 +1581,40 @@ class Ledger:
                 return False
             status = "cancelled" if job.cancel_requested_at else "failed"
             reason = "Worker restarted before this run created a sandbox."
-            self._finalize_unlocked(
-                job.job_id,
-                status,
-                {
-                    "verification": job.verification
-                    or {
-                        "kind": "setup_failed",
-                        "original_failure": {"step": "worker_restart", "summary": reason},
-                    },
-                    "dossier": {
-                        "outcome": status,
-                        "code": "worker_restart",
-                        "interrupted_step": job.current_step,
-                    },
-                },
-                reason,
-                {"reason": "worker_restart"},
-                {"current_step": status, "error": reason, "progress": 100},
+            self._finalize_before_sandbox_unlocked(
+                job, status=status, code="worker_restart", reason=reason
             )
             self._conn.commit()
         except Exception:
             self._conn.rollback()
             raise
         return True
+
+    def _finalize_before_sandbox_unlocked(
+        self, job: Job, *, status: JobStatus, code: str, reason: str
+    ) -> None:
+        """Publish terminal evidence without making a sandbox removal claim."""
+        self._finalize_unlocked(
+            job,
+            status,
+            {
+                "verification": job.verification
+                or {
+                    "kind": "setup_failed",
+                    "original_failure": {"step": code, "summary": reason},
+                },
+                "dossier": {
+                    **((self.get_receipt(job.job_id) or {}).get("dossier") or {}),
+                    "outcome": status,
+                    "code": code,
+                    "interrupted_step": job.current_step,
+                },
+            },
+            reason,
+            {"reason": code},
+            {"current_step": status, "error": reason, "progress": 100},
+            include_verdict=True,
+        )
 
     def upsert_vuln_report(
         self,
@@ -1354,6 +1693,58 @@ class Ledger:
 
     # --- reconciliation (D41) --------------------------------------------------
 
+    def record_reaped_cleanup(
+        self,
+        job_id: str,
+        generation: int,
+        environment_id: str,
+        *,
+        confirmed: bool,
+        error: str | None,
+    ) -> None:
+        """Reconcile current job and receipt cleanup in one transaction (D57)."""
+        with self._conn:
+            # Serialize with writes that change the job's current generation.
+            lock = " FOR UPDATE" if self._conn.engine == "postgres" else ""
+            raw = self._conn.execute(
+                "SELECT * FROM jobs WHERE job_id = ?" + lock, (job_id,)
+            ).fetchone()
+            if raw is None:
+                return
+            job = self._row_to_job(raw)
+            if (
+                job.current_sandbox_generation != generation
+                or job.sandbox_id != environment_id
+                or job.destroyed_at is not None
+            ):
+                return
+            now = utc_now()
+            destroyed_at = now if confirmed else None
+            cleanup = CleanupState(
+                status="destroyed" if confirmed else "destroy_failed",
+                attempts=job.cleanup.attempts + 1,
+                last_error=None if confirmed else error,
+                updated_at=now,
+            )
+            self._write_job_fields_unlocked(
+                job_id, {"cleanup": cleanup, "destroyed_at": destroyed_at}
+            )
+            # Leave the terminal verdict and evidence intact. A live job may
+            # not have a receipt yet, so do not create one during reaping.
+            receipt = self.get_receipt(job_id)
+            if receipt is not None:
+                lifecycle = {
+                    **(receipt["lifecycle"] or {}),
+                    "cleanup": cleanup.status,
+                    "destroyed_at": destroyed_at,
+                    "confirmed": confirmed,
+                    "destroy_error": cleanup.last_error,
+                }
+                self._conn.execute(
+                    "UPDATE job_receipts SET lifecycle = ? WHERE job_id = ?",
+                    (_dumps(lifecycle), job_id),
+                )
+
     def reconcile_startup(
         self,
         *,
@@ -1370,12 +1761,20 @@ class Ledger:
         live = live_environment_ids
         live_gens: list[SandboxGeneration] = []
         expired: list[SandboxGeneration] = []
+        cleanup_retries: list[SandboxGeneration] = []
         notes: list[str] = []
 
         jobs = self.list_jobs()
         for job in jobs:
             for gen in self.list_sandbox_generations(job.job_id):
-                if gen.state in {"destroyed", "replaced", "failed"}:
+                needs_current_cleanup = (
+                    job.current_sandbox_generation == gen.generation
+                    and job.sandbox_id == gen.environment_id
+                    and job.destroyed_at is None
+                )
+                if gen.state in {"replaced", "failed"} or (
+                    gen.state == "destroyed" and not needs_current_cleanup
+                ):
                     continue
                 try:
                     exp = datetime.fromisoformat(gen.expires_at.replace("Z", "+00:00"))
@@ -1384,6 +1783,11 @@ class Ledger:
                     continue
                 if exp <= now:
                     expired.append(gen)
+                    continue
+                if needs_current_cleanup and job.status in TERMINAL_STATUSES:
+                    # Retry before expiry and recover if the worker stopped
+                    # after recording removal but before updating the receipt.
+                    cleanup_retries.append(gen)
                     continue
                 if live is not None and gen.environment_id not in live:
                     notes.append(
@@ -1405,6 +1809,7 @@ class Ledger:
             live_generations=live_gens,
             expired_generations=expired,
             orphan_notes=notes,
+            cleanup_retry_generations=cleanup_retries,
         )
 
     # --- row mappers -----------------------------------------------------------

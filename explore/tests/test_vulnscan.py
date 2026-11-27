@@ -73,8 +73,9 @@ def test_review_falls_back_to_highest_recorded_issue(draft: str) -> None:
         {"id": "low-1", "severity": "low", "title": "Minor issue"},
         {"id": "high-1", "severity": "high", "title": "Important warning"},
     ]
+    # Drafts cannot supply public prose or hide recorded lower severity findings.
     assert cite_checked_review(findings, draft) == (
-        "The scan flagged the following issue: Important warning [high-1]."
+        "Cite-checked review — high: Important warning [high-1] | low: Minor issue [low-1]"
     )
 
 

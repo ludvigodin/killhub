@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     sse_keepalive_seconds: int = Field(default=15, alias="SSE_KEEPALIVE_SECONDS")
     worker_poll_seconds: float = Field(default=1.0, alias="WORKER_POLL_SECONDS")
 
+    # Operator-controlled console settings. The guest creates no host-side socket paths.
+    novnc_enabled: bool = Field(default=False, alias="NOVNC_ENABLED")
+    novnc_socket_root: str = Field(default="", alias="NOVNC_SOCKET_ROOT")
+    novnc_allowed_origin: str = Field(default="", alias="NOVNC_ALLOWED_ORIGIN")
+    novnc_token_secret: SecretStr = Field(default=SecretStr(""), alias="NOVNC_TOKEN_SECRET")
+    novnc_operator_token: SecretStr = Field(default=SecretStr(""), alias="NOVNC_OPERATOR_TOKEN")
+
     # Vultr
     vultr_api_key: str = Field(default="", alias="VULTR_API_KEY")
     vultr_inference_base_url: str = Field(
@@ -30,6 +37,9 @@ class Settings(BaseSettings):
     )
     vultr_inference_api_key: str = Field(default="", alias="VULTR_INFERENCE_API_KEY")
     vultr_inference_model: str = Field(default="", alias="VULTR_INFERENCE_MODEL")
+    # The Plane 1 model resolver falls back to the existing default (D74).
+    vultr_inference_model_planner: str = Field(default="", alias="VULTR_INFERENCE_MODEL_PLANNER")
+    vultr_inference_model_review: str = Field(default="", alias="VULTR_INFERENCE_MODEL_REVIEW")
     # Optional extras on the same Killhub subscription (D75 under D25).
     vultr_inference_embedding_model: str = Field(
         default="",

@@ -1,0 +1,12 @@
+# Import inside the HTTPS site before the Next.js catch-all handler.
+# Only the job console upgrade reaches explore. The operator grant issuer stays private.
+@killhub_console {
+    method GET
+    path_regexp killhub_console ^/api/jobs/[0-9a-f-]{36}/novnc$
+    header Upgrade websocket
+}
+handle @killhub_console {
+    # The subprotocol carries a short-lived grant. Keep it out of edge access logs.
+    log_skip
+    reverse_proxy 127.0.0.1:8100
+}

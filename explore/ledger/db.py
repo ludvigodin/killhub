@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import re
 import sqlite3
-import threading
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
+from threading import RLock
 from typing import Any, Literal, Protocol
 
 from ledger.url import LedgerEngine, LedgerTarget, parse_ledger_url
@@ -38,6 +38,10 @@ class DbConnection(Protocol):
 
     def rollback(self) -> None: ...
 
+    def __enter__(self) -> DbConnection: ...
+
+    def __exit__(self, exc_type: object, exc: object, tb: object) -> None: ...
+
     def close(self) -> None: ...
 
     def backup_to(self, dest_path: Path) -> None: ...
@@ -52,7 +56,7 @@ def qmark_to_percent(sql: str) -> str:
 
 
 class _SqliteCursor:
-    """Rows fetched eagerly under the connection lock (see SqliteConnection)."""
+    """Cursor results are materialized under the connection lock before teardown."""
 
     def __init__(self, rows: list[sqlite3.Row]) -> None:
         self._rows = rows
@@ -78,13 +82,11 @@ class SqliteConnection:
 
     def __init__(self, conn: sqlite3.Connection, *, db_path: Path | None = None) -> None:
         self._conn = conn
+        # FastAPI handlers and the worker share this connection. A transaction
+        # holds the lock across its statements so another caller cannot join it.
+        self._lock = RLock()
         self.db_path = db_path
         self._conn.row_factory = sqlite3.Row
-        # One connection is shared by API threads, the worker thread and the
-        # reaper (check_same_thread=False). Closing it while another thread is
-        # inside a statement segfaults CPython's sqlite3, so every call into
-        # the connection — including close — is serialized here.
-        self._lock = threading.RLock()
 
     @classmethod
     def open(cls, path: Path) -> SqliteConnection:
@@ -96,8 +98,10 @@ class SqliteConnection:
         )
         wrapper = cls(conn, db_path=path)
         wrapper.execute("PRAGMA foreign_keys = ON")
-        wrapper.execute("PRAGMA journal_mode = WAL")
         wrapper.execute("PRAGMA busy_timeout = 5000")
+        wrapper.execute("PRAGMA journal_mode = WAL")
+        # WAL with NORMAL avoids a disk sync on every telemetry/event commit.
+        wrapper.execute("PRAGMA synchronous = NORMAL")
         return wrapper
 
     @classmethod
@@ -125,6 +129,7 @@ class SqliteConnection:
             raise
 
     def commit(self) -> None:
+        # A failed COMMIT leaves the lock held until the caller rolls back.
         self._conn.execute("COMMIT")
         self._lock.release()
 

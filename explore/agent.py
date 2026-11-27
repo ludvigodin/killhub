@@ -11,7 +11,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -27,6 +27,9 @@ DEFAULT_TRUSTED_CONFIG = Path(__file__).resolve().parent / "opencode" / "opencod
 PROVIDER_ID = "vultr"
 
 _UNTRUSTED_REPO_DOC_NAMES = frozenset({"agents.md", "agent.md"})
+InferenceRole = Literal["planner", "review"]
+# Alignment §6 assigns these cumulative limits within the existing job budget.
+_ROLE_TOKEN_LIMITS: dict[InferenceRole, int] = {"planner": 40_000, "review": 30_000}
 
 
 class AgentError(Exception):
@@ -243,29 +246,76 @@ def _resource_match(pattern: str, resource: str) -> bool:
     return re.fullmatch(escaped, resource) is not None
 
 
-def resolve_inference_model(settings: Settings | None = None) -> str:
+def resolve_inference_model(
+    settings: Settings | None = None, *, role: InferenceRole | None = None
+) -> str:
+    """Prefer the Plane 1 role override, then try the existing operator defaults."""
     cfg = settings or get_settings()
-    model = (cfg.vultr_inference_model or cfg.opencode_model or "").strip()
+    overrides = {
+        "planner": cfg.vultr_inference_model_planner,
+        "review": cfg.vultr_inference_model_review,
+    }
+    model = (
+        overrides.get(role, "").strip()
+        or cfg.vultr_inference_model.strip()
+        or cfg.opencode_model.strip()
+    )
     if not model:
         raise AgentError(
-            "VULTR_INFERENCE_MODEL (or OPENCODE_MODEL) is required",
+            "Configure a role model, VULTR_INFERENCE_MODEL, or OPENCODE_MODEL",
             code="inference_misconfigured",
         )
     return model
 
 
-def ensure_inference_ready(settings: Settings | None = None) -> tuple[str, str, str]:
-    """Return (base_url, api_key, model) or fail closed."""
-    cfg = settings or get_settings()
-    base = assert_vultr_inference(cfg)
-    key = (cfg.vultr_inference_api_key or "").strip()
+def vultr_inference_credentials(settings: Settings) -> tuple[str, str]:
+    """Validate the Vultr endpoint and server-side key for any inference operation."""
+    base = assert_vultr_inference(settings)
+    key = settings.vultr_inference_api_key.strip()
     if not key:
         raise AgentError(
             "VULTR_INFERENCE_API_KEY missing — fail closed (D25)",
             code="inference_unavailable",
         )
-    model = resolve_inference_model(cfg)
-    return base, key, model
+    return base, key
+
+
+def ensure_inference_ready(
+    settings: Settings | None = None, *, role: InferenceRole | None = None
+) -> tuple[str, str, str]:
+    """Return (base_url, api_key, model) for a chat operation or fail closed."""
+    cfg = settings or get_settings()
+    base, key = vultr_inference_credentials(cfg)
+    return base, key, resolve_inference_model(cfg, role=role)
+
+
+def _remaining_token_budget(
+    usage: dict[str, Any], settings: Settings, role: InferenceRole | None
+) -> int | None:
+    remaining = []
+    if settings.inference_budget_tokens_per_job > 0:
+        remaining.append(
+            settings.inference_budget_tokens_per_job - int(usage.get("total_tokens") or 0)
+        )
+    if role is not None:
+        role_usage = (usage.get("by_role") or {}).get(role, {})
+        remaining.append(_ROLE_TOKEN_LIMITS[role] - int(role_usage.get("total_tokens") or 0))
+    return min(remaining, default=None)
+
+
+def role_completion_limit(role: InferenceRole, *, job_id: str | None, settings: Settings) -> int:
+    """Bound completion by remaining tokens. Reconcile provider input charges afterward."""
+    usage: dict[str, Any] = {}
+    if job_id is not None:
+        job = get_ledger(settings).get_job(job_id)
+        if job is None:
+            raise AgentError(f"unknown job_id: {job_id}", code="not_found")
+        usage = job.inference_usage or {}
+    remaining = _remaining_token_budget(usage, settings, role)
+    assert remaining is not None
+    if remaining <= 0:
+        raise AgentError("inference token budget exhausted", code="inference_budget")
+    return remaining
 
 
 def chat_completion(
@@ -273,6 +323,7 @@ def chat_completion(
     *,
     job_id: str | None = None,
     settings: Settings | None = None,
+    role: InferenceRole | None = None,
     timeout: float = 60.0,
     client: httpx.Client | None = None,
 ) -> InferenceResult:
@@ -283,13 +334,16 @@ def chat_completion(
     """
     cfg = settings or get_settings()
     load_trusted_config(cfg)  # validate lockdown before any network call
-    base, api_key, model = ensure_inference_ready(cfg)
+    base, api_key, model = ensure_inference_ready(cfg, role=role)
     url = f"{base}/chat/completions"
     payload = {
         "model": model,
         "messages": messages,
-        "temperature": 0,
+        # The planner has a small sampling range. Review stays at zero (D74).
+        "temperature": 0.1 if role == "planner" else 0,
     }
+    if role is not None:
+        payload["max_completion_tokens"] = role_completion_limit(role, job_id=job_id, settings=cfg)
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
@@ -341,7 +395,7 @@ def chat_completion(
         raw=data if isinstance(data, dict) else {},
     )
     if job_id is not None:
-        record_inference_usage(job_id, result, settings=cfg)
+        record_inference_usage(job_id, result, settings=cfg, role=role)
     return result
 
 
@@ -350,34 +404,25 @@ def record_inference_usage(
     result: InferenceResult,
     *,
     settings: Settings | None = None,
+    role: InferenceRole | None = None,
 ) -> dict[str, Any]:
-    """Persist inference_model + cumulative usage toward budgets (D40)."""
+    """Keep existing job totals and add per-role model and usage evidence (D40, D74)."""
     cfg = settings or get_settings()
     ledger = get_ledger(cfg)
-    job = ledger.get_job(job_id)
-    if job is None:
-        raise AgentError(f"unknown job_id: {job_id}", code="not_found")
-
-    prev = job.inference_usage if isinstance(job.inference_usage, dict) else {}
-    usage = {
-        "prompt_tokens": int(prev.get("prompt_tokens") or 0) + result.prompt_tokens,
-        "completion_tokens": int(prev.get("completion_tokens") or 0) + result.completion_tokens,
-        "total_tokens": int(prev.get("total_tokens") or 0) + result.total_tokens,
-        "calls": int(prev.get("calls") or 0) + 1,
-        "budget_tokens": cfg.inference_budget_tokens_per_job,
-    }
-    budget = cfg.inference_budget_tokens_per_job
-    if budget > 0 and usage["total_tokens"] > budget:
-        ledger.append_event(
+    # This call has already spent the provider's tokens. Persist them even when
+    # a budget check rejects the response, so the next call sees the real total.
+    try:
+        usage = ledger.add_inference_usage(
             job_id,
-            typ="log",
-            message="inference budget exceeded",
-            payload={"kind": "inference", "usage": usage},
+            model=result.model,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+            total_tokens=result.total_tokens,
+            budget_tokens=cfg.inference_budget_tokens_per_job,
+            role=role,
         )
-        raise AgentError(
-            f"inference budget exceeded ({usage['total_tokens']} > {budget})",
-            code="inference_budget",
-        )
+    except KeyError as exc:
+        raise AgentError(f"unknown job_id: {job_id}", code="not_found") from exc
 
     # Rolling (cross-job) budget via admission store (D40 / D71).
     try:
@@ -389,15 +434,17 @@ def record_inference_usage(
 
         store = get_admission_store(cfg)
         added = int(result.total_tokens or 0)
-        store.check_rolling_inference(
-            tokens=added,
-            budget=cfg.inference_budget_tokens_rolling,
-            window_seconds=cfg.inference_budget_rolling_window_seconds,
-        )
-        store.record_inference_tokens(
-            added,
-            window_seconds=cfg.inference_budget_rolling_window_seconds,
-        )
+        try:
+            store.check_rolling_inference(
+                tokens=added,
+                budget=cfg.inference_budget_tokens_rolling,
+                window_seconds=cfg.inference_budget_rolling_window_seconds,
+            )
+        finally:
+            store.record_inference_tokens(
+                added,
+                window_seconds=cfg.inference_budget_rolling_window_seconds,
+            )
     except AdmissionRejected as exc:
         ledger.append_event(
             job_id,
@@ -409,11 +456,15 @@ def record_inference_usage(
     except AdmissionStoreError as exc:
         logger.error("rolling inference store error: %s", exc)
 
-    ledger.update_job_fields(
-        job_id,
-        inference_model=result.model,
-        inference_usage=usage,
-    )
+    remaining = _remaining_token_budget(usage, cfg, role)
+    if remaining is not None and remaining < 0:
+        ledger.append_event(
+            job_id,
+            typ="log",
+            message="inference budget exceeded",
+            payload={"kind": "inference", "role": role, "usage": usage},
+        )
+        raise AgentError("inference token budget exceeded", code="inference_budget")
     ledger.append_event(
         job_id,
         typ="log",
@@ -421,6 +472,7 @@ def record_inference_usage(
         payload={
             "kind": "inference",
             "model": result.model,
+            **({"role": role} if role is not None else {}),
             "prompt_tokens": result.prompt_tokens,
             "completion_tokens": result.completion_tokens,
             "total_tokens": result.total_tokens,
@@ -456,5 +508,10 @@ class EnvironmentAgent:
     def call_tool(self, name: str, **kwargs: Any) -> dict[str, Any]:
         return self.tools.call(name, **kwargs)
 
-    def infer(self, messages: list[dict[str, Any]]) -> InferenceResult:
-        return chat_completion(messages, job_id=self.job_id, settings=self.settings)
+    def infer(
+        self, messages: list[dict[str, Any]], *, client: httpx.Client | None = None
+    ) -> InferenceResult:
+        """Use the planner model and the shared Vultr transport for this job."""
+        return chat_completion(
+            messages, job_id=self.job_id, settings=self.settings, role="planner", client=client
+        )

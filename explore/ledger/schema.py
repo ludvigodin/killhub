@@ -5,8 +5,21 @@ are stored as TEXT containing JSON on both engines so application semantics
 stay the same.
 """
 
+# Comparisons are scoped to one guest generation, including after recovery.
+CHECKOUT_INTEGRITY_SQL = """
+CREATE TABLE IF NOT EXISTS sandbox_checkout_integrity (
+    job_id TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    digest_before TEXT,
+    digest_after TEXT,
+    PRIMARY KEY (job_id, generation),
+    FOREIGN KEY (job_id, generation) REFERENCES sandbox_generations(job_id, generation)
+        ON DELETE CASCADE
+)
+"""
+
 # Shared table/index DDL (no engine-specific pragmas).
-_TABLES_SQL = """
+_TABLES_SQL = f"""
 CREATE TABLE IF NOT EXISTS jobs (
     job_id TEXT PRIMARY KEY,
     github_url TEXT NOT NULL,
@@ -38,7 +51,7 @@ CREATE TABLE IF NOT EXISTS job_events (
     event_id TEXT NOT NULL,
     type TEXT NOT NULL,
     message TEXT NOT NULL,
-    payload TEXT NOT NULL DEFAULT '{}',
+    payload TEXT NOT NULL DEFAULT '{{}}',
     timestamp TEXT NOT NULL,
     byte_size INTEGER NOT NULL,
     PRIMARY KEY (job_id, event_id),
@@ -73,6 +86,8 @@ CREATE TABLE IF NOT EXISTS sandbox_generations (
     FOREIGN KEY (job_id) REFERENCES jobs(job_id) ON DELETE CASCADE
 );
 
+{CHECKOUT_INTEGRITY_SQL};
+
 CREATE TABLE IF NOT EXISTS screenshots (
     screenshot_id TEXT PRIMARY KEY,
     job_id TEXT NOT NULL,
@@ -97,7 +112,7 @@ CREATE TABLE IF NOT EXISTS job_receipts (
     verification TEXT,
     containment TEXT,
     lifecycle TEXT,
-    dossier TEXT NOT NULL DEFAULT '{}',
+    dossier TEXT NOT NULL DEFAULT '{{}}',
     FOREIGN KEY (job_id) REFERENCES jobs(job_id) ON DELETE CASCADE
 );
 

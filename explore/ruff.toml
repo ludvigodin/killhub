@@ -1,5 +1,5 @@
-# Runtime image is 3.12; host test venv may be 3.9 — keep syntax portable.
-target-version = "py39"
+# Keep lint changes compatible with the Python 3.10 local gate and 3.12 runtime.
+target-version = "py310"
 line-length = 100
 src = ["."]
 

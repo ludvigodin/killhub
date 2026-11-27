@@ -59,7 +59,7 @@ def test_vultr_like_repo_gets_python_git_mcp_profile() -> None:
     assert profile["verification_target"] == "original_application"
     assert profile["mcp"]["transport"] == "stdio"
     assert profile["mcp"]["launch_command"]["argv"] == [".venv/bin/python", "-m", "vultr_mcp"]
-    assert profile["install_commands"][1]["argv"] == ["uv", "sync", "--frozen", "--no-dev"]
+    assert profile["commands"]["install"][1]["argv"] == ["uv", "sync", "--frozen", "--no-dev"]
     assert "original_failure" not in profile
 
 
@@ -82,7 +82,7 @@ def test_console_script_preferred_when_declared() -> None:
         oci_image="debian",
     )
     assert profile["mcp"]["launch_command"]["argv"] == [".venv/bin/weather-mcp"]
-    assert "uv pip install" in profile["install_commands"][1]["shell"]
+    assert "uv pip install" in profile["commands"]["install"][1]["shell"]
 
 
 def test_requirements_only_server() -> None:

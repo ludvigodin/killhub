@@ -26,10 +26,10 @@ type BatchUrlFormProps = {
 
 function admissionHint(code?: string, status?: number): string | null {
   if (code === "rate_limited" || status === 429) {
-    return "Rate limited - wait a moment, then retry the remaining URLs.";
+    return "Rate limited — wait a moment, then retry the remaining URLs.";
   }
   if (code === "queue_full" || status === 503) {
-    return "Queue is full - try again when active jobs finish.";
+    return "Queue is full — try again when active jobs finish.";
   }
   if (code === "inference_budget") {
     return "Inference budget exhausted for this demo window.";
@@ -67,7 +67,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
     setBatchError(null);
     const urls = parseGithubUrlLines(text);
     if (urls.length === 0) {
-      setBatchError("Paste a public git URL.");
+      setBatchError("Paste a public HTTPS GitHub repository URL.");
       return;
     }
 
@@ -79,8 +79,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
           out.push({
             url: raw,
             ok: false,
-            error:
-              "Must be a public HTTPS git URL on github.com, gitlab.com, bitbucket.org, or codeberg.org",
+            error: "URL must be a public HTTPS GitHub repository",
             code: "invalid_url",
             status: 400,
           });
@@ -88,7 +87,13 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
         }
         try {
           const cleaned = validateGithubUrl(raw);
-          const { job_id } = await createJob(cleaned);
+          // Catalog URLs submit their registered ID so the worker owns pin selection.
+          const fixture = catalog?.fixtures.find(
+            (item) => item.github_url === cleaned,
+          );
+          const { job_id } = await createJob(
+            fixture ? { fixture_id: fixture.id } : cleaned,
+          );
           out.push({ url: cleaned, ok: true, job_id });
         } catch (err) {
           const e = err as Error & { code?: string; status?: number };
@@ -128,7 +133,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
     <div className="w-full">
       <form className="flex w-full flex-col gap-3" onSubmit={onSubmit}>
         <label className="sr-only" htmlFor="github-urls">
-          Public git repository URL
+          Public HTTPS GitHub repository URL
         </label>
         <div className="mx-auto flex w-full max-w-md flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-stretch">
           <input
@@ -171,11 +176,6 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
             </button>
           </div>
         </div>
-        <p className="mx-auto max-w-md text-center text-xs text-(--muted)">
-          GitHub shortcut:{" "}
-          <span className="font-mono">killhub.pro/owner/repo</span> starts a
-          scan automatically.
-        </p>
       </form>
       {catalog?.restricted && (
         <div className="mt-3 flex flex-wrap gap-2">
@@ -194,7 +194,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
       )}
       {invalidPreview.length > 0 ? (
         <p className="mt-2 text-center text-sm text-(--muted)">
-          That URL doesn&apos;t look valid yet.
+          Enter a public HTTPS GitHub repository URL.
         </p>
       ) : null}
       {batchError ? (
@@ -210,7 +210,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
             >
               {r.ok
                 ? `✓ ${r.url} → ${r.job_id}`
-                : `✗ ${r.url} - ${r.error}${r.code ? ` (${r.code})` : ""}`}
+                : `✗ ${r.url} — ${r.error}${r.code ? ` (${r.code})` : ""}`}
             </li>
           ))}
         </ul>

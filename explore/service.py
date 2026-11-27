@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import math
 from datetime import datetime, timezone
 from typing import Any
 
@@ -14,7 +13,7 @@ from admission import (
 )
 from config import Settings, get_settings
 from fixtures import match_fixture
-from git_url import validate_public_git_url
+from git_url import parse_public_git_url
 from jobs import get_ledger
 from ledger import Ledger
 from ledger.store import utc_now
@@ -197,7 +196,8 @@ def queue_info_for_job(
     position = earlier + 1
     slots = max(1, int(settings.max_concurrent_jobs or 1))
     estimate = _estimated_job_seconds(ledger, settings)
-    expected = math.ceil((position - 1 + running) / slots) * estimate
+    # Jobs that fit into the current free slots can start without waiting.
+    expected = ((position - 1 + running) // slots) * estimate
     return {
         "queue_position": position,
         "expected_wait_seconds": int(expected),
@@ -228,53 +228,66 @@ def create_job(
     settings: Settings | None = None,
     client_ip: str | None = None,
 ) -> Job:
-    """Admit + create ledger row, then Plane-1 pre-flight (D45) before any msb."""
-    from preflight import apply_preflight_to_job, run_preflight
+    """Admit, run Plane 1 preflight, then publish the job and decision (D45)."""
+    from preflight import run_preflight
+
+    # New jobs must match the canonical GitHub runtime profile before reserving capacity.
+    target = parse_public_git_url(github_url)
+    if target.host != "github.com":
+        raise ValueError("URL must be a public HTTPS GitHub repository")
+    github_url = target.url
 
     cfg = settings or get_settings()
+    fixture = match_fixture(github_url)
+    # Carry a catalog pin in the same write that makes the job claimable.
+    fixture_commit = (fixture or {}).get("commit")
     if cfg.public_demo_fixtures_only:
-        github_url = validate_public_git_url(github_url)
-        fixture = match_fixture(github_url)
-        if not fixture or not fixture.get("public_demo") or not fixture.get("commit"):
+        if not fixture or not fixture.get("public_demo") or not fixture_commit:
             raise AdmissionError(
                 "Demo intake accepts only pinned repositories listed at /api/fixtures.",
                 "demo_fixture_required",
                 403,
             )
     _enforce_admission(cfg, client_ip=client_ip)
-    ledger = get_ledger(cfg)
-    running = sum(1 for j in ledger.list_jobs() if j.status in RUNNING_STATUSES)
-    initial_status: JobStatus
-    if running >= cfg.max_concurrent_jobs:
-        initial_status = "queued"
-        initial_step = "in queue"
-    else:
-        initial_status = "pending"
-        initial_step = "accepted"
     try:
+        # Finish network checks before creating any row a worker could claim.
+        result = run_preflight(github_url, settings=cfg)
+        ledger = get_ledger(cfg)
+        if (
+            result.ok_to_bootstrap
+            and get_admission_store(cfg).backend != "valkey"
+            and _ledger_capacity_full(cfg)
+        ):
+            # Other requests may have filled the local queue during the metadata lookup.
+            raise AdmissionError("Job concurrency and queue are full", "queue_full", 503)
+        running = sum(1 for j in ledger.list_jobs() if j.status in RUNNING_STATUSES)
+        initial_status: JobStatus = "queued" if running >= cfg.max_concurrent_jobs else "pending"
+        initial_step = "in queue" if initial_status == "queued" else "accepted"
+        # The host reaper reads this immutable deadline from the sandbox label.
+        lifetime = cfg.env_ttl_seconds
+        if cfg.job_timeout_seconds > 0:
+            lifetime = min(lifetime, cfg.job_timeout_seconds)
         job = ledger.create_job(
             github_url,
-            env_ttl_seconds=cfg.env_ttl_seconds,
+            env_ttl_seconds=lifetime,
+            resolved_commit=fixture_commit,
             status=initial_status,
             current_step=initial_step,
+            preflight=result,
         )
     except Exception:
-        # Undo Valkey queue reservation if ledger create fails.
+        # Every failed publication releases the reservation made before preflight.
         release_admission_slot(was_running=False, settings=cfg)
         raise
-    result = run_preflight(job.github_url, settings=cfg)
-    if not result.meta.get("skipped"):
-        apply_preflight_to_job(job.job_id, result, settings=cfg)
-    refreshed = ledger.get_job(job.job_id)
-    assert refreshed is not None
-    # Preflight may terminal-fail the job before claim — release queued slot.
-    if refreshed.status in TERMINAL:
+    # Use the preflight decision so a fast worker cannot race this reservation release.
+    if not result.ok_to_bootstrap:
         release_admission_slot(was_running=False, settings=cfg)
-    return refreshed
+    return job
 
 
-def get_public_snapshot(job_id: str) -> dict[str, Any] | None:
-    cfg = get_settings()
+def get_public_snapshot(job_id: str, *, settings: Settings | None = None) -> dict[str, Any] | None:
+    """Return the ledger snapshot with the current queue estimate."""
+    cfg = settings or get_settings()
     ledger = get_ledger(cfg)
     snap = ledger.get_snapshot(job_id)
     if snap is None:
@@ -499,9 +512,30 @@ def _run_cancel_finalizer(ledger: Ledger, job_id: str) -> None:
     assert job is not None
     destroyed_at = utc_now() if destroy_result.confirmed else None
     cleanup_status = "destroyed" if destroy_result.confirmed else "destroy_failed"
-    ledger.update_job_fields(
+    prior_receipt = ledger.get_receipt(job_id) or {}
+    # Keep completed probes and persist the cancelled verdict with terminal state.
+    ledger.finalize_job(
         job_id,
-        finalizer=True,
+        status="cancelled",
+        include_verdict=True,
+        receipt={
+            "verification": job.verification,
+            "containment": prior_receipt.get("containment")
+            or {"status": "skipped", "reason": "cancel_before_probes"},
+            "lifecycle": {
+                "cancel": True,
+                "destroyed_at": destroyed_at,
+                "cleanup": cleanup_status,
+                "destroy_error": destroy_result.error,
+                # The host checkpoint reaper requires positive receipt evidence.
+                "confirmed": destroy_result.confirmed,
+            },
+            "dossier": {
+                **(prior_receipt.get("dossier") or {}),
+                "outcome": "cancelled",
+                "cancel_requested_at": job.cancel_requested_at or now,
+            },
+        },
         cleanup=CleanupState(
             status=cleanup_status,
             attempts=1,
@@ -510,37 +544,7 @@ def _run_cancel_finalizer(ledger: Ledger, job_id: str) -> None:
         ),
         destroyed_at=destroyed_at,
         current_step="cancelled",
-    )
-
-    ledger.upsert_receipt(
-        job_id,
-        verification=job.verification,
-        containment={"status": "skipped", "reason": "cancel_before_probes"},
-        lifecycle={
-            "cancel": True,
-            "destroyed_at": destroyed_at,
-            "cleanup": cleanup_status,
-            "destroy_error": destroy_result.error,
-        },
-        dossier={
-            "outcome": "cancelled",
-            "cancel_requested_at": job.cancel_requested_at or now,
-        },
-    )
-
-    ledger.update_job_fields(
-        job_id,
-        finalizer=True,
-        status="cancelled",
         progress=100,
-        current_step="cancelled",
-    )
-    ledger.append_event(
-        job_id,
-        typ="status",
-        message="cancelled",
-        payload={"status": "cancelled"},
-        finalizer=True,
     )
     release_admission_slot(was_running=was_running)
 
@@ -557,12 +561,12 @@ def _pipeline_flags_enabled(cfg: Settings) -> bool:
     )
 
 
-def claim_pending_job() -> Job | None:
-    """Background worker: pick the oldest pending/queued job and move it to analyzing."""
+def claim_pending_job(*, settings: Settings | None = None) -> Job | None:
+    """Background worker: pick the oldest pending or queued job and move it to analyzing."""
     from stall import reason_for_misconfigured_worker
 
     global _pipeline_flags_warned
-    cfg = get_settings()
+    cfg = settings or get_settings()
     if not _pipeline_flags_enabled(cfg):
         # D83: do not claim into a stub with no runner; leave jobs pending/queued.
         if not _pipeline_flags_warned:
@@ -573,32 +577,15 @@ def claim_pending_job() -> Job | None:
     for job in ledger.list_jobs():
         if job.status not in QUEUED_STATUSES:
             continue
-        if job.cancel_requested_at is not None:
+        updated = ledger.try_claim_pending_job(job.job_id)
+        if updated is None:
             continue
-        try:
-            updated = ledger.update_job_fields(
-                job.job_id,
-                status="analyzing",
-                current_step="analyzing",
-                progress=5,
-                steps_completed=["pending"],
-            )
-            ledger.append_event(
-                job.job_id,
-                typ="status",
-                message="analyzing",
-                payload={"status": "analyzing", "kind": "agent"},
-            )
-            ledger.append_event(
-                job.job_id,
-                typ="log",
-                message="background worker claimed job",
-                payload={"kind": "agent"},
-            )
-            store = get_admission_store(cfg)
-            if store.backend == "valkey":
-                store.on_claimed()
-            return updated
-        except Ledger.WriterFrozenError:
+        if updated.status == "failed":
+            # Expiry never took a running slot.
+            release_admission_slot(was_running=False, settings=cfg)
             continue
+        store = get_admission_store(cfg)
+        if store.backend == "valkey":
+            store.on_claimed()
+        return updated
     return None

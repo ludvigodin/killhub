@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 
@@ -43,6 +45,25 @@ def test_reopen_keeps_data_and_version(db_path: Path) -> None:
         assert ledger.schema_version == latest_version()
 
 
+def test_shared_sqlite_ledger_serializes_concurrent_events(db_path: Path) -> None:
+    """API and worker threads share a ledger, so their writes must commit independently."""
+    with Ledger(db_path) as ledger:
+        job = ledger.create_job(URL, env_ttl_seconds=60)
+        workers = 8
+        barrier = Barrier(workers)
+
+        def append(index: int) -> None:
+            barrier.wait(timeout=5)
+            ledger.append_event(job.job_id, typ="log", message=f"writer {index}")
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            list(pool.map(append, range(workers)))
+
+        events = ledger.list_events(job.job_id, after_event_id=job.event_cursor)
+        assert {event.message for event in events} == {f"writer {i}" for i in range(workers)}
+        assert [event.event_id for event in events] == [str(i) for i in range(2, workers + 2)]
+
+
 def test_pending_migrations_apply_in_order_with_backup(db_path: Path) -> None:
     with Ledger(db_path) as ledger:
         job = ledger.create_job(URL, env_ttl_seconds=60)
@@ -57,10 +78,15 @@ def test_pending_migrations_apply_in_order_with_backup(db_path: Path) -> None:
         applied.append(3)
         conn.execute("CREATE INDEX idx_jobs_status ON jobs(status)")
 
-    migrations = [Migration(3, "index", add_index), Migration(2, "column", add_column)]
+    # Exercise custom migrations after the project's current schema.
+    initial = latest_version()
+    migrations = [
+        Migration(initial + 2, "index", add_index),
+        Migration(initial + 1, "column", add_column),
+    ]
     conn = sqlite3.connect(db_path, isolation_level=None)
     try:
-        assert migrate(conn, db_path, migrations) == 3
+        assert migrate(conn, db_path, migrations) == initial + 2
         row = conn.execute(
             "SELECT target_type FROM jobs WHERE job_id = ?", (job.job_id,)
         ).fetchone()
@@ -70,14 +96,13 @@ def test_pending_migrations_apply_in_order_with_backup(db_path: Path) -> None:
     assert applied == [2, 3]
     assert row is not None
     assert row[0] == "github_repo"
-    assert _meta(db_path, "schema_version") == "3"
-    backup = db_path.with_name(f"{db_path.name}.pre-v2.bak")
+    assert _meta(db_path, "schema_version") == str(initial + 2)
+    backup = db_path.with_name(f"{db_path.name}.pre-v{initial + 1}.bak")
     assert backup.exists()
     with sqlite3.connect(backup) as bconn:
-        assert (
-            bconn.execute("SELECT value FROM ledger_meta WHERE key='schema_version'").fetchone()[0]
-            == "1"
-        )
+        assert bconn.execute("SELECT value FROM ledger_meta WHERE key='schema_version'").fetchone()[
+            0
+        ] == str(initial)
 
 
 def test_failed_migration_rolls_back_and_keeps_version(db_path: Path) -> None:
@@ -90,12 +115,12 @@ def test_failed_migration_rolls_back_and_keeps_version(db_path: Path) -> None:
     conn = sqlite3.connect(db_path, isolation_level=None)
     try:
         with pytest.raises(RuntimeError, match="migration failed"):
-            migrate(conn, db_path, [Migration(2, "boom", boom)])
+            migrate(conn, db_path, [Migration(latest_version() + 1, "boom", boom)])
         cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
     finally:
         conn.close()
     assert "half_done" not in cols
-    assert _meta(db_path, "schema_version") == "1"
+    assert _meta(db_path, "schema_version") == str(latest_version())
 
 
 def test_newer_ledger_is_refused(db_path: Path) -> None:
@@ -110,10 +135,14 @@ def test_legacy_ledger_without_meta_is_treated_as_v1(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True)
     with sqlite3.connect(db_path) as conn:
         conn.executescript(SCHEMA_SQL)
+        # Recreate the v1 shape so opening the ledger exercises the real migration.
+        conn.execute("DROP TABLE sandbox_checkout_integrity")
         conn.execute("DROP TABLE ledger_meta")
     with Ledger(db_path) as ledger:
-        assert ledger.schema_version == 1
-    assert _meta(db_path, "schema_version") == "1"
+        assert ledger.schema_version == latest_version()
+    assert _meta(db_path, "schema_version") == str(latest_version())
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM sandbox_checkout_integrity").fetchone() == (0,)
 
 
 def test_migration_versions_must_be_unique(db_path: Path) -> None:
@@ -179,6 +208,29 @@ def test_finalize_job_merges_existing_receipt(db_path: Path) -> None:
         assert receipt is not None
         assert receipt["containment"] == {"claim": "complete"}
         assert receipt["dossier"] == {"b": 2}
+
+
+def test_invalid_verdict_keeps_terminal_write_atomic(db_path: Path) -> None:
+    """A verdict validation failure must leave the last durable state intact."""
+    from jsonschema import ValidationError
+
+    from verdict import verdict_validator
+
+    with Ledger(db_path) as ledger:
+        job = ledger.create_job(URL, env_ttl_seconds=60)
+        prior = ledger.upsert_receipt(job.job_id, dossier={"evidence": "prior"})
+        invalid_job = ledger.update_job_fields(job.job_id, resolved_commit="")
+        with pytest.raises(ValidationError):
+            ledger.finalize_job(job.job_id, status="failed", receipt={}, include_verdict=True)
+        assert ledger.get_receipt(job.job_id) == prior
+        assert ledger.get_job(job.job_id) == invalid_job
+        assert [event.payload["status"] for event in ledger.list_events(job.job_id)] == ["pending"]
+        # A rollback also releases the writer lock for a subsequent valid finalize.
+        ledger.update_job_fields(job.job_id, resolved_commit="a" * 40)
+        final = ledger.finalize_job(job.job_id, status="failed", receipt={}, include_verdict=True)
+        assert final.status == "failed"
+        verdict = ledger.get_receipt(job.job_id)["dossier"]["detonation_verdict"]
+        assert verdict_validator().is_valid(verdict)
 
 
 def test_finalize_job_rolls_back_on_bad_field(db_path: Path) -> None:
@@ -344,6 +396,17 @@ def test_upsert_vuln_report_fills_missing_severity_and_title(db_path: Path) -> N
         assert report["findings"] == [
             {"id": "canary-1", "source": "canary", "severity": "medium", "title": "canary-1"}
         ]
+
+
+def test_verdict_identifies_non_github_git_target(tmp_path: Path) -> None:
+    # The legacy input field also carries public URLs on other supported hosts.
+    url = "https://gitlab.com/example/nested/project"
+    with Ledger(tmp_path / "ledger.db") as ledger:
+        job = ledger.create_job(url, env_ttl_seconds=60)
+        ledger.finalize_job(job.job_id, status="failed", receipt={}, include_verdict=True)
+        target = ledger.get_receipt(job.job_id)["dossier"]["detonation_verdict"]["target"]
+        assert target["source_type"] == "git_repo"
+        assert target["locator"] == url
 
 
 def test_shared_sqlite_ledger_serializes_concurrent_writers(db_path):

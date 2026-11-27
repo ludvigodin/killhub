@@ -32,7 +32,8 @@ async def worker_loop(settings: Settings | None = None) -> None:
     )
     while True:
         try:
-            claimed = await asyncio.to_thread(claim_pending_job)
+            # Claim using the same settings that govern this worker's deadline.
+            claimed = await asyncio.to_thread(claim_pending_job, settings=cfg)
             if claimed is not None:
                 logger.info("claimed job %s", claimed.job_id)
                 # claim_pending_job fails misconfigured workers (D83); remaining
@@ -202,6 +203,8 @@ def _fail_claimed_job(job_id: str, exc: Exception, *, ledger: Ledger, settings: 
         ledger.finalize_job(
             job_id,
             status="failed",
+            # Preserve failure evidence after upstream sandbox recovery is exhausted.
+            include_verdict=True,
             receipt={
                 "verification": job.verification
                 or {"kind": "setup_failed", "original_failure": {"summary": message}},

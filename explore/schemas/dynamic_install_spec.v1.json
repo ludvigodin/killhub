@@ -1,0 +1,502 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://killhub.dev/schemas/dynamic_install_spec.v1.json",
+  "title": "Killhub Dynamic Install Spec (v1)",
+  "description": "Input JSON contract produced by the Plane 1 Environment/Install Planner Agent to turn a cloned GitHub repo or MCP registry target into a runnable Ubuntu 24.04 detonation microVM with mounts, canary seeds, TAP/mitmdump network policy, IPC, and 3-layer kill switch limits (R3, DECISIONS.md D15, D69-D72).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "spec_id",
+    "target",
+    "base_image",
+    "dependencies",
+    "install_commands",
+    "launch",
+    "mounts_and_seeds",
+    "network_policy",
+    "kill_switch_limits"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "spec_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique identifier for this dynamic install specification."
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_type", "locator", "resolved_ref", "entrypoint"],
+      "properties": {
+        "source_type": {
+          "type": "string",
+          "enum": ["github_repo", "npm_package", "pypi_package", "fixture"],
+          "description": "Target intake source category (D15)."
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Public GitHub HTTPS URL, npm/PyPI package specifier, or pinned fixture id."
+        },
+        "resolved_ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Pinned git commit SHA, package version, or fixture version."
+        },
+        "package_name": {
+          "type": ["string", "null"],
+          "description": "Resolved package name when applicable."
+        },
+        "entrypoint": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Executable binary, module, or script entrypoint inside the microVM."
+        }
+      }
+    },
+    "base_image": {
+      "type": "string",
+      "const": "ubuntu-24.04-killhub",
+      "description": "Pre-baked Ubuntu 24.04 base image containing python, pip, uv, Node 22+, git, strace, OpenCode, @modelcontextprotocol/inspector, and noVNC (D69)."
+    },
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["python", "uv", "node", "system_packages"],
+      "properties": {
+        "python": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "version": { "type": "string" },
+            "packages": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "uv": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "version": { "type": "string" },
+            "tool_installs": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "node": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "version": { "type": "string" },
+            "packages": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "system_packages": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "install_commands": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/InstallCommand"
+      },
+      "description": "Ordered installation steps utilizing /run/mcp-package-cache tmpfs and baked mitmproxy root CA TLS environment variables."
+    },
+    "launch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cwd", "argv", "env_overrides", "mcp_transport"],
+      "properties": {
+        "cwd": {
+          "type": "string",
+          "minLength": 1
+        },
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "env_overrides": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "mcp_transport": {
+          "type": "string",
+          "enum": ["stdio", "streamable_http", "none"]
+        },
+        "http_port": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 65535
+        }
+      }
+    },
+    "mounts_and_seeds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rootfs_readonly",
+        "overlayfs",
+        "workspace_size_cap_mb",
+        "canary_paths",
+        "opencode_seeds",
+        "package_cache_tmpfs",
+        "tls_ca",
+        "ipc"
+      ],
+      "properties": {
+        "rootfs_readonly": {
+          "type": "boolean",
+          "const": true,
+          "description": "Base Ubuntu 24.04 rootfs is mounted read-only."
+        },
+        "overlayfs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "lowerdir", "upperdir", "workdir", "merged"],
+          "properties": {
+            "enabled": { "type": "boolean", "const": true },
+            "lowerdir": { "type": "string", "minLength": 1 },
+            "upperdir": { "type": "string", "minLength": 1 },
+            "workdir": { "type": "string", "minLength": 1 },
+            "merged": { "type": "string", "minLength": 1 }
+          }
+        },
+        "workspace_size_cap_mb": {
+          "type": "integer",
+          "minimum": 32,
+          "maximum": 16384,
+          "default": 1024,
+          "description": "Size cap in MiB for the writable /workspace mount."
+        },
+        "canary_paths": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["workspace_env", "ssh_dir", "aws_dir"],
+          "properties": {
+            "workspace_env": {
+              "type": "string",
+              "const": "/workspace/.env"
+            },
+            "ssh_dir": {
+              "type": "string",
+              "const": "/home/agent/.ssh"
+            },
+            "aws_dir": {
+              "type": "string",
+              "const": "/home/agent/.aws"
+            },
+            "extra_paths": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "opencode_seeds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["db_path", "config_dir", "gitconfig_path", "llm_proxy_url"],
+          "properties": {
+            "db_path": {
+              "type": "string",
+              "const": "/home/agent/.local/share/opencode/opencode.db"
+            },
+            "config_dir": {
+              "type": "string",
+              "const": "/home/agent/.config/opencode"
+            },
+            "gitconfig_path": {
+              "type": "string",
+              "const": "/home/agent/.gitconfig"
+            },
+            "llm_proxy_url": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Host-side Plane 1 Vultr Inference proxy endpoint reachable over hypervisor IPC."
+            }
+          }
+        },
+        "package_cache_tmpfs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mount_path", "size_cap_mb"],
+          "properties": {
+            "mount_path": {
+              "type": "string",
+              "const": "/run/mcp-package-cache"
+            },
+            "size_cap_mb": {
+              "type": "integer",
+              "minimum": 32,
+              "maximum": 8192
+            }
+          }
+        },
+        "tls_ca": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ca_cert_path", "env_vars"],
+          "properties": {
+            "ca_cert_path": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Path to baked mitmproxy root CA certificate in the microVM."
+            },
+            "env_vars": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS"],
+              "properties": {
+                "SSL_CERT_FILE": { "type": "string", "minLength": 1 },
+                "REQUESTS_CA_BUNDLE": { "type": "string", "minLength": 1 },
+                "NODE_EXTRA_CA_CERTS": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        },
+        "ipc": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["transport"],
+          "properties": {
+            "transport": {
+              "type": "string",
+              "enum": ["af_vsock", "uds", "mgmt0"]
+            },
+            "vsock_device": {
+              "type": "string",
+              "default": "/dev/vsock"
+            },
+            "vsock_cid": {
+              "type": "integer",
+              "minimum": 2
+            },
+            "control_port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "telemetry_port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "uds_path": { "type": "string", "minLength": 1 },
+            "mgmt_iface": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "network_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "tap_mitmdump",
+        "drop_doh_dot_quic",
+        "pcap_enabled",
+        "canary_blocking",
+        "deny_control_plane",
+        "deny_siblings"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["install", "monitored_detonation", "offline_verify"]
+        },
+        "tap_mitmdump": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "transparent_http_https", "transparent_dns"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "tap_interface": { "type": "string", "minLength": 1 },
+            "listen_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "transparent_http_https": { "type": "boolean" },
+            "transparent_dns": { "type": "boolean" }
+          }
+        },
+        "drop_doh_dot_quic": {
+          "type": "boolean",
+          "const": true,
+          "description": "Drop DNS-over-HTTPS (443 known DoH), DNS-over-TLS (853), and QUIC (UDP/443) to prevent DNS bypass."
+        },
+        "pcap_enabled": {
+          "type": "boolean",
+          "description": "Capture optional host-side tcpdump PCAP on the TAP bridge."
+        },
+        "canary_blocking": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "block_http", "block_dns"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "block_http": { "type": "boolean" },
+            "block_dns": { "type": "boolean" }
+          }
+        },
+        "deny_control_plane": {
+          "type": "boolean",
+          "const": true
+        },
+        "deny_siblings": {
+          "type": "boolean",
+          "const": true
+        }
+      }
+    },
+    "kill_switch_limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layer1_llm_proxy", "layer2_cgroup_v2", "layer3_watchdog"],
+      "properties": {
+        "layer1_llm_proxy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["max_turns", "max_tokens", "oscillation_detection", "http_status_on_trip"],
+          "properties": {
+            "max_turns": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 12
+            },
+            "max_tokens": {
+              "type": "integer",
+              "minimum": 1000,
+              "default": 60000
+            },
+            "oscillation_detection": {
+              "type": "boolean",
+              "default": true
+            },
+            "repeated_call_threshold": {
+              "type": "integer",
+              "minimum": 2,
+              "default": 3
+            },
+            "http_status_on_trip": {
+              "type": "integer",
+              "const": 429
+            }
+          }
+        },
+        "layer2_cgroup_v2": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["memory_max", "memory_swap_max", "pids_max", "cpu_max", "monitor_events"],
+          "properties": {
+            "memory_max": {
+              "type": "string",
+              "pattern": "^[0-9]+[KMG]?$",
+              "default": "512M"
+            },
+            "memory_swap_max": {
+              "type": "string",
+              "const": "0",
+              "default": "0"
+            },
+            "pids_max": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 64
+            },
+            "cpu_max": {
+              "type": "string",
+              "pattern": "^[0-9]+ [0-9]+$",
+              "default": "100000 100000"
+            },
+            "monitor_events": {
+              "type": "boolean",
+              "const": true,
+              "description": "Watch memory.events and pids.events for cgroup limit hits."
+            }
+          }
+        },
+        "layer3_watchdog": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["wall_clock_seconds", "flush_telemetry_before_kill", "teardown_tap_iptables_overlay"],
+          "properties": {
+            "wall_clock_seconds": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 3600
+            },
+            "flush_telemetry_before_kill": {
+              "type": "boolean",
+              "const": true
+            },
+            "flush_grace_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 30,
+              "default": 5
+            },
+            "teardown_tap_iptables_overlay": {
+              "type": "boolean",
+              "const": true
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "InstallCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timeout_seconds"],
+      "oneOf": [
+        { "required": ["argv"] },
+        { "required": ["shell"] }
+      ],
+      "properties": {
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "shell": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cwd": {
+          "type": "string",
+          "minLength": 1,
+          "default": "/workspace"
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "cache_dir": {
+          "type": "string",
+          "const": "/run/mcp-package-cache"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1800
+        }
+      }
+    }
+  }
+}

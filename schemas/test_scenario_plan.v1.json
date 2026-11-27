@@ -1,0 +1,293 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://killhub.dev/schemas/test_scenario_plan.v1.json",
+  "title": "Killhub Test Scenario Plan (v1)",
+  "description": "Output of the Discovery (@modelcontextprotocol/inspector + Python MCP SDK fallback) to Test-Planner Agent pipeline, generating structured detonation scenarios mapped to MITRE ATLAS tactics and OWASP MCP Top 10 (R4, DECISIONS.md D73).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "scan_id",
+    "discovery",
+    "target_atlas_tactics",
+    "target_owasp_mcp",
+    "scenarios"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1"
+    },
+    "scan_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "discovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inspector_method",
+        "protocol_version",
+        "server_info",
+        "t0_tools_sha256",
+        "tools",
+        "resources",
+        "prompts"
+      ],
+      "properties": {
+        "inspector_method": {
+          "type": "string",
+          "enum": ["mcp_inspector_cli", "python_mcp_sdk_fallback"]
+        },
+        "protocol_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "server_info": {
+          "type": "object",
+          "required": ["name"],
+          "additionalProperties": true,
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "version": { "type": "string" }
+          }
+        },
+        "t0_tools_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA-256 of canonicalized initial tools/list capability manifest."
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "additionalProperties": true,
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "description": { "type": "string" },
+              "input_schema": { "type": "object" }
+            }
+          }
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["uri"],
+            "additionalProperties": true,
+            "properties": {
+              "uri": { "type": "string", "minLength": 1 },
+              "name": { "type": "string" },
+              "description": { "type": "string" },
+              "mime_type": { "type": "string" }
+            }
+          }
+        },
+        "prompts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "additionalProperties": true,
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "description": { "type": "string" },
+              "arguments": { "type": "array" }
+            }
+          }
+        }
+      }
+    },
+    "target_atlas_tactics": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/AtlasTacticId"
+      }
+    },
+    "target_owasp_mcp": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/OwaspMcpId"
+      }
+    },
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/TestScenario"
+      }
+    }
+  },
+  "$defs": {
+    "AtlasTacticId": {
+      "type": "string",
+      "enum": [
+        "AML.TA0000",
+        "AML.TA0001",
+        "AML.TA0002",
+        "AML.TA0003",
+        "AML.TA0004",
+        "AML.TA0005",
+        "AML.TA0006",
+        "AML.TA0007",
+        "AML.TA0008",
+        "AML.TA0009",
+        "AML.TA0010",
+        "AML.TA0011",
+        "AML.TA0012",
+        "AML.TA0013",
+        "AML.TA0014",
+        "AML.TA0015"
+      ]
+    },
+    "OwaspMcpId": {
+      "type": "string",
+      "enum": [
+        "MCP01:2025",
+        "MCP02:2025",
+        "MCP03:2025",
+        "MCP04:2025",
+        "MCP05:2025",
+        "MCP06:2025",
+        "MCP07:2025",
+        "MCP08:2025",
+        "MCP09:2025",
+        "MCP10:2025"
+      ]
+    },
+    "SensorId": {
+      "type": "string",
+      "enum": [
+        "mitmdump_http",
+        "mitmdump_dns",
+        "tcpdump_pcap",
+        "strace",
+        "overlayfs",
+        "mcp_wire_tap",
+        "cgroup_v2",
+        "llm_proxy",
+        "canary_monitor",
+        "inspector_diff",
+        "opencode_db_audit",
+        "hypervisor_watchdog"
+      ]
+    },
+    "TriggerStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["step_index", "action"],
+      "properties": {
+        "step_index": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tool_name": {
+          "type": "string"
+        },
+        "arguments": {
+          "type": "object"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "expected_observation": {
+          "type": "string"
+        }
+      }
+    },
+    "TestScenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scenario_id",
+        "title",
+        "demo_fixture_id",
+        "category",
+        "atlas_tactics",
+        "owasp_mcp",
+        "trigger_steps",
+        "expected_invariants",
+        "catching_sensors",
+        "max_turns"
+      ],
+      "properties": {
+        "scenario_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "demo_fixture_id": {
+          "type": ["string", "null"]
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "indirect_prompt_injection",
+            "tool_rug_pull",
+            "supply_chain_backdoor",
+            "credential_exfiltration",
+            "tool_drift_shadowing",
+            "resource_exhaustion",
+            "command_injection",
+            "auth_bypass",
+            "custom"
+          ]
+        },
+        "atlas_tactics": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/AtlasTacticId"
+          }
+        },
+        "owasp_mcp": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/OwaspMcpId"
+          }
+        },
+        "trigger_steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/TriggerStep"
+          }
+        },
+        "expected_invariants": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "catching_sensors": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/SensorId"
+          }
+        },
+        "max_turns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12
+        }
+      }
+    }
+  }
+}

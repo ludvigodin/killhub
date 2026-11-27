@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from ledger.db import SqliteConnection, upsert_meta_sql, wrap_connection
-from ledger.schema import SCHEMA_SQL, SCHEMA_SQL_POSTGRES
+from ledger.schema import CHECKOUT_INTEGRITY_SQL, SCHEMA_SQL, SCHEMA_SQL_POSTGRES
 from ledger.url import LedgerEngine
 
 
@@ -36,9 +36,15 @@ class LedgerVersionError(RuntimeError):
     """The ledger was written by a newer schema than this build knows."""
 
 
-# v1 is the baseline created by SCHEMA_SQL; later versions are appended here.
-MIGRATIONS: tuple[Migration, ...] = ()
 BASELINE_VERSION = 1
+
+
+def _add_checkout_integrity(conn: Any) -> None:
+    """Add nullable evidence for live generations without rewriting older rows."""
+    conn.execute(CHECKOUT_INTEGRITY_SQL)
+
+
+MIGRATIONS = (Migration(2, "sandbox checkout digests", _add_checkout_integrity),)
 
 
 def latest_version(migrations: Sequence[Migration] = MIGRATIONS) -> int:

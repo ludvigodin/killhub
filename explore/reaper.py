@@ -26,11 +26,12 @@ from harness import (
     HarnessError,
     MsbCli,
     destroy_environment,
+    exact_sandbox_names,
     list_live_environment_ids,
+    stop_and_remove_sandbox,
 )
 from jobs import get_ledger, init_ledger
-from ledger.store import utc_now
-from models import CleanupState
+from models import SandboxGeneration
 
 logger = logging.getLogger("killhub.reaper")
 
@@ -74,19 +75,18 @@ def reap_expired_from_ledger(
     report = ledger.reconcile_startup(live_environment_ids=live, now=now)
     actions: list[dict[str, Any]] = []
 
-    for gen in report.expired_generations:
-        if gen.state in {"destroyed", "replaced"}:
-            continue
+    due = [(gen, "expires_at") for gen in report.expired_generations]
+    due.extend((gen, "cleanup_retry") for gen in report.cleanup_retry_generations)
+    for gen, reason in due:
         logger.info(
-            "reaping expired generation job=%s env=%s expires_at=%s",
+            "reaping generation job=%s env=%s reason=%s",
             gen.job_id,
             gen.environment_id,
-            gen.expires_at,
+            reason,
         )
         result = _destroy_for_reaper(
-            gen.job_id,
-            gen.environment_id,
-            reason="expires_at",
+            gen,
+            reason=reason,
             settings=cfg,
             cli=msb,
         )
@@ -94,7 +94,7 @@ def reap_expired_from_ledger(
             {
                 "job_id": gen.job_id,
                 "environment_id": gen.environment_id,
-                "reason": "expires_at",
+                "reason": reason,
                 "confirmed": result.confirmed,
                 "error": result.error,
             }
@@ -185,16 +185,11 @@ def reap_expired_from_host(
                 settings=cfg,
                 cli=msb,
                 finalizer=True,
+                reconcile_cleanup=True,
             )
-        except Exception as exc:  # noqa: BLE001 — host path must still remove
+        except Exception:  # noqa: BLE001 — host path must still remove
             logger.exception("ledger-aware destroy failed for %s", env_id)
-            stop = msb.stop(env_id, force=True)
-            remove = msb.remove(env_id, force=True)
-            result = DestroyResult(
-                confirmed=remove.ok,
-                error=None if remove.ok else (remove.stderr or str(exc)),
-            )
-            _ = stop
+            result = stop_and_remove_sandbox(env_id, cli=msb, force_stop=True)
         actions.append(
             {
                 "job_id": job_id,
@@ -205,16 +200,6 @@ def reap_expired_from_host(
             }
         )
     return actions
-
-
-def exact_sandbox_names(cli: MsbCli) -> set[str]:
-    inventory = cli.run(["list", "--format", "json"], timeout=60, check=True)
-    rows = json.loads(inventory.stdout)
-    if not isinstance(rows, list) or not all(
-        isinstance(r, dict) and isinstance(r.get("name"), str) and r["name"].strip() for r in rows
-    ):
-        raise ValueError("unexpected sandbox inventory")
-    return {r["name"] for r in rows}
 
 
 def recover_interrupted_jobs(settings: Settings, cli: MsbCli) -> None:
@@ -251,7 +236,8 @@ def recover_interrupted_jobs(settings: Settings, cli: MsbCli) -> None:
     leftover = {job.sandbox_id for job in with_vm if job.sandbox_id in live}
     for env_id in sorted(leftover):
         logger.warning("removing sandbox %s left running by the previous worker", env_id)
-        cli.remove(env_id, force=True)
+        # Keep the shared stop/remove fallback before verifying fresh inventory.
+        stop_and_remove_sandbox(env_id, cli=cli, force_stop=True)
     if leftover:
         live = exact_sandbox_names(cli)
     for job in with_vm:
@@ -305,59 +291,32 @@ def reap_terminal_checkpoints(settings: Settings, cli: MsbCli) -> list[dict[str,
 
 
 def _destroy_for_reaper(
-    job_id: str,
-    environment_id: str,
+    generation: SandboxGeneration,
     *,
     reason: str,
     settings: Settings,
     cli: MsbCli,
 ) -> DestroyResult:
     ledger = get_ledger(settings)
+    job_id, environment_id = generation.job_id, generation.environment_id
     job = ledger.get_job(job_id)
-    attempts = (job.cleanup.attempts if job else 0) + 1
-    now = utc_now()
-    if job is not None:
-        ledger.update_job_fields(
-            job_id,
-            finalizer=True,
-            cleanup=CleanupState(
-                status="destroying",
-                attempts=attempts,
-                updated_at=now,
-            ),
-        )
-    result = destroy_environment(
+    # A name can be reused after recovery. Let the current generation's own
+    # expiry control whether to stop it.
+    if (
+        job is not None
+        and job.sandbox_id == environment_id
+        and job.current_sandbox_generation != generation.generation
+    ):
+        return DestroyResult(False, "Sandbox name belongs to a newer generation")
+    return destroy_environment(
         environment_id,
         job_id=job_id,
         reason=reason,
         settings=settings,
         cli=cli,
         finalizer=True,
+        reconcile_cleanup=True,
     )
-    if job is not None:
-        if result.confirmed:
-            ledger.update_job_fields(
-                job_id,
-                finalizer=True,
-                cleanup=CleanupState(
-                    status="destroyed",
-                    attempts=attempts,
-                    updated_at=utc_now(),
-                ),
-                destroyed_at=utc_now(),
-            )
-        else:
-            ledger.update_job_fields(
-                job_id,
-                finalizer=True,
-                cleanup=CleanupState(
-                    status="destroy_failed",
-                    attempts=attempts,
-                    last_error=result.error,
-                    updated_at=utc_now(),
-                ),
-            )
-    return result
 
 
 async def reaper_loop(settings: Settings | None = None) -> None:

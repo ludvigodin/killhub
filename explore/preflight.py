@@ -16,9 +16,6 @@ from urllib.parse import urlparse
 
 from config import Settings, get_settings
 from git_url import ALLOWED_GIT_HOSTS, parse_public_git_url
-from jobs import get_ledger
-from ledger.store import utc_now
-from models import CleanupState
 
 logger = logging.getLogger("killhub.preflight")
 
@@ -374,66 +371,4 @@ def run_preflight(
         ok_to_bootstrap=len(hard) == 0,
         findings=findings,
         meta=meta,
-    )
-
-
-def apply_preflight_to_job(
-    job_id: str,
-    result: PreflightResult,
-    *,
-    settings: Settings | None = None,
-) -> None:
-    """Persist preflight log/finding events; hard-fail marks terminal failed (no msb)."""
-    cfg = settings or get_settings()
-    ledger = get_ledger(cfg)
-
-    ledger.append_event(
-        job_id,
-        typ="log",
-        message="preflight completed" if result.ok_to_bootstrap else "preflight hard-fail",
-        payload={
-            "kind": "preflight",
-            "ok_to_bootstrap": result.ok_to_bootstrap,
-            "finding_count": len(result.findings),
-            "hard_count": len(result.hard_findings),
-            "meta": {
-                k: v for k, v in result.meta.items() if k in {"owner", "repo", "host", "skipped"}
-            },
-        },
-    )
-
-    for finding in result.findings:
-        ledger.append_event(
-            job_id,
-            typ="finding",
-            message=finding.message,
-            payload=finding.to_event_payload(),
-        )
-
-    if result.ok_to_bootstrap:
-        return
-
-    now = utc_now()
-    hard_msgs = "; ".join(f.message for f in result.hard_findings)[:500]
-    # Receipt, status event and terminal status in one transaction (D61).
-    ledger.finalize_job(
-        job_id,
-        status="failed",
-        receipt={
-            "verification": {"kind": "preflight_failed"},
-            "containment": {"status": "skipped", "reason": "preflight_hard_fail"},
-            "lifecycle": {"preflight": False, "sandbox_created": False},
-            "dossier": {
-                "outcome": "failed",
-                "reason": "preflight_hard_fail",
-                "findings": [f.to_event_payload() for f in result.findings],
-            },
-        },
-        event_message="failed",
-        event_payload={"reason": "preflight"},
-        progress=100,
-        current_step="preflight hard-fail",
-        error=hard_msgs or "preflight hard-fail",
-        cleanup=CleanupState(status="destroyed", attempts=0, updated_at=now),
-        destroyed_at=now,
     )

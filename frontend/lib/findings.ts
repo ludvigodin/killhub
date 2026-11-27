@@ -99,6 +99,14 @@ export function securityVerdict(job: JobSnapshot) {
     reasons.some(
       (r) => r === "policy_bypass" || r === "containment_policy_bypass",
     );
+  // The persisted verdict can carry runtime evidence absent from legacy receipts.
+  const runtime = (
+    job.detonation_verdict ??
+    job.receipt?.detonation_verdict ??
+    job.receipt?.dossier?.detonation_verdict
+  )?.verdict;
+  const runtimeRisk =
+    runtime?.status === "SUSPICIOUS" || runtime?.status === "MALICIOUS";
   const target = (job.verification ?? job.receipt?.verification)?.kind;
   const gaps: string[] = [];
   if (!report) gaps.push("No vulnerability report is available for this run.");
@@ -128,13 +136,18 @@ export function securityVerdict(job: JobSnapshot) {
   if (job.receipt?.containment?.claim !== "proven")
     gaps.push("Sandbox isolation was not fully verified.");
 
-  if (bypass || counts.critical || counts.high)
+  if (runtime?.status === "ABORTED" || runtime?.status === "INCONCLUSIVE")
+    gaps.push(runtime.summary);
+
+  if (runtimeRisk || bypass || counts.critical || counts.high)
     return {
       label: "High risk",
       color: "var(--danger)",
-      reason: bypass
-        ? "A sandbox isolation check recorded a policy bypass."
-        : "The scan reported a high or critical finding. Review it before running this code.",
+      reason: runtimeRisk
+        ? runtime.summary
+        : bypass
+          ? "A sandbox isolation check recorded a policy bypass."
+          : "The scan reported a high or critical finding. Review it before running this code.",
       gaps,
     };
   if (

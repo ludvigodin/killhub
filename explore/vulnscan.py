@@ -233,7 +233,11 @@ def _parse_toml_lock(text: str) -> list[tuple[str, str]]:
     workspace members, VCS pins) are skipped: OSV can't match them as PyPI
     releases.
     """
-    import tomllib
+    # Keep lockfile scanning available in the supported Python 3.10 environment.
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        import tomli as tomllib
 
     data = tomllib.loads(text)
     pkgs: list[tuple[str, str]] = []
@@ -638,58 +642,71 @@ def run_mcp_assessment_if_planned(
     return detail
 
 
-def _checked_draft(findings: list[dict[str, Any]], draft: str) -> str | None:
-    priorities = {str(f["id"]): review_priority(f) for f in findings if f.get("id")}
-    if not priorities:
-        return None
-    highest = min(priorities.values())
-    kept: list[str] = []
-    mentions_highest = False
-    for sentence in re.split(r"(?<=[.!?])\s+", draft.strip()):
-        cited = set(re.findall(r"\[([^]\n]+)\]", sentence))
-        if cited and cited <= priorities.keys():
-            kept.append(sentence)
-            mentions_highest |= any(priorities[i] == highest for i in cited)
-    summary = " ".join(kept)
-    if mentions_highest and len(kept) <= 2 and len(summary.split()) <= 60:
-        return summary
-    return None
+_REVIEW_SEVERITIES = ("critical", "high", "medium", "low", "info")
+_REVIEW_ID = re.compile(r"[a-zA-Z0-9_-]{1,120}")
+_REVIEW_CITATION = re.compile(r"\[([a-zA-Z0-9_-]{1,120})\]")
+
+
+def _render_review(findings: list[dict[str, Any]], draft: str | None) -> tuple[str, bool]:
+    """Allow draft priorities while deriving all public claims from recorded findings."""
+    from inference_extras import redact_inference_text
+
+    if not findings:
+        return "No findings recorded.", False
+    evidence = {
+        item_id: finding
+        for finding in findings
+        if isinstance(item_id := finding.get("id"), str)
+        and _REVIEW_ID.fullmatch(item_id)
+        and redact_inference_text(item_id) == item_id
+    }
+    if not evidence:
+        return "Recorded findings are available in the full report.", False
+
+    # Treat model output as an optional ordered selection of IDs, never as public text.
+    selected: dict[str, None] = {}
+    for line in (draft or "").splitlines():
+        citation = _REVIEW_CITATION.fullmatch(line.strip())
+        if citation and citation[1] in evidence:
+            selected[citation[1]] = None
+    by_severity: dict[str, list[str]] = {sev: [] for sev in _REVIEW_SEVERITIES}
+    for item_id in dict.fromkeys((*selected, *evidence)):
+        finding = evidence[item_id]
+        severity = str(finding.get("severity") or "info").lower()
+        by_severity[severity if severity in by_severity else "info"].append(item_id)
+
+    parts: list[str] = []
+    for severity, group in by_severity.items():
+        for item_id in group[:5]:
+            # Only the citation appended here can name a finding. Brackets in
+            # an advisory title are display text and must not count as citations.
+            title = redact_inference_text(str(evidence[item_id].get("title") or ""))
+            title = " ".join(title.replace("[", "(").replace("]", ")").split())[:300]
+            # Special cases use the recorded advisory or policy classification.
+            finding = evidence[item_id]
+            if _advisory_id_only(finding):
+                package = redact_inference_text(str(finding.get("package") or "a dependency"))
+                package = " ".join(package.replace("[", "(").replace("]", ")").split())[:300]
+                parts.append(
+                    f"An advisory lists {package} as affected [{item_id}]. "
+                    "Check the advisory for a fixed version."
+                )
+            elif (
+                finding.get("source") == "network"
+                and (finding.get("detail") or {}).get("classification") == "policy_denied"
+            ):
+                parts.append(f"The sandbox blocked a network connection as expected [{item_id}].")
+            else:
+                parts.append(f"{severity}: {title or 'Recorded finding'} [{item_id}]")
+    if len(parts) < len(evidence):
+        parts.append("See the full report for additional findings.")
+    return "Cite-checked review — " + " | ".join(parts), bool(selected)
 
 
 def cite_checked_review(findings: list[dict[str, Any]], draft: str | None = None) -> str:
-    """Build a short review grounded in identified findings (D48)."""
-    if not findings:
-        return "No findings recorded."
-    findings = [f for f in findings if f.get("id")]
-    if not findings:
-        return "The scan recorded findings without identifiers. Review the details below."
-    finding = min(findings, key=review_priority)
-    citation = f"[{finding['id']}]"
-    if _advisory_id_only(finding):
-        package = finding.get("package") or "a project dependency"
-        return (
-            f"A security advisory lists {package} as affected {citation}. "
-            "The scan did not establish how this affects the application. "
-            "Check the advisory for a fixed version before running the project."
-        )
-    if review_priority(finding) == 5:
-        if (
-            finding.get("source") == "network"
-            and (finding.get("detail") or {}).get("classification") == "policy_denied"
-        ):
-            return f"The sandbox blocked a network connection as expected {citation}."
-        return f"The scan recorded an informational observation {citation}."
-    if draft and (summary := _checked_draft(findings, draft)):
-        return summary
-    title = " ".join(str(finding.get("title") or "Issue flagged").split())
-    if len(title) > 140:
-        title = title[:137].rstrip() + "…"
-    if finding.get("source") == "sca" and finding.get("package"):
-        return (
-            f"A published security warning applies to {finding['package']}: {title} {citation}. "
-            "Check the advisory for a fixed version before running the project."
-        )
-    return f"The scan flagged the following issue: {title} {citation}."
+    """Build a D48 review whose cited claims are limited to persisted findings."""
+    summary, _ = _render_review(findings, draft)
+    return summary
 
 
 def run_vuln_scan(
@@ -754,24 +771,23 @@ def run_vuln_scan(
         if str(f.get("id")) not in known:
             all_findings.append(f)
 
-    # Optional AI draft (chat or RAG) then cite-filter (D48 / D75). Fail closed.
+    # Optional AI prioritization (chat or RAG) cannot introduce review text.
     draft: str | None = None
     review_mode = "deterministic"
     try:
         from inference_extras import draft_vuln_review, maybe_seed_embeddings_for_findings
 
-        ranked = sorted(all_findings, key=review_priority)
-        if ranked and review_priority(ranked[0]) != 5 and not _advisory_id_only(ranked[0]):
-            draft = draft_vuln_review([ranked[0]], job_id=job_id, settings=cfg)
-        if draft := _checked_draft(ranked[:1], draft or ""):
-            review_mode = "llm_rag" if (cfg.vultr_rag_collection or "").strip() else "llm"
+        draft = draft_vuln_review(all_findings, job_id=job_id, settings=cfg)
         # Optional document embeddings for advisory indexing — never required.
         maybe_seed_embeddings_for_findings(all_findings, job_id=job_id, settings=cfg)
     except Exception as exc:  # noqa: BLE001
         logger.info("vuln_review extras skipped: %s", exc.__class__.__name__)
 
     status = "partial" if copy_incomplete and sca_status == "ok" else sca_status
-    summary = with_active_summary(draft or cite_checked_review(all_findings), all_findings)
+    summary, selected = _render_review(all_findings, draft)
+    if selected:
+        review_mode = "llm_rag" if (cfg.vultr_rag_collection or "").strip() else "llm"
+    summary = with_active_summary(summary, all_findings)
     if not lock_host:
         summary = f"{summary} No dependency files were available for scanning."
     elif status == "failed":

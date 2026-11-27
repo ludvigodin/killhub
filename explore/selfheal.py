@@ -22,7 +22,8 @@ from datetime import datetime, timezone
 
 from config import Settings, get_settings
 from errors import HarnessError
-from harness import MsbCli
+from harness import MsbCli, stop_and_remove_sandbox
+from ledger.store import utc_now
 
 logger = logging.getLogger("killhub.selfheal")
 
@@ -94,10 +95,15 @@ def heal_lost_sandbox(
             "heal_attempt": attempt,
         },
     )
+    # Never reuse the job's sandbox name while a prior VM may still own it.
+    removal = stop_and_remove_sandbox(env_id, cli=msb, force_stop=True)
+    if not removal.confirmed:
+        logger.warning("sandbox recovery blocked for job %s: %s", job_id, removal.error)
+        return False
     if job.current_sandbox_generation is not None:
-        ledger.mark_generation_state(job_id, job.current_sandbox_generation, "failed")
-    # Best-effort remnant cleanup so the deterministic name can be reused.
-    msb.remove(env_id, force=True)
+        ledger.mark_generation_state(
+            job_id, job.current_sandbox_generation, "failed", destroyed_at=utc_now()
+        )
     ledger.update_job_fields(
         job_id,
         sandbox_id=None,

@@ -12,7 +12,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from profile import (
+    CGROUP_LIMITS,
     GUEST_REPO_ROOT,
+    SCHEMA_VERSION,
     ProfileError,
     bootstrap_profile,
     persist_profile_revision,
@@ -363,9 +365,7 @@ def python_mcp_signal(text: str) -> dict[str, Any] | None:
     }
 
 
-def _python_mcp_profile(
-    *, source: dict[str, Any], oci_image: str, signal: dict[str, Any]
-) -> dict[str, Any]:
+def _python_mcp_profile(*, base: dict[str, Any], signal: dict[str, Any]) -> dict[str, Any]:
     """git_mcp profile for a Python MCP server over stdio, installed with uv."""
     root = GUEST_REPO_ROOT
     install_uv = (
@@ -397,22 +397,21 @@ def _python_mcp_profile(
         entry = f"python -m {signal['name']}"
     launch = _cmd(argv, timeout=60, cwd=root)
     return {
-        "schema_version": "1",
+        # Keep the same pinned source and sandbox policy as other runtime profiles.
+        **base,
         "intent": "git_mcp",
-        "source": source,
         "runtime": "python",
-        "os_image": "linux",
-        "oci_image": oci_image,
-        "workdir": root,
-        "services": [],
         "packages": ["ca-certificates", "curl", "python3"],
-        "install_commands": [
-            # Killhub-added tooling: traced, but not attributed to the repo.
-            {"shell": install_uv, "cwd": root, "timeout_seconds": 300, "killhub_tooling": True},
-            deps,
-        ],
-        "run_commands": [launch],
+        "commands": {
+            "install": [
+                # This host-defined tooling step must not count as target behavior.
+                {"shell": install_uv, "cwd": root, "timeout_seconds": 300, "killhub_tooling": True},
+                deps,
+            ],
+            "run": [launch],
+        },
         "processes": [],
+        "probes": [{"name": "mcp-handshake", "type": "mcp_handshake", "timeout_seconds": 60}],
         "ports": [],
         "summary": f"Python MCP server from pinned checkout ({entry}, stdio)",
         "verification_target": "original_application",
@@ -477,15 +476,25 @@ def infer_runtime_profile(
             code="setup_failed_fixture",
         )
 
-    source = {
-        "type": "git",
-        "url": github_url,
-        "commit": commit,
-        "ref": (fixture or {}).get("ref") or "HEAD",
+    base = {
+        "schema_version": SCHEMA_VERSION,
+        "source": {
+            "type": "github_repo",
+            "url": github_url,
+            "commit": commit,
+            "ref": (fixture or {}).get("ref") or "HEAD",
+        },
+        "os_image": "linux",
+        "oci_image": oci_image,
+        "workdir": GUEST_REPO_ROOT,
+        "services": [],
+        # These fields declare the policy requested for the workload.
+        "network_mode": "install",
+        "cgroup_limits": dict(CGROUP_LIMITS),
     }
 
     if intent == "git_mcp" and python_mcp:
-        return _python_mcp_profile(source=source, oci_image=oci_image, signal=python_mcp)
+        return _python_mcp_profile(base=base, signal=python_mcp)
 
     if intent == "git_mcp":
         mcp_meta = (fixture or {}).get("mcp") or {
@@ -498,35 +507,33 @@ def infer_runtime_profile(
         guest_workdir = f"{GUEST_REPO_ROOT}/{workdir_rel}"
         launch_bin = str(mcp_meta.get("launch_bin") or "dist/index.js")
         return {
-            "schema_version": "1",
+            **base,
             "intent": "git_mcp",
-            "source": source,
             "runtime": "node",
-            "os_image": "linux",
-            "oci_image": oci_image,
             "workdir": guest_workdir,
-            "services": [],
             # Fixture requires Node >= 24 for @modelcontextprotocol/server-filesystem.
             "packages": ["ca-certificates", "curl", "python3"],
-            "install_commands": [
-                {
-                    "shell": (
-                        "curl -fsSL https://deb.nodesource.com/setup_24.x | bash - "
-                        "&& apt-get install -y -qq nodejs"
+            "commands": {
+                "install": [
+                    {
+                        "shell": (
+                            "curl -fsSL https://deb.nodesource.com/setup_24.x | bash - "
+                            "&& apt-get install -y -qq nodejs"
+                        ),
+                        "cwd": guest_workdir,
+                        "timeout_seconds": 600,
+                    },
+                    _cmd(["npm", "install"], timeout=600, cwd=guest_workdir),
+                    _cmd(["npm", "run", "build"], timeout=600, cwd=guest_workdir),
+                ],
+                "run": [
+                    _cmd(
+                        ["node", launch_bin, GUEST_REPO_ROOT],
+                        timeout=60,
+                        cwd=guest_workdir,
                     ),
-                    "cwd": guest_workdir,
-                    "timeout_seconds": 600,
-                },
-                _cmd(["npm", "install"], timeout=600, cwd=guest_workdir),
-                _cmd(["npm", "run", "build"], timeout=600, cwd=guest_workdir),
-            ],
-            "run_commands": [
-                _cmd(
-                    ["node", launch_bin, GUEST_REPO_ROOT],
-                    timeout=60,
-                    cwd=guest_workdir,
-                )
-            ],
+                ],
+            },
             "processes": [
                 {
                     "name": "mcp-filesystem",
@@ -540,6 +547,7 @@ def infer_runtime_profile(
                 }
             ],
             "ports": [],
+            "probes": [{"name": "mcp-handshake", "type": "mcp_handshake", "timeout_seconds": 30}],
             "summary": "MCP filesystem server from pinned checkout (stdio)",
             "verification_target": "original_application",
             "mcp": {
@@ -566,21 +574,14 @@ def infer_runtime_profile(
 
     if intent == "webapp":
         return {
-            "schema_version": "1",
+            **base,
             "intent": "webapp",
-            "source": source,
             "runtime": "node",
-            "os_image": "linux",
-            "oci_image": oci_image,
-            "workdir": GUEST_REPO_ROOT,
-            "services": [],
             "packages": ["nodejs", "npm"],
-            "install_commands": [
-                _cmd(["npm", "install"], timeout=600, cwd=GUEST_REPO_ROOT),
-            ],
-            "run_commands": [
-                _cmd(["npm", "start"], timeout=60, cwd=GUEST_REPO_ROOT),
-            ],
+            "commands": {
+                "install": [_cmd(["npm", "install"], timeout=600, cwd=GUEST_REPO_ROOT)],
+                "run": [_cmd(["npm", "start"], timeout=60, cwd=GUEST_REPO_ROOT)],
+            },
             "processes": [
                 {
                     "name": "web",
@@ -598,64 +599,40 @@ def infer_runtime_profile(
                     "name": "http-root",
                     "type": "http",
                     "url": "http://127.0.0.1:5000/",
-                    "accept": [200, 301, 302],
+                    "expected_statuses": [200, 301, 302],
                     "timeout_seconds": 10,
                 }
             ],
         }
 
     # demo
+    demo_argv = ["python3", "-m", "http.server", "8000", "--bind", "127.0.0.1"]
     return {
-        "schema_version": "1",
+        **base,
         "intent": "demo",
-        "source": source,
         "runtime": "python",
-        "os_image": "linux",
-        "oci_image": oci_image,
-        "workdir": GUEST_REPO_ROOT,
-        "services": [],
         "packages": ["python3"],
-        "install_commands": [],
-        "run_commands": [
-            _cmd(
-                [
-                    "python3",
-                    "-m",
-                    "http.server",
-                    "8000",
-                    "--bind",
-                    "127.0.0.1",
-                ],
-                timeout=60,
-                cwd=GUEST_REPO_ROOT,
-            )
-        ],
+        "commands": {
+            "install": [],
+            "run": [_cmd(demo_argv, timeout=60, cwd=GUEST_REPO_ROOT)],
+        },
         "processes": [
             {
                 "name": "demo-http",
-                "command": _cmd(
-                    ["python3", "-m", "http.server", "8000", "--bind", "127.0.0.1"],
-                    timeout=3600,
-                    cwd=GUEST_REPO_ROOT,
-                ),
+                "command": _cmd(demo_argv, timeout=3600, cwd=GUEST_REPO_ROOT),
                 "supervise": "restart",
                 "ready_after_seconds": 1,
             }
         ],
         "ports": [8000],
-        "summary": "Minimal generated HTTP demo over the checkout tree",
+        "summary": "No webapp or MCP fit was found. Generated a minimal HTTP demo.",
         "verification_target": "generated_demo",
-        # Visible on receipt when demo is used instead of original app (D54).
-        "original_failure": {
-            "step": "discover",
-            "summary": "no git_mcp/webapp fit; generated minimal HTTP demo",
-        },
         "probes": [
             {
                 "name": "http-root",
                 "type": "http",
                 "url": "http://127.0.0.1:8000/",
-                "accept": [200],
+                "expected_statuses": [200],
                 "timeout_seconds": 10,
             }
         ],
@@ -687,7 +664,14 @@ def discover_runtime_profile(
         raise DiscoverError(f"unknown job_id: {job_id}", code="not_found")
 
     fixture = match_fixture(job.github_url)
-    pin = str(fixture["commit"]) if fixture and fixture.get("commit") else None
+    catalog_pin = str(fixture["commit"]) if fixture and fixture.get("commit") else None
+    # A queued fixture's recorded commit takes precedence over the current catalog.
+    # If the fixture changed, its current build metadata may no longer fit that commit.
+    if job.resolved_commit is not None and catalog_pin and job.resolved_commit != catalog_pin:
+        raise DiscoverError("Fixture pin changed after admission", code="fixture_pin_changed")
+    pin = job.resolved_commit if job.resolved_commit is not None else catalog_pin
+    if pin is not None and not _SHA_RE.fullmatch(pin):
+        raise DiscoverError("Invalid recorded Git commit", code="invalid_commit")
     oci_image = (cfg.msb_default_image or "debian").strip()
 
     # Trusted prompts are host-owned (never submitted-repo AGENTS.md).

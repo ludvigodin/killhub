@@ -10,8 +10,9 @@ function labelFor(snapshot: JobSnapshot): string {
   if (snapshot.destroyed_at) return "destroyed";
   if (cleanup === "destroy_failed") return "destroy_failed";
   if (cleanup === "destroying") return "destroying";
-  if (snapshot.status === "completed")
-    return "completed (sandbox cleanup pending?)";
+  // Job status and sandbox lifecycle have independent evidence.
+  if (snapshot.environment?.state) return snapshot.environment.state;
+  if (snapshot.status === "completed") return "Cleanup unconfirmed";
   if (snapshot.readiness?.passed) return "readiness passed";
   if (snapshot.readiness && snapshot.readiness.passed === false) {
     return "readiness failed";
@@ -70,7 +71,7 @@ function failureCallout(
   if (kind === "setup_failed") {
     return { title: "Setup failure", body };
   }
-  return null;
+  return { title: "Original setup failure", body };
 }
 
 export function EnvStatus({ snapshot }: EnvStatusProps) {
@@ -83,7 +84,9 @@ export function EnvStatus({ snapshot }: EnvStatusProps) {
   const usageLine = formatUsage(snapshot.inference_usage);
   const failure = failureCallout(kind, verification?.original_failure);
   const profilePhase =
-    typeof snapshot.profile?.phase === "string" ? snapshot.profile.phase : null;
+    snapshot.profile && "phase" in snapshot.profile
+      ? snapshot.profile.phase
+      : null;
   const cleanupAttempts =
     typeof snapshot.cleanup?.attempts === "number"
       ? snapshot.cleanup.attempts
@@ -121,6 +124,12 @@ export function EnvStatus({ snapshot }: EnvStatusProps) {
           <dd className="font-mono text-xs">
             {snapshot.current_profile_revision ?? "-"}
             {profilePhase ? ` · ${profilePhase}` : ""}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-(--muted)">Resolved commit</dt>
+          <dd className="break-all font-mono text-xs">
+            {snapshot.resolved_commit ?? "—"}
           </dd>
         </div>
         <div>
@@ -168,7 +177,7 @@ export function EnvStatus({ snapshot }: EnvStatusProps) {
             {kind || "-"}
             {kind === "generated_demo" ? (
               <span className="mt-1 block text-xs font-normal text-(--muted)">
-                Generated demo - does not prove the original application works.
+                Readiness applies to the generated demo.
               </span>
             ) : null}
             {kind === "setup_failed" ? (
