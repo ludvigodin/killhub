@@ -134,7 +134,7 @@ Repo-grouped feed for the home Entries grid (D79). One row per distinct canonica
 }
 ```
 
-`total` is `COUNT(DISTINCT github_url)`. `latest` uses the same summary shape as `GET /api/jobs`. UI links each card to `/repos/{host}/{…path}` (e.g. `/repos/github.com/org/repo`), which lists runs via `GET /api/jobs?github_url=…`.
+`total` is `COUNT(DISTINCT github_url)`. `latest` uses the same summary shape as `GET /api/jobs`. UI links each card to `/repos/{host}/{…path}` (e.g. `/repos/github.com/org/repo`), which lists runs via `GET /api/jobs?github_url=…`. GitHub-only short path `/{owner}/{repo}` (D82) is a client-side create shortcut — not a new Jobs API — and redirects to `/jobs/{id}` after `POST /api/jobs`.
 
 ---
 

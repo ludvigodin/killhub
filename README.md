@@ -70,6 +70,8 @@ Bootstrap comes **before** runtime-profile discovery ([DECISIONS.md](DECISIONS.m
 
 **Jobs are server-owned.** Close the tab — the pipeline keeps running. Reopen `/jobs/{id}` to resume. Only cancel or timeout stops a job.
 
+**GitHub short path:** `https://killhub.pro/{owner}/{repo}` (e.g. `/heroku/node-js-getting-started`) client-side starts a scan of `https://github.com/{owner}/{repo}` and lands on `/jobs/{id}`. History stays at `/repos/github.com/{owner}/{repo}`.
+
 ---
 
 ## Architecture at a glance
@@ -282,4 +284,4 @@ Private repos / OAuth · multi-user billing · long-lived customer sandboxes · 
 
 ## Definition of done
 
-On **[killhub.pro](https://killhub.pro)** (or a local control plane), a user pastes a public git URL and sees the Pattern A loop without refreshing: **plan** (profile) → **sandboxed execution** → **verifiable output** (readiness / stills / containment) → **destroy** with a durable receipt — Killhub secrets never enter the guest.
+On **[killhub.pro](https://killhub.pro)** (or a local control plane), a user pastes a public git URL (or opens `/{owner}/{repo}` for GitHub) and sees the Pattern A loop without refreshing: **plan** (profile) → **sandboxed execution** → **verifiable output** (readiness / stills / containment) → **destroy** with a durable receipt — Killhub secrets never enter the guest.

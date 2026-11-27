@@ -4,7 +4,7 @@
 
 **Killhub** is a Pattern A agent loop on Vultr: **plan → sandboxed execution → verifiable output → destroy**. It turns a **public git repository URL** (allowlisted hosts — GitHub, GitLab, Bitbucket, Codeberg) into a **verified running environment** plus an **intake dossier** (durable receipt of how it ran and what risk was found):
 
-1. User pastes one or many public git URLs on the home **feed** (video-site entry grid · status · report) — or an MCP client calls the same Jobs API via the operator stdio MCP (D81).
+1. User pastes one or many public git URLs on the home **feed** (video-site entry grid · status · report), opens a GitHub short path `/{owner}/{repo}` on the demo host (D82), or an MCP client calls the same Jobs API via the operator stdio MCP (D81).
 2. Plane 1 runs **pre-flight** (URL, admission, cheap risk) before spending a sandbox when hard-fail applies.
 3. The **control plane** (Next.js edge + Python `explore/` sidecar) runs an **Environment Agent Plan Loop**. The agent **proposes** how to demonstrate the repo and writes a **versioned executable** **`environment_profile.json`** (`git_mcp`, `webapp`, or `demo`); **deterministic gates** decide readiness and terminal outcomes from evidence. Invented demos are labeled `generated_demo` and must retain visible original setup failures.
 4. A **single disposable Microsandbox** microVM on Vultr VX1 is created from a **bootstrap** image (with canary secrets + network policy), then provisioned from the discovered runtime profile (explore + test are the same sandbox; image replace keeps one live VM).
@@ -29,7 +29,7 @@ Operators, security-minded engineers, and internal teams who need to quickly and
 
 ## Success looks like
 
-A user pastes public git URL(s) into the home feed and, without refreshing, sees the Pattern A loop for each job:
+A user pastes public git URL(s) into the home feed (or opens `killhub.pro/{owner}/{repo}` for a GitHub repo) and, without refreshing, sees the Pattern A loop for each job:
 
 - **Plan** — live status/progress plus a validated `environment_profile.json`  
 - **Sandboxed execution** — bootstrap create → optional image replace → clone/install/launch in one disposable microVM  
