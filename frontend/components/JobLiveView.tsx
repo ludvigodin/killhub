@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import { ErrorBanner } from "./ErrorBanner";
 import { FindingsSummary } from "./FindingsSummary";
+import { HackerVision } from "./HackerVision";
 import { JobReport } from "./JobReport";
 import { ProgressBar } from "./ProgressBar";
 import {
@@ -61,6 +62,7 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
   const [error, setError] = useState<{ message: string; code?: string } | null>(
     null,
   );
+  const [vision, setVision] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const onLog = useEffectEvent((line: ProgressLogEntry) => {
@@ -135,7 +137,10 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
         const id =
           data.event_id || event.lastEventId || `${type}-${Date.now()}`;
 
-        if (isProgressLogType(type)) {
+        if (
+          isProgressLogType(type) ||
+          ["status", "progress", "screenshot"].includes(type)
+        ) {
           onLog({
             id,
             type,
@@ -341,7 +346,21 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
         </button>
       </div>
 
-      <ProgressLog entries={logs} />
+      <div className="space-y-3">
+        <button
+          type="button"
+          aria-pressed={vision}
+          onClick={() => setVision(!vision)}
+          className="rounded-md border border-(--line) bg-white px-4 py-2 font-mono text-sm aria-pressed:bg-[#102e32] aria-pressed:text-[#80ffdb]"
+        >
+          HackerVision
+        </button>
+        {vision ? (
+          <HackerVision entries={logs} />
+        ) : (
+          <ProgressLog entries={logs} />
+        )}
+      </div>
 
       <ScreenshotTimeline jobId={jobId} shots={shots} />
 
