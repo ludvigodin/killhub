@@ -1,5 +1,7 @@
-import type { JobSnapshot } from "@/lib/api";
+import type { JobSnapshot, ReceiptDossier } from "@/lib/api";
+import { snapshotSafety } from "@/lib/findings";
 import { EnvStatus } from "./EnvStatus";
+import { ResultStamp } from "./ResultStamp";
 import { VulnReport } from "./VulnReport";
 
 type JobReportProps = {
@@ -26,13 +28,17 @@ function asList(value: unknown): unknown[] {
 
 export function JobReport({ snapshot }: JobReportProps) {
   const receipt = snapshot.receipt;
-  const dossier = asRecord(receipt?.dossier) || {};
+  const dossier: ReceiptDossier = receipt?.dossier ?? {};
   const gates = asRecord(dossier.gates);
   const lifecycle = asRecord(receipt?.lifecycle);
   const profile = snapshot.profile;
   const revisions = asList(dossier.profile_revisions);
   const generations = asList(dossier.sandbox_generations);
   const outcome = typeof dossier.outcome === "string" ? dossier.outcome : null;
+  const dossierCode =
+    typeof dossier.code === "string" && dossier.code.trim().length > 0
+      ? dossier.code.trim()
+      : null;
   const scanError =
     typeof dossier.scan_error === "string" ? dossier.scan_error : null;
   const vulnReportStatus =
@@ -49,28 +55,38 @@ export function JobReport({ snapshot }: JobReportProps) {
       ? lifecycle.destroy_error
       : null;
   const destroyConfirmed = lifecycle?.confirmed;
+  const safety = snapshotSafety(snapshot);
 
   return (
     <section className="space-y-8" aria-label="Intake receipt">
       <div>
-        <h2
-          className="text-2xl font-semibold tracking-tight"
-          style={{
-            fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-          }}
-        >
-          Receipt
-        </h2>
+        <div className="flex flex-wrap items-center gap-3">
+          <h2
+            className="text-2xl font-semibold tracking-tight"
+            style={{
+              fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
+            }}
+          >
+            Receipt
+          </h2>
+          {safety ? <ResultStamp safety={safety} /> : null}
+        </div>
         <p className="mt-1 text-sm text-(--muted)">
           Durable intake dossier - outlives the sandbox. Scan-based by default;
           not a pentest suite. Containment matrix is shown above.
         </p>
-        {outcome ? (
-          <p className="mt-2 font-mono text-xs text-(--muted)">
-            outcome {outcome}
-            {vulnReportStatus ? ` · vuln ${vulnReportStatus}` : ""}
-          </p>
-        ) : null}
+        {(() => {
+          const parts = [
+            dossierCode ? `code ${dossierCode}` : null,
+            outcome ? `outcome ${outcome}` : null,
+            vulnReportStatus ? `vuln ${vulnReportStatus}` : null,
+          ].filter(Boolean);
+          return parts.length > 0 ? (
+            <p className="mt-2 font-mono text-xs text-(--muted)">
+              {parts.join(" · ")}
+            </p>
+          ) : null;
+        })()}
       </div>
 
       <EnvStatus snapshot={snapshot} />

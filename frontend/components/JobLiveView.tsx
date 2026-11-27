@@ -10,6 +10,7 @@ import {
   listScreenshots,
   type ScreenshotMeta,
 } from "@/lib/api";
+import { snapshotSafety } from "@/lib/findings";
 import { ownerRepoFromGithubUrl, repoPathFromGithubUrl } from "@/lib/github";
 import { formatQueueLine, isInQueue } from "@/lib/queue";
 import { formatJobWhen, isJobStalled } from "@/lib/time";
@@ -27,6 +28,7 @@ import {
   ProgressLog,
   type ProgressLogEntry,
 } from "./ProgressLog";
+import { ResultStamp } from "./ResultStamp";
 import { type ScreenshotItem, ScreenshotTimeline } from "./ScreenshotTimeline";
 import { StatusBadge } from "./StatusBadge";
 import { VerificationBadge } from "./VerificationBadge";
@@ -484,6 +486,12 @@ export function JobLiveView({
     typeof snapshot?.error === "string" && snapshot.error.trim().length > 0
       ? snapshot.error.trim()
       : null;
+  const dossierCode =
+    typeof snapshot?.receipt?.dossier?.code === "string" &&
+    snapshot.receipt.dossier.code.trim().length > 0
+      ? snapshot.receipt.dossier.code.trim()
+      : null;
+  const safety = snapshot ? snapshotSafety(snapshot) : null;
 
   const actions = (
     <div className="flex flex-wrap items-center justify-end gap-2">
@@ -585,7 +593,11 @@ export function JobLiveView({
             className="space-y-4 border border-(--line) bg-(--paper-deep)/60 px-4 py-5"
           >
             <div className="flex flex-wrap items-center gap-3">
-              <StatusBadge status={snapshot.status} />
+              {safety ? (
+                <ResultStamp safety={safety} />
+              ) : (
+                <StatusBadge status={snapshot.status} />
+              )}
               <VerificationBadge kind={snapshot.verification?.kind} />
               {cancelling ? (
                 <span className="inline-flex items-center gap-1.5 font-mono text-xs tracking-wide text-(--warn)">
@@ -662,7 +674,14 @@ export function JobLiveView({
         />
       )}
 
-      {jobError ? <ErrorBanner message={jobError} code="job_error" /> : null}
+      {jobError ? (
+        <ErrorBanner message={jobError} code={dossierCode || "job_error"} />
+      ) : dossierCode ? (
+        <ErrorBanner
+          message={`Job ended with ${dossierCode.replaceAll("_", " ")}.`}
+          code={dossierCode}
+        />
+      ) : null}
 
       <ScreenshotTimeline jobId={jobId} shots={shots} />
 

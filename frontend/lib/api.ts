@@ -89,12 +89,33 @@ export type VulnReportData = {
   status?: string;
 };
 
+type ReceiptDossierGates = {
+  terminal?: string;
+  readiness_passed?: boolean;
+  reasons?: string[];
+  [key: string]: unknown;
+};
+
+/** Durable finalize dossier; `code` is set for D81 stall/timeout/expiry paths. */
+export type ReceiptDossier = {
+  code?: string;
+  outcome?: string;
+  gates?: ReceiptDossierGates;
+  scan_error?: string;
+  vuln_report_status?: string;
+  vuln_review?: string;
+  finding_ids?: string[];
+  profile_revisions?: unknown[];
+  sandbox_generations?: unknown[];
+  [key: string]: unknown;
+};
+
 type JobReceipt = {
   job_id?: string;
   verification?: VerificationInfo | null;
   containment?: Record<string, unknown> | null;
   lifecycle?: Record<string, unknown> | null;
-  dossier?: Record<string, unknown> | null;
+  dossier?: ReceiptDossier | null;
 };
 
 type EnvironmentGen = {
