@@ -83,18 +83,20 @@ def public_screenshot_rows(
     *,
     settings: Settings | None = None,
 ) -> list[dict[str, Any]]:
-    """Enrich ledger screenshot rows with public `url` (CDN or API path — D76)."""
+    """Return screenshot metadata with a public URL and no internal storage reference."""
     cfg = settings or get_settings()
     out: list[dict[str, Any]] = []
     for row in rows:
         item = dict(row)
+        # The storage reference is private even when it supplies a public CDN URL.
+        storage_path = item.pop("storage_path", None)
         job_id = str(item.get("job_id") or "")
         shot_id = str(item.get("screenshot_id") or "")
         if job_id and shot_id:
             item["url"] = public_screenshot_url(
                 job_id,
                 shot_id,
-                storage_path=str(item.get("storage_path") or "") or None,
+                storage_path=str(storage_path) if storage_path else None,
                 settings=cfg,
             )
         out.append(item)

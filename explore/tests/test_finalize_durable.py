@@ -1,4 +1,4 @@
-"""Verify Plane 1 finalization reads durable containment evidence after replay pruning."""
+"""Exercise Plane 1's trusted containment and cleanup ledger across restart and replay pruning."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import pytest
 from config import Settings
 from finalize import evaluate_gates, finalize_job
 from jobs import get_ledger, reset_ledger_for_tests
-from ledger.store import utc_now
+from ledger.store import Ledger, utc_now
 
 
 @pytest.fixture
@@ -55,8 +55,9 @@ def test_finalize_retains_bypass_after_pruning_and_restart(
     ledger = get_ledger(settings)
     job_id = _ready_job(settings)
     containment = {"claim": "incomplete", **containment}
-    ledger.append_event(job_id, typ="containment", message="observed boundary", payload=containment)
-    ledger.upsert_receipt(job_id, containment=containment, dossier={"containment_at": utc_now()})
+    observation = ledger.append_event(
+        job_id, typ="containment", message="observed boundary", payload=containment
+    )
 
     # Drive normal retention, then reopen the same database as a restarted worker.
     ledger.append_event(job_id, typ="log", message="x" * 2048)
@@ -69,6 +70,10 @@ def test_finalize_retains_bypass_after_pruning_and_restart(
     assert result.receipt["containment"] == containment
     dossier = result.receipt["dossier"]
     assert dossier["containment_at"]
+    assert dossier["containment_observation"] == {
+        "event_id": observation.event_id,
+        "generation": None,
+    }
     assert dossier["gates"] == {
         "terminal": "failed",
         "reasons": ["containment_policy_bypass"],
@@ -76,18 +81,27 @@ def test_finalize_retains_bypass_after_pruning_and_restart(
         "readiness_passed": True,
     }
     assert dossier["detonation_verdict"]["verdict"]["status"] == "SUSPICIOUS"
+    assert dossier["detonation_verdict"]["findings"][0]["evidence"] == {
+        "event_id": observation.event_id,
+        "generation": None,
+    }
     assert finalize_job(job_id, settings=settings, skip_scan=True).receipt == result.receipt
 
 
-def test_legacy_finding_is_persisted_in_the_gate(settings: Settings) -> None:
+def test_install_bypass_survives_later_clean_observation(settings: Settings) -> None:
     ledger = get_ledger(settings)
     job_id = _ready_job(settings)
-    ledger.append_event(
+    observation = ledger.append_event(
         job_id,
-        typ="finding",
+        typ="log",
         message="observed boundary",
-        payload={"classification": "policy_bypass"},
+        payload={"classification": "policy_bypass", "probe_session": "install_cp_deny"},
     )
+    # Install can stop before the offline matrix. Even a later clean matrix
+    # cannot reverse a classification already recorded by the control plane.
+    ledger.append_event(job_id, typ="containment", message="clean", payload={"claim": "proven"})
+    ledger.append_event(job_id, typ="log", message="x" * 2048)
+    assert not ledger.has_event(job_id, observation.event_id)
 
     result = finalize_job(job_id, settings=settings, skip_scan=True)
 
@@ -95,14 +109,24 @@ def test_legacy_finding_is_persisted_in_the_gate(settings: Settings) -> None:
     assert result.receipt is not None
     assert result.receipt["dossier"]["gates"]["reasons"] == ["policy_bypass"]
     assert result.receipt["dossier"]["detonation_verdict"]["verdict"]["status"] == "SUSPICIOUS"
+    assert result.receipt["dossier"]["policy_bypass"]["event_id"] == observation.event_id
 
 
-def test_incomplete_containment_keeps_readiness_eligible(settings: Settings) -> None:
+@pytest.mark.parametrize("claim", ["proven", "incomplete"])
+def test_without_bypass_readiness_remains_eligible(settings: Settings, claim: str) -> None:
     job_id = _ready_job(settings)
-    get_ledger(settings).upsert_receipt(
-        job_id, containment={"claim": "incomplete", "dimensions": {"host_liveness": {"ok": False}}}
+    get_ledger(settings).append_event(
+        job_id,
+        typ="containment",
+        message="matrix recorded",
+        payload={"claim": claim, "dimensions": {"host_liveness": {"ok": claim == "proven"}}},
     )
-    assert evaluate_gates(job_id, settings=settings)["terminal"] == "completed"
+    result = finalize_job(job_id, settings=settings, skip_scan=True)
+    assert result.terminal_status == "completed"
+    assert result.receipt is not None
+    proof = result.receipt["dossier"]["detonation_verdict"]["containment_proof"]
+    assert proof["claim"] == "incomplete"
+    assert proof["host_liveness"]["status"] == ("passed" if claim == "proven" else "inconclusive")
 
 
 @pytest.mark.parametrize(("source", "terminal"), [("network", "failed"), ("sca", "completed")])
@@ -123,3 +147,50 @@ def test_cancellation_keeps_precedence_over_a_bypass(settings: Settings) -> None
     ledger.upsert_receipt(job_id, containment={"classification": "policy_bypass"})
     ledger.update_job_fields(job_id, cancel_requested_at=utc_now())
     assert evaluate_gates(job_id, settings=settings)["terminal"] == "cancelled"
+    result = finalize_job(job_id, settings=settings, skip_scan=True)
+    assert result.terminal_status == "cancelled"
+    assert (
+        result.receipt is not None
+        and result.receipt["containment"]["classification"] == "policy_bypass"
+    )
+
+
+def test_stale_containment_and_finalization_cannot_replace_newer_receipt(
+    settings: Settings,
+) -> None:
+    ledger = get_ledger(settings)
+    job_id = _ready_job(settings)
+    observed = ledger.get_job(job_id)
+    assert observed is not None
+    generation = ledger.append_sandbox_generation(
+        job_id, environment_id="current", image="ubuntu", expires_at=observed.expires_at
+    )
+    current = ledger.append_event(
+        job_id,
+        typ="containment",
+        message="current matrix",
+        payload={"claim": "incomplete"},
+        expected_sandbox=(generation.generation, generation.environment_id),
+    )
+    with pytest.raises(Ledger.WriterFrozenError, match="sandbox changed"):
+        ledger.append_event(
+            job_id,
+            typ="containment",
+            message="stale matrix",
+            payload={"claim": "incomplete", "classification": "policy_bypass"},
+            expected_sandbox=(None, None),
+        )
+    ledger.finalize_job(
+        job_id, status="failed", receipt={"lifecycle": {"confirmed": False}}, include_verdict=True
+    )
+    receipt = ledger.get_receipt(job_id)
+    assert receipt is not None
+    assert receipt["dossier"]["containment_observation"]["event_id"] == current.event_id
+    with pytest.raises(Ledger.WriterFrozenError, match="job changed"):
+        ledger.finalize_job(
+            job_id,
+            status="completed",
+            receipt={"lifecycle": {"confirmed": True}, "containment": {}},
+            expected_job=observed,
+        )
+    assert ledger.get_receipt(job_id) == receipt
