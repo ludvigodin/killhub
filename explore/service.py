@@ -238,9 +238,11 @@ def create_job(
     github_url = target.url
 
     cfg = settings or get_settings()
+    fixture = match_fixture(github_url)
+    # Carry a catalog pin in the same write that makes the job claimable.
+    fixture_commit = (fixture or {}).get("commit")
     if cfg.public_demo_fixtures_only:
-        fixture = match_fixture(github_url)
-        if not fixture or not fixture.get("public_demo") or not fixture.get("commit"):
+        if not fixture or not fixture.get("public_demo") or not fixture_commit:
             raise AdmissionError(
                 "Demo intake accepts only pinned repositories listed at /api/fixtures.",
                 "demo_fixture_required",
@@ -264,6 +266,7 @@ def create_job(
         job = ledger.create_job(
             github_url,
             env_ttl_seconds=lifetime,
+            resolved_commit=fixture_commit,
             status=initial_status,
             current_step=initial_step,
         )

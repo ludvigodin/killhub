@@ -29,6 +29,7 @@ def test_create_from_pinned_fixture(client: TestClient, auth_header: dict[str, s
     snapshot = client.get(f"/internal/jobs/{job_id}", headers=auth_header).json()
     fixture = require_fixture("sca_npm_control")
     assert snapshot["github_url"] == fixture["github_url"]
+    assert snapshot["resolved_commit"] == fixture["commit"]
     assert match_fixture(snapshot["github_url"])["commit"] == fixture["commit"]
     assert snapshot["sandbox_id"] is None
 
