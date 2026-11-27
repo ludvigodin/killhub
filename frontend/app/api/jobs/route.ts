@@ -53,9 +53,9 @@ export async function POST(request: Request) {
     return Response.json(limited.body, { status: limited.status });
   }
 
-  let body: { github_url?: string };
+  let body: { github_url?: unknown; fixture_id?: unknown } | null;
   try {
-    body = (await request.json()) as { github_url?: string };
+    body = await request.json();
   } catch {
     return Response.json(
       { error: "Invalid JSON body", code: "invalid_url" },
@@ -63,9 +63,31 @@ export async function POST(request: Request) {
     );
   }
 
-  let githubUrl: string;
+  const githubUrl = body?.github_url;
+  const fixtureId = body?.fixture_id;
+  if (
+    (githubUrl != null) === (fixtureId != null) ||
+    (githubUrl != null && typeof githubUrl !== "string") ||
+    (fixtureId != null &&
+      (typeof fixtureId !== "string" || !/^[a-z0-9_-]{1,96}$/.test(fixtureId)))
+  ) {
+    return Response.json(
+      { error: "Provide one GitHub URL or fixture ID", code: "invalid_target" },
+      { status: 400 },
+    );
+  }
+
+  // Fixture IDs are resolved by the worker catalog. The browser supplies no pin.
+  let target: { github_url: string } | { fixture_id: string };
   try {
-    githubUrl = validateGithubUrl(body.github_url ?? "");
+    target =
+      typeof fixtureId === "string"
+        ? { fixture_id: fixtureId }
+        : {
+            github_url: validateGithubUrl(
+              typeof githubUrl === "string" ? githubUrl : "",
+            ),
+          };
   } catch (error) {
     return Response.json(
       {
@@ -78,7 +100,7 @@ export async function POST(request: Request) {
 
   const upstream = await exploreFetch("/internal/jobs", {
     method: "POST",
-    body: JSON.stringify({ github_url: githubUrl }),
+    body: JSON.stringify(target),
     headers: {
       "X-Client-IP": clientIp(request),
     },

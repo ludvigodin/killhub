@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from api.auth import require_internal_token
 from config import get_settings
-from fixtures import intake_catalog
+from fixtures import intake_catalog, resolve_intake_fixture
 from jobs import get_ledger
 from ledger import Ledger
 from ledger.store import validate_github_url
@@ -34,7 +34,8 @@ router = APIRouter(
 
 
 class CreateJobBody(BaseModel):
-    github_url: str = Field(min_length=1)
+    github_url: str | None = Field(default=None, min_length=1)
+    fixture_id: str | None = Field(default=None, min_length=1, max_length=96)
 
 
 def _error(status_code: int, message: str, code: str) -> HTTPException:
@@ -56,10 +57,18 @@ def post_job(
     x_real_ip: Optional[str] = Header(default=None),
     x_client_ip: Optional[str] = Header(default=None),
 ) -> Dict[str, str]:
-    try:
-        validate_github_url(body.github_url)
-    except ValueError as exc:
-        raise _error(400, str(exc), "invalid_url") from exc
+    # Resolve fixture selection before admission so invalid selectors reserve no capacity.
+    if (body.github_url is None) == (body.fixture_id is None):
+        raise _error(400, "Provide one GitHub URL or fixture ID", "invalid_target")
+    github_url = body.github_url
+    if body.fixture_id is not None:
+        try:
+            github_url = resolve_intake_fixture(
+                body.fixture_id, restricted=get_settings().public_demo_fixtures_only
+            )
+        except ValueError as exc:
+            raise _error(400, str(exc), "invalid_fixture") from exc
+    assert github_url is not None
     client_ip: Optional[str] = None
     if x_client_ip:
         client_ip = x_client_ip.strip()
@@ -68,7 +77,7 @@ def post_job(
     elif x_forwarded_for:
         client_ip = x_forwarded_for.split(",")[0].strip()
     try:
-        job = create_job(body.github_url, client_ip=client_ip)
+        job = create_job(github_url, client_ip=client_ip)
     except AdmissionError as exc:
         raise _error(exc.status_code, exc.message, exc.code) from exc
     except ValueError as exc:

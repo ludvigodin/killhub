@@ -18,6 +18,41 @@ def test_auth_required(client: TestClient) -> None:
     assert res.status_code == 401
 
 
+def test_create_from_pinned_fixture(client: TestClient, auth_header: dict[str, str]) -> None:
+    from fixtures import match_fixture, require_fixture
+
+    response = client.post(
+        "/internal/jobs", headers=auth_header, json={"fixture_id": "sca_npm_control"}
+    )
+    assert response.status_code == 201
+    job_id = response.json()["job_id"]
+    snapshot = client.get(f"/internal/jobs/{job_id}", headers=auth_header).json()
+    fixture = require_fixture("sca_npm_control")
+    assert snapshot["github_url"] == fixture["github_url"]
+    assert match_fixture(snapshot["github_url"])["commit"] == fixture["commit"]
+    assert snapshot["sandbox_id"] is None
+
+
+@pytest.mark.parametrize(
+    ("payload", "code"),
+    [
+        ({"fixture_id": "unregistered"}, "invalid_fixture"),
+        ({"fixture_id": "webapp_image_replace"}, "invalid_fixture"),
+        (
+            {"fixture_id": "webapp_success", "github_url": "https://github.com/example/repo"},
+            "invalid_target",
+        ),
+    ],
+)
+def test_rejected_fixture_selectors_create_no_job(
+    client: TestClient, auth_header: dict[str, str], payload: dict[str, str], code: str
+) -> None:
+    response = client.post("/internal/jobs", headers=auth_header, json=payload)
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == code
+    assert client.get("/internal/jobs", headers=auth_header).json()["total"] == 0
+
+
 def test_create_snapshot_sse_cancel_flow(client: TestClient, auth_header: dict[str, str]) -> None:
     create = client.post(
         "/internal/jobs",
