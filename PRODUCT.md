@@ -4,7 +4,7 @@
 
 **Killhub** turns a **public git repository URL** (allowlisted hosts — GitHub, GitLab, Bitbucket, Codeberg) into a **verified running environment** plus an **intake dossier** (durable receipt of how it ran and what risk was found):
 
-1. User pastes one or many public git URLs on the home **feed** (video-site entry grid · status · report).
+1. User pastes one or many public git URLs on the home **feed** (video-site entry grid · status · report) — or an MCP client calls the same Jobs API via the operator stdio MCP (D81).
 2. Plane 1 runs **pre-flight** (URL, admission, cheap risk) before spending a sandbox when hard-fail applies.
 3. The **control plane** (Next.js edge + Python `explore/` sidecar) runs an **Environment Agent Plan Loop**. The agent **proposes** how to demonstrate the repo and writes a **versioned executable** **`environment_profile.json`** (`git_mcp`, `webapp`, or `demo`); **deterministic gates** decide readiness and terminal outcomes from evidence. Invented demos are labeled `generated_demo` and must retain visible original setup failures.
 4. A **single disposable Microsandbox** microVM on Vultr VX1 is created from a **bootstrap** image (with canary secrets + network policy), then provisioned from the discovered runtime profile (explore + test are the same sandbox; image replace keeps one live VM).

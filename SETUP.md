@@ -141,6 +141,18 @@ pnpm dev
 
 Worker + in-process reaper start with the explore lifespan. Plane 2 still needs reachable `msb` (usually `MSB_HOST` → VX1).
 
+### Operator MCP (D81)
+
+With Plane 1 up (or against production), Cursor can drive jobs without the browser:
+
+```bash
+cd explore
+# uses explore/.venv; talks to public /api on KILLHUB_BASE_URL
+KILLHUB_BASE_URL=http://127.0.0.1:3000 .venv/bin/python -m operator_mcp
+```
+
+Add a stdio MCP server in Cursor (cwd = `explore/`, command = `.venv/bin/python`, args = `["-m", "operator_mcp"]`). Default `KILLHUB_BASE_URL` is `https://killhub.pro`. This is **not** `killhub-harness` (agent → sandbox). Contract: [API.md](API.md)#operator-mcp-d81.
+
 ### B. Docker Compose
 
 [`docker-compose.yml`](docker-compose.yml) builds Plane 1 only. Today it sets `env_file: .env.example` on explore — **that file has empty secrets and pipeline flags off**. For a real run:

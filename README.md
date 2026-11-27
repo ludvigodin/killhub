@@ -223,6 +223,13 @@ Operators, security-minded engineers, and internal teams who need to quickly and
 
 **Use the product:** [https://killhub.pro](https://killhub.pro)
 
+**Use it from an MCP client (Cursor / Claude):** point stdio at `explore/operator_mcp.py` (D81). Tools: `create_job`, `get_job`, `list_jobs`, `list_repos`, `cancel_job`, `wait_job` — same public Jobs API as the UI. See [API.md](API.md)#operator-mcp-d81.
+
+```bash
+cd explore
+.venv/bin/python -m operator_mcp   # KILLHUB_BASE_URL=https://killhub.pro by default
+```
+
 **Run / deploy on Vultr:** [SETUP.md](SETUP.md) — local Plane 1, VX1 Microsandbox, inference keys, reverse proxy, and verification.
 
 **Hack on the repo:**

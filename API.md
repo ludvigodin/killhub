@@ -19,11 +19,13 @@ flowchart LR
 | Path | Protocol | Auth (v1) |
 |------|----------|-----------|
 | Browser → Next.js | HTTPS ([killhub.pro](https://killhub.pro)) | None (public demo) + admission (D40); edge bind `127.0.0.1` behind proxy on demo (D46) |
+| **Operator MCP → Next.js** | stdio MCP client → HTTP public `/api/*` ([D81](DECISIONS.md)) | Same as browser (anonymous + admission); optional `KILLHUB_API_TOKEN` Bearer |
 | Next.js → `explore/` | HTTP localhost Internal Worker API | Loopback + `INTERNAL_API_TOKEN` (D52) |
 | Control plane → Vultr API | HTTPS | `VULTR_API_KEY` on Plane 1 server only |
 | Control plane → Plane 2 | Microsandbox `msb` / SDK on VX1 | Host access for harness; network policy (D39) |
 | Control plane → Vultr Serverless Inference | HTTPS `https://api.vultrinference.com/v1` | `VULTR_INFERENCE_*` (+ `OPENCODE_*`) on Plane 1 only (D25) |
 | Plane 2 → Plane 1 / management | — | **Denied** (D39); probe-tested |
+| Environment Agent → harness | stdio MCP `killhub-harness` | Job-scoped; not the operator MCP (D23, D38) |
 
 ---
 
@@ -363,6 +365,43 @@ Vultr Serverless Inference only (D25). Trusted OpenCode config (D38). Prompts un
 | Vuln report | SCA + cite-checked review (+ optional MCP assessment) | Report UI |
 | Verification | Gates on evidence (D47, D54) | Snapshot + receipt |
 | Containment matrix | Harness probes (D58) | `containment` SSE + receipt |
+
+---
+
+## Operator MCP (D81)
+
+Stdio MCP server: [`explore/operator_mcp.py`](explore/operator_mcp.py). Wraps the **public** Jobs API — not `killhub-harness`.
+
+| Env | Default | Purpose |
+|-----|---------|---------|
+| `KILLHUB_BASE_URL` | `https://killhub.pro` | Plane 1 edge origin (local: `http://127.0.0.1:3000`) |
+| `KILLHUB_API_TOKEN` | empty | Optional `Authorization: Bearer` (unused on anonymous demo) |
+
+| Tool | Maps to |
+|------|---------|
+| `create_job` | `POST /api/jobs` |
+| `get_job` | `GET /api/jobs/{id}` |
+| `list_jobs` | `GET /api/jobs` |
+| `list_repos` | `GET /api/repos` |
+| `cancel_job` | `DELETE /api/jobs/{id}` |
+| `wait_job` | Poll `get_job` until `completed` \| `failed` \| `cancelled` or timeout |
+
+Cursor example (stdio):
+
+```json
+{
+  "mcpServers": {
+    "killhub": {
+      "command": "/absolute/path/to/killhub/explore/.venv/bin/python",
+      "args": ["-m", "operator_mcp"],
+      "cwd": "/absolute/path/to/killhub/explore",
+      "env": {
+        "KILLHUB_BASE_URL": "https://killhub.pro"
+      }
+    }
+  }
+}
+```
 
 ---
 
