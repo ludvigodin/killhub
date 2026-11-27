@@ -8,8 +8,13 @@ from pathlib import Path
 import pytest
 
 from config import get_settings
-from jobs import reset_ledger_for_tests
-from vulnscan import cite_checked_review, extract_packages, sca_findings_from_lockfiles
+from jobs import create_job, get_ledger, reset_ledger_for_tests
+from vulnscan import (
+    cite_checked_review,
+    extract_packages,
+    run_vuln_scan,
+    sca_findings_from_lockfiles,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -88,5 +93,20 @@ def test_sca_from_lockfile_with_mock_osv(tmp_path: Path, monkeypatch: pytest.Mon
     assert findings[0]["id"].startswith("sca-")
 
 
-def test_cite_checked_deterministic_clean_bill() -> None:
-    assert "Clean bill" in cite_checked_review([])
+@pytest.mark.parametrize("sandbox_id", [None, "fixture-sandbox"])
+def test_no_scan_inputs_persist_partial_report(monkeypatch, sandbox_id):
+    job = create_job("https://github.com/example/fixture")
+    ledger = get_ledger()
+    ledger.update_job_fields(job.job_id, sandbox_id=sandbox_id)
+    monkeypatch.setattr("vulnscan.copy_lockfiles_to_artifacts", lambda *args, **kwargs: ([], False))
+    result = run_vuln_scan(job.job_id)
+    report = ledger.get_vuln_report(job.job_id)
+    assert result.status == report["status"] == "partial"
+    assert "No dependency files" in report["summary"]
+    assert report["findings"] == []
+
+
+def test_unsupported_file_is_partial(tmp_path):
+    path = tmp_path / "Cargo.lock"
+    path.write_text("")
+    assert sca_findings_from_lockfiles([path]) == ([], "partial")
