@@ -503,41 +503,56 @@ def run_mcp_assessment_if_planned(
     return detail
 
 
-def cite_checked_review(findings: list[dict[str, Any]], draft: str | None = None) -> str:
-    """
-    Build / filter a vuln_review summary so every claim cites a finding id (D48).
-    """
-    ids = {str(f.get("id")) for f in findings if f.get("id")}
+_REVIEW_SEVERITIES = ("critical", "high", "medium", "low", "info")
+_REVIEW_ID = re.compile(r"[a-zA-Z0-9_-]{1,120}")
+_REVIEW_CITATION = re.compile(r"\[([a-zA-Z0-9_-]{1,120})\]")
+
+
+def _render_review(findings: list[dict[str, Any]], draft: str | None) -> tuple[str, bool]:
+    """Allow draft priorities while deriving all public claims from recorded findings."""
+    from inference_extras import redact_inference_text
+
     if not findings:
-        return "No findings recorded."
+        return "No findings recorded.", False
+    evidence = {
+        item_id: finding
+        for finding in findings
+        if isinstance(item_id := finding.get("id"), str)
+        and _REVIEW_ID.fullmatch(item_id)
+        and redact_inference_text(item_id) == item_id
+    }
+    if not evidence:
+        return "Recorded findings are available in the full report.", False
 
-    if draft:
-        kept: list[str] = []
-        for sentence in re.split(r"(?<=[.!?])\s+", draft.strip()):
-            s = sentence.strip()
-            if not s:
-                continue
-            cited = set(re.findall(r"\[([a-zA-Z0-9_-]+)\]", s))
-            if cited & ids:
-                kept.append(s)
-        if kept:
-            return " ".join(kept)
+    # Treat model output as an optional ordered selection of IDs, never as public text.
+    selected: dict[str, None] = {}
+    for line in (draft or "").splitlines():
+        citation = _REVIEW_CITATION.fullmatch(line.strip())
+        if citation and citation[1] in evidence:
+            selected[citation[1]] = None
+    by_severity: dict[str, list[str]] = {sev: [] for sev in _REVIEW_SEVERITIES}
+    for item_id in dict.fromkeys((*selected, *evidence)):
+        finding = evidence[item_id]
+        severity = str(finding.get("severity") or "info").lower()
+        by_severity[severity if severity in by_severity else "info"].append(item_id)
 
-    # Deterministic cite-checked summary (no uncited claims).
     parts: list[str] = []
-    by_sev: dict[str, list[dict[str, Any]]] = {}
-    for f in findings:
-        sev = str(f.get("severity") or "info").lower()
-        by_sev.setdefault(sev, []).append(f)
-    order = ("critical", "high", "medium", "low", "info")
-    for sev in order:
-        group = by_sev.get(sev) or []
-        if not group:
-            continue
-        cites = "".join(f"[{f['id']}]" for f in group if f.get("id"))
-        titles = "; ".join(str(f.get("title") or f.get("id")) for f in group[:5])
-        parts.append(f"{sev}: {titles} {cites}".strip())
-    return "Cite-checked review — " + " | ".join(parts)
+    for severity, group in by_severity.items():
+        for item_id in group[:5]:
+            # Only the citation appended here can name a finding. Brackets in
+            # an advisory title are display text and must not count as citations.
+            title = redact_inference_text(str(evidence[item_id].get("title") or ""))
+            title = " ".join(title.replace("[", "(").replace("]", ")").split())[:300]
+            parts.append(f"{severity}: {title or 'Recorded finding'} [{item_id}]")
+    if len(parts) < len(evidence):
+        parts.append("See the full report for additional findings.")
+    return "Cite-checked review — " + " | ".join(parts), bool(selected)
+
+
+def cite_checked_review(findings: list[dict[str, Any]], draft: str | None = None) -> str:
+    """Build a D48 review whose cited claims are limited to persisted findings."""
+    summary, _ = _render_review(findings, draft)
+    return summary
 
 
 def run_vuln_scan(
@@ -600,22 +615,22 @@ def run_vuln_scan(
         if str(f.get("id")) not in known:
             all_findings.append(f)
 
-    # Optional AI draft (chat or RAG) then cite-filter (D48 / D75). Fail closed.
+    # Optional AI prioritization (chat or RAG) cannot introduce review text.
     draft: str | None = None
     review_mode = "deterministic"
     try:
         from inference_extras import draft_vuln_review, maybe_seed_embeddings_for_findings
 
         draft = draft_vuln_review(all_findings, job_id=job_id, settings=cfg)
-        if draft:
-            review_mode = "llm_rag" if (cfg.vultr_rag_collection or "").strip() else "llm"
         # Optional document embeddings for advisory indexing — never required.
         maybe_seed_embeddings_for_findings(all_findings, job_id=job_id, settings=cfg)
     except Exception as exc:  # noqa: BLE001
         logger.info("vuln_review extras skipped: %s", exc.__class__.__name__)
 
     status = "partial" if copy_incomplete and sca_status == "ok" else sca_status
-    summary = cite_checked_review(all_findings, draft=draft)
+    summary, selected = _render_review(all_findings, draft)
+    if selected:
+        review_mode = "llm_rag" if (cfg.vultr_rag_collection or "").strip() else "llm"
     if not lock_host:
         summary = f"No dependency files were available for scanning. {summary}"
     elif status == "failed":
