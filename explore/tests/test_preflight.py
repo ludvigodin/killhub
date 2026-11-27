@@ -137,7 +137,8 @@ def test_not_found_hard_fail(monkeypatch) -> None:
     get_settings.cache_clear()
 
 
-def test_archived_is_soft(monkeypatch) -> None:
+def test_archived_is_soft(client: TestClient, auth_header, monkeypatch) -> None:
+    _ = client, auth_header
     monkeypatch.setenv("PREFLIGHT_ENABLED", "true")
     from config import get_settings
 
@@ -161,7 +162,7 @@ def test_archived_is_soft(monkeypatch) -> None:
     assert result.ok_to_bootstrap is True
     assert any(f.code == "repo_archived" and not f.hard for f in result.findings)
 
-    # Soft findings still emit on a real job.
+    # Soft findings still emit on a real job (isolated ledger via client fixture).
     job = create_job("https://github.com/heroku/node-js-getting-started")
     assert job.status == "pending"
     events = get_ledger().list_events(job.job_id)

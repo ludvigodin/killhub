@@ -121,7 +121,11 @@ def _run_claimed_job(job_id: str, settings: Settings) -> None:
         code = getattr(exc, "code", "worker_error")
         logger.error("claimed job %s failed: %s", job_id, message)
         job = ledger.get_job(job_id)
-        if job is not None and job.status not in {"failed", "cancelled", "completed"}:
+        if job is None:
+            return
+        # setup_failed fixtures may already have verification set while still
+        # non-terminal; always reclaim via finalize when enabled (D37, D53).
+        if job.status not in {"failed", "cancelled", "completed"}:
             ledger.append_event(
                 job_id,
                 typ="error",
@@ -133,13 +137,13 @@ def _run_claimed_job(job_id: str, settings: Settings) -> None:
                 error=message,
                 current_step="pipeline failed",
             )
-            if settings.finalize_on_claim:
-                # Best-effort SCA + receipt + destroy on fail paths (D53, D37).
-                try:
-                    finalize_job(job_id, settings=settings)
-                    return
-                except Exception:  # noqa: BLE001
-                    logger.exception("finalize after failure also failed for %s", job_id)
+        if settings.finalize_on_claim:
+            try:
+                finalize_job(job_id, settings=settings)
+                return
+            except Exception:  # noqa: BLE001
+                logger.exception("finalize after failure also failed for %s", job_id)
+        if job.status not in {"failed", "cancelled", "completed"}:
             ledger.update_job_fields(
                 job_id,
                 status="failed",

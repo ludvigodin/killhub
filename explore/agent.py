@@ -319,7 +319,11 @@ def chat_completion(
     content = ""
     if choices and isinstance(choices[0], dict):
         msg = choices[0].get("message") or {}
-        content = str(msg.get("content") or "")
+        # Reasoning models may fill `reasoning` and leave `content` empty when
+        # completion budget is tight; prefer content, fall back to reasoning.
+        content = str(msg.get("content") or "").strip()
+        if not content:
+            content = str(msg.get("reasoning") or "").strip()
     usage = data.get("usage") or {}
     prompt_tokens = int(usage.get("prompt_tokens") or 0)
     completion_tokens = int(usage.get("completion_tokens") or 0)

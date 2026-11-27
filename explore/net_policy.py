@@ -69,7 +69,7 @@ def install_phase_policy(settings: Settings | None = None) -> NetPolicy:
     """
     Install/provision phase (D39 + D43 phase 1).
 
-    Concrete flags (also documented in IMPLEMENTATION_TEST_VM.md):
+    Concrete flags (also documented in ARCHITECTURE.md):
 
       msb create … \\
         --net public \\

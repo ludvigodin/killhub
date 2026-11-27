@@ -2,12 +2,16 @@
   "schema_version": "1",
   "notes": {
     "sca": "Assert dependency advisories via lockfile scanners as findings.source=sca. Intentionally vulnerable application behavior (if any) is labeled separately and is not SCA proof (D53).",
-    "pins_resolved_at": "2026-11-27"
+    "pins_resolved_at": "2026-11-27",
+    "heroku_rename": "GitHub renamed heroku/node-js-getting-started → heroku/nodejs-getting-started; webapp_success matches both via aliases. webapp_image_replace is require_fixture-only (match_by_url=false) so the canonical URL does not force alpine replace."
   },
   "fixtures": {
     "webapp_success": {
       "id": "webapp_success",
-      "github_url": "https://github.com/heroku/node-js-getting-started",
+      "github_url": "https://github.com/heroku/nodejs-getting-started",
+      "aliases": [
+        "https://github.com/heroku/node-js-getting-started"
+      ],
       "commit": "d33649d5edae61fc766fe6d47e530c475c05a7a0",
       "ref": "main",
       "expected_intent": "webapp",
@@ -21,11 +25,12 @@
       "github_url": "https://github.com/heroku/nodejs-getting-started",
       "commit": "d33649d5edae61fc766fe6d47e530c475c05a7a0",
       "ref": "main",
+      "match_by_url": false,
       "expected_intent": "webapp",
       "verification_kind": "original_application",
       "forbid_demo_intent": false,
       "oci_image": "alpine",
-      "notes": "Same getting-started tree (GitHub renamed heroku/node-js-getting-started → heroku/nodejs-getting-started). Bootstrap stays MSB_DEFAULT_IMAGE; runtime alpine forces one replace (D36).",
+      "notes": "Same getting-started tree. Bootstrap stays MSB_DEFAULT_IMAGE; runtime alpine forces one replace (D36). Not matched by public URL — tests use require_fixture.",
       "policy": {}
     },
     "git_mcp_filesystem": {

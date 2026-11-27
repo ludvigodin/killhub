@@ -4,7 +4,7 @@
 
 **Killhub** turns a **public GitHub repository URL** into a **verified running environment** plus an **intake dossier** (durable receipt of how it ran and what risk was found):
 
-1. User pastes a link in a Next.js app (input · status · report).
+1. User pastes one or many public GitHub URLs on the home **feed** (video-site entry grid · status · report).
 2. Plane 1 runs **pre-flight** (URL, admission, cheap risk) before spending a sandbox when hard-fail applies.
 3. The **control plane** (Next.js edge + Python `explore/` sidecar) runs an **Environment Agent Plan Loop**. The agent **proposes** how to demonstrate the repo and writes a **versioned executable** **`environment_profile.json`** (`git_mcp`, `webapp`, or `demo`); **deterministic gates** decide readiness and terminal outcomes from evidence. Invented demos are labeled `generated_demo` and must retain visible original setup failures.
 4. A **single disposable Microsandbox** microVM on Vultr VX1 is created from a **bootstrap** image (with canary secrets + network policy), then provisioned from the discovered runtime profile (explore + test are the same sandbox; image replace keeps one live VM).
@@ -29,7 +29,7 @@ Operators, security-minded engineers, and internal teams who need to quickly and
 
 ## Success looks like
 
-A user pastes a public GitHub URL and, without refreshing, sees:
+A user pastes public GitHub URL(s) into the home feed and, without refreshing, sees entries appear, then for each job:
 
 - Live status, progress, and structured evidence events (with keep-alives on long steps)  
 - A validated `environment_profile.json`  
@@ -45,11 +45,11 @@ The public demo is **[https://killhub.pro](https://killhub.pro)** — control pl
 
 ## v1 golden fixtures
 
-Pinned commit SHAs live in fixture config ([DECISIONS.md](DECISIONS.md) D53).
+Pinned commit SHAs live in [explore/fixtures/m7.json](explore/fixtures/m7.json) ([DECISIONS.md](DECISIONS.md) D53).
 
 | Intent / outcome | Public repo |
 |------------------|-------------|
-| `webapp` → `original_application` | [heroku/node-js-getting-started](https://github.com/heroku/node-js-getting-started) @ pin |
+| `webapp` → `original_application` | [heroku/nodejs-getting-started](https://github.com/heroku/nodejs-getting-started) @ pin (alias: `node-js-getting-started`) |
 | `git_mcp` → filesystem server (stdio) | [modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers) @ pin + fixed filesystem entrypoint |
 | Controlled `setup_failed` + SCA | Deliberately broken fixture (not NodeGoat); dependency advisories via lockfile SCA, separate from intentional app vulns |
 
@@ -71,12 +71,10 @@ Pinned commit SHAs live in fixture config ([DECISIONS.md](DECISIONS.md) D53).
 
 | Doc | Purpose |
 |-----|---------|
-| [AGENTS.md](AGENTS.md) | Rules every AI agent must follow |
+| [AGENTS.md](AGENTS.md) | Rules every AI agent must follow (quality gate + Vultr tooling) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the platform is structured |
 | [DECISIONS.md](DECISIONS.md) | Agreed technical decisions |
 | [DATABASE.md](DATABASE.md) | Data model and rules |
 | [API.md](API.md) | How components communicate |
-| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Implementation index by plane |
-| [plan/README.md](plan/README.md) | Agent-sized build steps (one per session; removed after step 21) |
-| [plan/VULTR.md](plan/VULTR.md) | Vultr MCP / `vultr-cli` / `msb` tooling rules (fold into AGENTS/ARCHITECTURE at step 21) |
-| [plan/21-cleanup-docs.md](plan/21-cleanup-docs.md) | Post-M7 doc cleanup (delete scaffolding) |
+| [README.md](README.md) | Repo entry + quick start |
+| [explore/fixtures/m7.json](explore/fixtures/m7.json) | Pinned M7 fixture SHAs (D53) |

@@ -34,6 +34,7 @@ Frozen **before** implementing N1/E1. Not public. Base URL e.g. `http://127.0.0.
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/internal/jobs` | Create job `{ github_url }` → `{ job_id }` (admission applied here or in Next before proxy) |
+| `GET` | `/internal/jobs` | Recent job **summaries** newest-first (`?limit=`, default 48, max 200) for the public feed (D69) |
 | `GET` | `/internal/jobs/{id}` | Full snapshot (same shape as public GET) |
 | `GET` | `/internal/jobs/{id}/events` | SSE (same event model as public) |
 | `DELETE` | `/internal/jobs/{id}` | Cancel (idempotent finalizer path — D61) |
@@ -46,6 +47,41 @@ Next.js public `/api/jobs*` and `/health` **proxy** to these routes (mapping `/h
 ---
 
 ## Jobs API (public — Plane 1 Next.js)
+
+### `GET /api/jobs`
+
+Recent job summaries for the home feed (D69). Newest first.
+
+**Query**
+
+| Param | Default | Max | Purpose |
+|-------|---------|-----|---------|
+| `limit` | `48` | `200` | Cap rows returned |
+
+**Response `200`**
+
+```json
+{
+  "jobs": [
+    {
+      "job_id": "…",
+      "github_url": "https://github.com/org/repo",
+      "status": "installing",
+      "progress": 55,
+      "current_step": "…",
+      "created_at": "…",
+      "updated_at": "…",
+      "screenshot_id": "…",
+      "error": null,
+      "verification": null
+    }
+  ]
+}
+```
+
+`screenshot_id` is the latest still when present; otherwise `null`. Full dossier stays on `GET /api/jobs/{id}`.
+
+---
 
 ### `POST /api/jobs`
 

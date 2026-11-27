@@ -653,18 +653,17 @@ def discover_runtime_profile(
             )
         except DiscoverError as exc:
             if exc.code == "setup_failed_fixture":
-                # Event first while non-terminal, then flip status (D61).
+                # Record verification evidence but stay non-terminal so the
+                # finalizer can SCA + destroy + set failed (D37, D53, D61).
                 ledger.append_event(
                     job_id,
-                    typ="status",
-                    message="failed",
-                    payload={"status": "failed", "reason": "setup_failed_fixture"},
+                    typ="log",
+                    message="setup_failed fixture — awaiting finalize reclaim",
+                    payload={"reason": "setup_failed_fixture"},
                 )
                 ledger.update_job_fields(
                     job_id,
-                    status="failed",
-                    progress=100,
-                    current_step="setup_failed (fixture)",
+                    current_step="setup_failed (fixture) — finalizing",
                     error=exc.message,
                     verification={
                         "kind": "setup_failed",

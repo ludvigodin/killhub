@@ -191,3 +191,34 @@ def test_finalize_setup_failed_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert job is not None
     assert job.status == "failed"
     assert get_ledger().get_receipt(job_id) is not None
+
+
+def test_finalize_reclaims_when_already_terminal_but_sandbox_live(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Discover used to flip failed before destroy; finalize must still reclaim."""
+    job_id = _seed(readiness_passed=False, verification_kind="setup_failed")
+    ledger = get_ledger()
+    ledger.update_job_fields(
+        job_id,
+        finalizer=True,
+        status="failed",
+        progress=100,
+        current_step="setup_failed (fixture)",
+        error="forbid_demo",
+    )
+    monkeypatch.setattr(
+        "finalize.run_vuln_scan",
+        lambda *a, **k: VulnScanResult(job_id=job_id, status="ok", findings=[]),
+    )
+    destroy = MagicMock(return_value=DestroyResult(confirmed=True, error=None))
+    monkeypatch.setattr("finalize.destroy_job_environment", destroy)
+
+    result = finalize_job(job_id, settings=get_settings())
+    assert result.destroyed is True
+    destroy.assert_called_once()
+    job = ledger.get_job(job_id)
+    assert job is not None
+    assert job.status == "failed"
+    assert job.destroyed_at is not None
+    assert ledger.get_receipt(job_id) is not None

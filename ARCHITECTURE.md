@@ -8,17 +8,12 @@ Killhub is a **two-plane** system ([DECISIONS.md](DECISIONS.md) D27–D28):
 | Doc | Purpose |
 |-----|---------|
 | [PRODUCT.md](PRODUCT.md) | What and why |
-| [AGENTS.md](AGENTS.md) | Rules for every AI agent |
+| [AGENTS.md](AGENTS.md) | Rules for every AI agent (incl. quality gate + Vultr tooling) |
 | [DECISIONS.md](DECISIONS.md) | Agreed technical decisions |
 | [DATABASE.md](DATABASE.md) | Data model and rules |
 | [API.md](API.md) | How components communicate |
-| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Implementation index |
-| [plan/README.md](plan/README.md) | Agent-sized build steps (one per session) |
 
-| Plane | Implementation docs |
-|------:|---------------------|
-| 1 Control plane | [IMPLEMENTATION_NEXTJS.md](IMPLEMENTATION_NEXTJS.md) · [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md) |
-| 2 Disposable Microsandbox | [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md) |
+Code trees: `frontend/` (Plane 1 UI + `/api`) · `explore/` (ledger + agent + harness) · Plane 2 is a per-job `msb` microVM (not a checked-in app folder).
 
 ---
 
@@ -483,6 +478,23 @@ killhub/
 
 Plane 2 is **not** a checked-in app folder — it is a Microsandbox microVM per job.
 
+### Plane 2 create / network policy (operator)
+
+Every harness `msb create` applies Killhub net policy (D39, D43), roughly:
+
+```text
+msb create … \
+  --net public \
+  --net-rule allow@dns \
+  --net-rule deny@host \
+  --net-rule deny@private \
+  --net-rule deny@meta \
+  --net-rule deny@<CONTROL_PLANE_DENY_HOSTS…> \
+  --net-rule deny@<MSB_HOST ip/hostname>
+```
+
+Install phase keeps package/git egress; verify/containment switch to **deny-all remaining egress**. Labels include `killhub.expires_at` for the **host reaper** (`python -m reaper --host`) so absolute expiry works without Plane 1 (D41). `MSB_NET_POLICY` may append extra `--net` / `--net-rule` tokens after Killhub denies.
+
 ### Key configuration
 
 | Variable | Purpose |
@@ -527,7 +539,4 @@ Plane 2 is **not** a checked-in app folder — it is a Microsandbox microVM per 
 ## Related
 
 - [PRODUCT.md](PRODUCT.md) · [AGENTS.md](AGENTS.md) · [DECISIONS.md](DECISIONS.md) · [DATABASE.md](DATABASE.md) · [API.md](API.md)
-- [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)
-- [IMPLEMENTATION_NEXTJS.md](IMPLEMENTATION_NEXTJS.md)
-- [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md)
-- [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md)
+- [README.md](README.md) · [explore/fixtures/m7.json](explore/fixtures/m7.json) (D53 pins)

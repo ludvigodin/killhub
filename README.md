@@ -207,7 +207,7 @@ Pinned commits live in fixture config ([DECISIONS.md](DECISIONS.md) D53).
 
 | Outcome | Repo |
 |---------|------|
-| `webapp` → `original_application` | [heroku/node-js-getting-started](https://github.com/heroku/node-js-getting-started) |
+| `webapp` → `original_application` | [heroku/nodejs-getting-started](https://github.com/heroku/nodejs-getting-started) |
 | `git_mcp` filesystem (stdio) | [modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers) |
 | Controlled `setup_failed` + SCA | Deliberately broken fixture (not NodeGoat) |
 
@@ -227,12 +227,12 @@ Operators, security-minded engineers, and internal teams who need to quickly and
 
 1. Read [PRODUCT.md](PRODUCT.md) — *what* and *why*
 2. Read [ARCHITECTURE.md](ARCHITECTURE.md) — planes, trust zones, lifecycle
-3. Follow [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) — build order by plane
+3. Read [AGENTS.md](AGENTS.md) — agent rules, quality gate, Vultr/`msb` tooling
 4. Copy [`.env.example`](.env.example) → `.env` (never commit secrets)
 
 ---
 
-## Docs & roadmap
+## Docs
 
 | Doc | Purpose |
 |-----|---------|
@@ -242,27 +242,13 @@ Operators, security-minded engineers, and internal teams who need to quickly and
 | [DECISIONS.md](DECISIONS.md) | Locked technical choices |
 | [DATABASE.md](DATABASE.md) | Job / receipt model |
 | [API.md](API.md) | Jobs API + SSE contracts |
-| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | Milestone index |
-| [IMPLEMENTATION_NEXTJS.md](IMPLEMENTATION_NEXTJS.md) | Plane 1 UI + Jobs API |
-| [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md) | Plane 1 agent / harness |
-| [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md) | Plane 2 Microsandbox |
-
-```mermaid
-flowchart LR
-  M0["M0 Plane 1 boots"] --> M1["M1 Jobs + SSE"]
-  M1 --> M2["M2 Harness lifecycle"]
-  M2 --> M3["M3 Profile"]
-  M3 --> M4["M4 Readiness"]
-  M4 --> M5["M5 Screenshots"]
-  M5 --> M6["M6 Vuln report"]
-  M6 --> M6b["M6b Containment"]
-  M6b --> M7["M7 Fixtures + isolation"]
-```
+| [explore/fixtures/m7.json](explore/fixtures/m7.json) | Pinned M7 fixture SHAs (D53) |
 
 ### API surface
 
 | Method | Path | Purpose |
 |--------|------|---------|
+| `GET` | `/api/jobs` | Recent job summaries (feed) |
 | `POST` | `/api/jobs` | Create `{ github_url }` → `{ job_id }` |
 | `GET` | `/api/jobs/{id}` | Snapshot |
 | `GET` | `/api/jobs/{id}/events` | SSE stream |
@@ -270,7 +256,7 @@ flowchart LR
 | `DELETE` | `/api/jobs/{id}` | Cancel + destroy |
 | `GET` | `/health` | Liveness |
 
-Full contracts: [API.md](API.md). Config and admission caps: [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md).
+Full contracts: [API.md](API.md). Config and admission caps: [ARCHITECTURE.md](ARCHITECTURE.md) · [`.env.example`](.env.example).
 
 ---
 

@@ -205,6 +205,15 @@ class Ledger:
         rows = self._conn.execute("SELECT * FROM jobs ORDER BY created_at ASC").fetchall()
         return [self._row_to_job(r) for r in rows]
 
+    def list_recent_jobs(self, *, limit: int = 48) -> list[Job]:
+        """Newest-first job rows for the public feed (D69)."""
+        capped = max(1, min(int(limit), 200))
+        rows = self._conn.execute(
+            "SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (capped,),
+        ).fetchall()
+        return [self._row_to_job(r) for r in rows]
+
     def get_snapshot(self, job_id: str) -> dict[str, Any] | None:
         """Public Jobs API snapshot shape (API.md)."""
         job = self.get_job(job_id)

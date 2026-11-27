@@ -142,14 +142,26 @@ def finalize_job(
         raise FinalizeError(f"unknown job_id: {job_id}", code="not_found")
 
     if job.status in TERMINAL:
-        return FinalizeResult(
-            job_id=job_id,
-            terminal_status=job.status,
-            destroyed=job.destroyed_at is not None,
-            destroy_failed=(job.cleanup.status == "destroy_failed"),
-            receipt=ledger.get_receipt(job_id),
-            vuln_status=(ledger.get_vuln_report(job_id) or {}).get("status"),
+        # Already terminal with confirmed destroy — nothing to do.
+        if job.destroyed_at is not None or not job.sandbox_id:
+            return FinalizeResult(
+                job_id=job_id,
+                terminal_status=job.status,
+                destroyed=job.destroyed_at is not None or not job.sandbox_id,
+                destroy_failed=(job.cleanup.status == "destroy_failed"),
+                receipt=ledger.get_receipt(job_id),
+                vuln_status=(ledger.get_vuln_report(job_id) or {}).get("status"),
+            )
+        # Terminal but sandbox still live (e.g. discover flipped failed before
+        # finalize) — reopen to finalizing so reclaim can complete (D37).
+        ledger.update_job_fields(
+            job_id,
+            finalizer=True,
+            status="finalizing",
+            current_step="reclaim after terminal without destroy",
         )
+        job = ledger.get_job(job_id)
+        assert job is not None
 
     # Preserve readiness snapshot before any finalizer writes.
     readiness_before = dict(job.readiness) if job.readiness else None

@@ -11,12 +11,9 @@ Canonical product docs: [PRODUCT.md](PRODUCT.md) · [ARCHITECTURE.md](ARCHITECTU
 1. Read [PRODUCT.md](PRODUCT.md) for *what* and *why*.
 2. Read [ARCHITECTURE.md](ARCHITECTURE.md) for the **two planes** and boundaries.
 3. Read [DECISIONS.md](DECISIONS.md) before introducing new tech or patterns.
-4. Touch implementation only via the matching doc:
-   - [IMPLEMENTATION_NEXTJS.md](IMPLEMENTATION_NEXTJS.md) — Plane 1 UI + Jobs API/SSE
-   - [IMPLEMENTATION_EXPLORE_SANDBOX.md](IMPLEMENTATION_EXPLORE_SANDBOX.md) — Plane 1 agent/harness workers (`explore/`)
-   - [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md) — Plane 2 disposable Microsandbox
-5. When **building** the product, take **one** step from [`plan/`](plan/README.md) per session (01→21). Do not attempt multiple steps or the whole roadmap in one turn. Before marking a step done or starting the next, run the **quality gate** ([plan/LINT.md](plan/LINT.md) — Biome + Knip + frontend typecheck/build + Ruff + focused tests; D68) and fix until all pass. After M7, run [plan/21-cleanup-docs.md](plan/21-cleanup-docs.md) to remove scaffolding docs.
-6. Vultr / Microsandbox work must go through **Vultr MCP**, **`vultr-cli`**, and/or **`msb` CLI/SDK** (optionally `microsandbox-mcp` for debug) — see [plan/VULTR.md](plan/VULTR.md) and [DECISIONS.md](DECISIONS.md) D59. Never substitute Docker-on-host for Plane 2 or mark sandbox steps done without real `msb`.
+4. Touch code in the matching tree: `frontend/` (Plane 1 UI + `/api` proxy), `explore/` (ledger + plan loop + harness), harness→`msb` for Plane 2. Contracts live in [API.md](API.md) / [DATABASE.md](DATABASE.md).
+5. Before finishing substantive work, run the **quality gate** (§8 / D68) and fix until all pass.
+6. Vultr / Microsandbox work must go through **Vultr MCP**, **`vultr-cli`**, and/or **`msb` CLI/SDK** (optionally `microsandbox-mcp` for debug) — see §9 and [DECISIONS.md](DECISIONS.md) D59. Never substitute Docker-on-host for Plane 2 or mark sandbox work done without real `msb`.
 
 Do not invent a third durable plane or split explore/test into two VMs without updating architecture + decisions first ([DECISIONS.md](DECISIONS.md) D27–D28).
 
@@ -76,7 +73,7 @@ When acting as the Environment Agent:
 - **Inference:** Environment Agent LLM calls must go through **Vultr Serverless Inference** (`https://api.vultrinference.com/v1`) only ([DECISIONS.md](DECISIONS.md) D25). Do not add alternate providers without a new decision.
 - **Containment:** Adversarial / containment / canary probes run only inside Plane 2; record timeout, host-access deny, sibling-access deny, and host-liveness evidence with policy-vs-infra classification (D58, D65); stream to the job stream (D26, D44, D49).
 - **Demo deploy:** Public control-plane demo is **[https://killhub.pro](https://killhub.pro)** on **Vultr Cloud Compute** with app on `127.0.0.1` behind a reverse proxy (D24, D46). Durable ledger + host reaper required before public deploy (D41). Include `killhub.pro` in `CONTROL_PLANE_DENY_HOSTS` / probe config on that host.
-- **Vultr tooling (D59):** Prefer Vultr MCP for inventory, `vultr-cli` for mutating Cloud Compute, `msb` CLI/SDK for sandboxes ([plan/VULTR.md](plan/VULTR.md)). Do not fake Plane 2 with Docker or mark sandbox work done without real `msb`.
+- **Vultr tooling (D59):** Prefer Vultr MCP for inventory, `vultr-cli` for mutating Cloud Compute, `msb` CLI/SDK for sandboxes (§9). Do not fake Plane 2 with Docker or mark sandbox work done without real `msb`.
 
 ---
 
@@ -107,3 +104,42 @@ Jobs are **server-owned** (Plane 1): client disconnect does not cancel the pipel
 ## 7. Out of scope (v1) — do not build unless PRODUCT/DECISIONS change
 
 Private repos/OAuth · multi-user auth/billing · long-lived customer envs beyond TTL · GPU · auto-patching CVEs · non-Vultr clouds for demo control plane or sandboxes · alternate agent LLM providers · session video · separate Explore VM vs Test VM
+
+---
+
+## 8. Quality gate (D68)
+
+Biome does **not** cover Python. Every substantive change must leave **both** trees green.
+
+### Frontend (`frontend/`)
+
+```bash
+cd frontend
+pnpm lint:fix && pnpm lint && pnpm knip && pnpm typecheck && pnpm build
+```
+
+### Python (`explore/`)
+
+```bash
+cd explore
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
+.venv/bin/pytest -q
+```
+
+**Rules:** Fix, don’t silence. Python-only edits still run the frontend gate; frontend-only edits still run Ruff (+ pytest when touching contracts). Focused coverage must stay green for ledger transactions, cancel races (D61), SSE cursor/handoff (D55/D67), and profile schema validation (D51).
+
+---
+
+## 9. Vultr / Microsandbox tooling (D59)
+
+| Need | Prefer | Fallback | Must not |
+|------|--------|----------|----------|
+| Inventory / inspect | **Vultr MCP** (`https://mcp.vultr.com/mcp`) | `vultr-cli` read | Guess instance IDs |
+| Mutate Cloud Compute | **`vultr-cli`** | Vultr API + `VULTR_API_KEY` | Non-Vultr providers; Docker-as-Plane-2 |
+| Plane 2 lifecycle | **`msb` CLI/SDK** on VX1 | `microsandbox-mcp` debug only if D38 allows | Mock `msb` success |
+| Inference | Vultr Serverless Inference (`https://api.vultrinference.com/v1`) | — | Alternate LLM providers (D25) |
+
+If MCP/`vultr-cli`/`msb` is unavailable: **stop and report**. Secrets stay on Plane 1 / operator env — never injected into sandboxes (D19). Public demo hostname: **[killhub.pro](https://killhub.pro)** (D24).
+
+Refs: https://docs.vultr.com/reference/mcp-server/getting-started · https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute · https://docs.vultr.com/platform/getting-started/vultr-cli

@@ -18,3 +18,31 @@ export function validateGithubUrl(raw: string): string {
   }
   return cleaned;
 }
+
+/** `owner/repo` from a public github.com URL, or null if unparseable. */
+export function ownerRepoFromGithubUrl(raw: string): string | null {
+  try {
+    const cleaned = validateGithubUrl(raw);
+    const path = new URL(cleaned).pathname.replace(/^\/+|\/+$/g, "");
+    const parts = path.split("/");
+    if (parts.length >= 2 && parts[0] && parts[1]) {
+      return `${parts[0]}/${parts[1]}`;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/** Split textarea / paste input into candidate URL lines (trim, drop blanks). */
+export function parseGithubUrlLines(raw: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const cleaned = line.trim();
+    if (!cleaned || seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    out.push(cleaned);
+  }
+  return out;
+}

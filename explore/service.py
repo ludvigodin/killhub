@@ -82,6 +82,35 @@ def get_public_snapshot(job_id: str) -> dict[str, Any] | None:
     return get_ledger().get_snapshot(job_id)
 
 
+def list_job_summaries(
+    *,
+    limit: int = 48,
+    settings: Settings | None = None,
+) -> list[dict[str, Any]]:
+    """Recent jobs for the public feed — summary fields only (D69)."""
+    cfg = settings or get_settings()
+    ledger = get_ledger(cfg)
+    out: list[dict[str, Any]] = []
+    for job in ledger.list_recent_jobs(limit=limit):
+        shots = ledger.list_screenshots(job.job_id)
+        latest = shots[-1]["screenshot_id"] if shots else None
+        out.append(
+            {
+                "job_id": job.job_id,
+                "github_url": job.github_url,
+                "status": job.status,
+                "progress": job.progress,
+                "current_step": job.current_step,
+                "created_at": job.created_at,
+                "updated_at": job.updated_at,
+                "screenshot_id": latest,
+                "error": job.error,
+                "verification": job.verification,
+            }
+        )
+    return out
+
+
 def cancel_job(job_id: str) -> dict[str, Any]:
     """
     D61 cancel: request → freeze → finalizer (receipt + destroy) → terminal cancelled.

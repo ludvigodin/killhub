@@ -13,7 +13,13 @@ from api.auth import require_internal_token
 from config import get_settings
 from jobs import get_ledger
 from ledger.store import validate_github_url
-from service import AdmissionError, cancel_job, create_job, get_public_snapshot
+from service import (
+    AdmissionError,
+    cancel_job,
+    create_job,
+    get_public_snapshot,
+    list_job_summaries,
+)
 
 router = APIRouter(
     prefix="/internal",
@@ -45,6 +51,14 @@ def post_job(body: CreateJobBody) -> Dict[str, str]:
     except ValueError as exc:
         raise _error(400, str(exc), "invalid_url") from exc
     return {"job_id": job.job_id}
+
+
+@router.get("/jobs")
+def list_jobs(
+    limit: int = Query(default=48, ge=1, le=200),
+) -> Dict[str, Any]:
+    """Recent jobs newest-first for the public feed (D69)."""
+    return {"jobs": list_job_summaries(limit=limit)}
 
 
 @router.get("/jobs/{job_id}")

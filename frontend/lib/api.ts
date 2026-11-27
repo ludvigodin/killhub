@@ -20,6 +20,23 @@ type VerificationInfo = {
   [key: string]: unknown;
 };
 
+export type JobSummary = {
+  job_id: string;
+  github_url: string;
+  status: string;
+  progress: number;
+  current_step: string;
+  created_at: string;
+  updated_at?: string;
+  screenshot_id?: string | null;
+  error?: string | null;
+  verification?: VerificationInfo | null;
+};
+
+export type JobListResponse = {
+  jobs: JobSummary[];
+};
+
 type ReadinessInfo = {
   passed?: boolean;
   probe?: string;
@@ -116,6 +133,26 @@ export async function createJob(githubUrl: string): Promise<CreateJobResponse> {
     });
   }
   return body;
+}
+
+export async function listJobs(limit = 48): Promise<JobListResponse> {
+  const res = await fetch(
+    `/api/jobs?limit=${encodeURIComponent(String(limit))}`,
+    {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    },
+  );
+  const body = await parseJson<JobListResponse & ApiError>(res);
+  if (!res.ok) {
+    throw Object.assign(new Error(body.error || "list failed"), {
+      code: body.code || "error",
+      status: res.status,
+    });
+  }
+  return {
+    jobs: Array.isArray(body.jobs) ? body.jobs : [],
+  };
 }
 
 export async function getJob(jobId: string): Promise<JobSnapshot> {
