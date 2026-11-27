@@ -64,8 +64,9 @@ export function JobReport({ snapshot }: JobReportProps) {
   ].filter(Boolean);
 
   return (
-    <section className="space-y-8" aria-label="Intake receipt">
+    <section aria-label="Intake receipt">
       <SectionHeader
+        className="mb-3"
         size="lg"
         eyebrow="Intake dossier"
         title="Receipt"
@@ -85,222 +86,228 @@ export function JobReport({ snapshot }: JobReportProps) {
         meta={safety ? <ResultStamp safety={safety} /> : null}
       />
 
-      <EnvStatus snapshot={snapshot} />
+      <div className="space-y-8 border border-(--line) bg-(--paper-deep)/60 px-4 py-5">
+        <EnvStatus snapshot={snapshot} />
 
-      <section aria-label="Outcome gates" className="space-y-3">
-        <SectionHeader size="sm" eyebrow="Outcome" title="Gates" />
-        {gates ? (
-          <dl className="grid gap-2 text-sm sm:grid-cols-2">
-            <div>
-              <dt className="text-(--muted)">Terminal</dt>
-              <dd className="font-medium">
-                {String(gates.terminal || snapshot.status)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-(--muted)">Readiness at gate</dt>
-              <dd>{gates.readiness_passed ? "passed" : "not passed"}</dd>
-            </div>
-            <div className="sm:col-span-2">
-              <dt className="text-(--muted)">Reasons</dt>
-              <dd className="font-mono text-xs">
-                {Array.isArray(gates.reasons) ? gates.reasons.join(", ") : "-"}
-              </dd>
-            </div>
-          </dl>
-        ) : (
-          <p className="text-sm text-(--muted)">
-            Gates appear when the receipt is written at finalize.
-          </p>
-        )}
-        {scanError ? (
-          <p className="mt-3 text-sm" style={{ color: "var(--danger)" }}>
-            Scan error: {scanError}
-          </p>
-        ) : null}
-        {vulnReview ? (
-          <p className="mt-2 text-sm text-(--muted)">{vulnReview}</p>
-        ) : null}
-        {findingIds.length > 0 ? (
-          <p className="mt-2 font-mono text-xs text-(--muted)">
-            findings {findingIds.join(", ")}
-          </p>
-        ) : null}
-      </section>
-
-      <VulnReport report={snapshot.vuln_report} />
-
-      <section aria-label="Profile revisions" className="space-y-3">
-        <SectionHeader size="sm" eyebrow="Profile" title="Revisions" />
-        {revisions.length > 0 ? (
-          <ul className="space-y-1.5 text-sm">
-            {revisions.map((item, index) => {
-              const rev = asRecord(item);
-              const key =
-                rev && typeof rev.revision === "number"
-                  ? `rev-${rev.revision}`
-                  : `rev-i-${index}`;
-              return (
-                <li
-                  key={key}
-                  className="flex flex-wrap gap-x-3 gap-y-1 border border-(--line) bg-(--paper-deep)/40 px-3 py-2 font-mono text-xs"
-                >
-                  <span>
-                    rev{" "}
-                    {rev && typeof rev.revision === "number"
-                      ? rev.revision
-                      : "?"}
-                  </span>
-                  <span className="text-(--muted)">
-                    {rev && typeof rev.phase === "string"
-                      ? rev.phase
-                      : "phase?"}
-                  </span>
-                  <span className="text-(--muted)">
-                    {rev && typeof rev.schema_version === "string"
-                      ? rev.schema_version
-                      : ""}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p className="text-sm text-(--muted)">
-            No profile revision history on this receipt yet.
-          </p>
-        )}
-      </section>
-
-      <section aria-label="Sandbox generations" className="space-y-3">
-        <SectionHeader size="sm" eyebrow="Sandbox" title="Generations" />
-        {generations.length > 0 ? (
-          <ul className="space-y-1.5 text-sm">
-            {generations.map((item, index) => {
-              const gen = asRecord(item);
-              const key =
-                gen && typeof gen.generation === "number"
-                  ? `gen-${gen.generation}`
-                  : `gen-i-${index}`;
-              return (
-                <li
-                  key={key}
-                  className="space-y-1 border border-(--line) bg-(--paper-deep)/40 px-3 py-2 font-mono text-xs"
-                >
-                  <p>
-                    gen{" "}
-                    {gen && typeof gen.generation === "number"
-                      ? gen.generation
-                      : "?"}
-                    {gen && typeof gen.state === "string"
-                      ? ` · ${gen.state}`
-                      : ""}
-                  </p>
-                  {gen && typeof gen.environment_id === "string" ? (
-                    <p className="break-all text-(--muted)">
-                      {gen.environment_id}
-                    </p>
-                  ) : null}
-                  {gen && typeof gen.image === "string" ? (
-                    <p className="break-all text-(--muted)">{gen.image}</p>
-                  ) : null}
-                  {gen && typeof gen.destroyed_at === "string" ? (
-                    <p className="text-(--muted)">
-                      destroyed {gen.destroyed_at}
-                    </p>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p className="text-sm text-(--muted)">
-            No sandbox generation history on this receipt yet.
-          </p>
-        )}
-      </section>
-
-      <section aria-label="Lifecycle evidence" className="space-y-3">
-        <SectionHeader size="sm" eyebrow="Cleanup" title="Lifecycle" />
-        {lifecycle ? (
-          <div className="space-y-2">
+        <section aria-label="Outcome gates" className="space-y-3">
+          <SectionHeader size="sm" eyebrow="Outcome" title="Gates" />
+          {gates ? (
             <dl className="grid gap-2 text-sm sm:grid-cols-2">
               <div>
-                <dt className="text-(--muted)">Cleanup</dt>
+                <dt className="text-(--muted)">Terminal</dt>
                 <dd className="font-medium">
-                  {typeof lifecycle.cleanup === "string"
-                    ? lifecycle.cleanup
-                    : "-"}
+                  {String(gates.terminal || snapshot.status)}
                 </dd>
               </div>
               <div>
-                <dt className="text-(--muted)">Destroy confirmed</dt>
-                <dd className="font-medium">
-                  {destroyConfirmed === true
-                    ? "yes"
-                    : destroyConfirmed === false
-                      ? "no"
-                      : "-"}
-                </dd>
+                <dt className="text-(--muted)">Readiness at gate</dt>
+                <dd>{gates.readiness_passed ? "passed" : "not passed"}</dd>
               </div>
-              <div>
-                <dt className="text-(--muted)">Destroyed at</dt>
+              <div className="sm:col-span-2">
+                <dt className="text-(--muted)">Reasons</dt>
                 <dd className="font-mono text-xs">
-                  {typeof lifecycle.destroyed_at === "string"
-                    ? lifecycle.destroyed_at
+                  {Array.isArray(gates.reasons)
+                    ? gates.reasons.join(", ")
                     : "-"}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-(--muted)">Destroy error</dt>
-                <dd
-                  className="font-mono text-xs"
-                  style={destroyError ? { color: "var(--danger)" } : undefined}
-                >
-                  {destroyError || "-"}
                 </dd>
               </div>
             </dl>
-            <pre className="max-h-48 overflow-auto border border-(--line) bg-(--paper-deep)/50 p-3 font-mono text-xs">
-              {prettyJson(lifecycle)}
-            </pre>
-          </div>
-        ) : (
-          <p className="text-sm text-(--muted)">No lifecycle receipt yet.</p>
-        )}
-      </section>
+          ) : (
+            <p className="text-sm text-(--muted)">
+              Gates appear when the receipt is written at finalize.
+            </p>
+          )}
+          {scanError ? (
+            <p className="mt-3 text-sm" style={{ color: "var(--danger)" }}>
+              Scan error: {scanError}
+            </p>
+          ) : null}
+          {vulnReview ? (
+            <p className="mt-2 text-sm text-(--muted)">{vulnReview}</p>
+          ) : null}
+          {findingIds.length > 0 ? (
+            <p className="mt-2 font-mono text-xs text-(--muted)">
+              findings {findingIds.join(", ")}
+            </p>
+          ) : null}
+        </section>
 
-      <section aria-label="Environment profile" className="space-y-3">
-        <SectionHeader
-          size="sm"
-          eyebrow="Runtime"
-          title="environment_profile.json"
-          description={
-            [
-              snapshot.current_profile_revision != null
-                ? `rev ${snapshot.current_profile_revision}`
-                : null,
-              typeof profile?.phase === "string" ? profile.phase : null,
-            ]
-              .filter(Boolean)
-              .join(" · ") || undefined
-          }
-        />
-        {profile ? (
-          <pre className="max-h-80 overflow-auto border border-(--line) bg-(--paper-deep)/50 p-3 font-mono text-xs leading-relaxed">
-            {prettyJson(profile)}
-          </pre>
-        ) : (
-          <p className="text-sm text-(--muted)">
-            No runtime profile revision on this job yet.
-          </p>
-        )}
-        {snapshot.resolved_commit ? (
-          <p className="mt-2 font-mono text-xs text-(--muted)">
-            resolved_commit {snapshot.resolved_commit}
-          </p>
-        ) : null}
-      </section>
+        <VulnReport report={snapshot.vuln_report} />
+
+        <section aria-label="Profile revisions" className="space-y-3">
+          <SectionHeader size="sm" eyebrow="Profile" title="Revisions" />
+          {revisions.length > 0 ? (
+            <ul className="space-y-1.5 text-sm">
+              {revisions.map((item, index) => {
+                const rev = asRecord(item);
+                const key =
+                  rev && typeof rev.revision === "number"
+                    ? `rev-${rev.revision}`
+                    : `rev-i-${index}`;
+                return (
+                  <li
+                    key={key}
+                    className="flex flex-wrap gap-x-3 gap-y-1 border border-(--line) bg-(--paper-deep)/40 px-3 py-2 font-mono text-xs"
+                  >
+                    <span>
+                      rev{" "}
+                      {rev && typeof rev.revision === "number"
+                        ? rev.revision
+                        : "?"}
+                    </span>
+                    <span className="text-(--muted)">
+                      {rev && typeof rev.phase === "string"
+                        ? rev.phase
+                        : "phase?"}
+                    </span>
+                    <span className="text-(--muted)">
+                      {rev && typeof rev.schema_version === "string"
+                        ? rev.schema_version
+                        : ""}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="text-sm text-(--muted)">
+              No profile revision history on this receipt yet.
+            </p>
+          )}
+        </section>
+
+        <section aria-label="Sandbox generations" className="space-y-3">
+          <SectionHeader size="sm" eyebrow="Sandbox" title="Generations" />
+          {generations.length > 0 ? (
+            <ul className="space-y-1.5 text-sm">
+              {generations.map((item, index) => {
+                const gen = asRecord(item);
+                const key =
+                  gen && typeof gen.generation === "number"
+                    ? `gen-${gen.generation}`
+                    : `gen-i-${index}`;
+                return (
+                  <li
+                    key={key}
+                    className="space-y-1 border border-(--line) bg-(--paper-deep)/40 px-3 py-2 font-mono text-xs"
+                  >
+                    <p>
+                      gen{" "}
+                      {gen && typeof gen.generation === "number"
+                        ? gen.generation
+                        : "?"}
+                      {gen && typeof gen.state === "string"
+                        ? ` · ${gen.state}`
+                        : ""}
+                    </p>
+                    {gen && typeof gen.environment_id === "string" ? (
+                      <p className="break-all text-(--muted)">
+                        {gen.environment_id}
+                      </p>
+                    ) : null}
+                    {gen && typeof gen.image === "string" ? (
+                      <p className="break-all text-(--muted)">{gen.image}</p>
+                    ) : null}
+                    {gen && typeof gen.destroyed_at === "string" ? (
+                      <p className="text-(--muted)">
+                        destroyed {gen.destroyed_at}
+                      </p>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="text-sm text-(--muted)">
+              No sandbox generation history on this receipt yet.
+            </p>
+          )}
+        </section>
+
+        <section aria-label="Lifecycle evidence" className="space-y-3">
+          <SectionHeader size="sm" eyebrow="Cleanup" title="Lifecycle" />
+          {lifecycle ? (
+            <div className="space-y-2">
+              <dl className="grid gap-2 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-(--muted)">Cleanup</dt>
+                  <dd className="font-medium">
+                    {typeof lifecycle.cleanup === "string"
+                      ? lifecycle.cleanup
+                      : "-"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-(--muted)">Destroy confirmed</dt>
+                  <dd className="font-medium">
+                    {destroyConfirmed === true
+                      ? "yes"
+                      : destroyConfirmed === false
+                        ? "no"
+                        : "-"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-(--muted)">Destroyed at</dt>
+                  <dd className="font-mono text-xs">
+                    {typeof lifecycle.destroyed_at === "string"
+                      ? lifecycle.destroyed_at
+                      : "-"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-(--muted)">Destroy error</dt>
+                  <dd
+                    className="font-mono text-xs"
+                    style={
+                      destroyError ? { color: "var(--danger)" } : undefined
+                    }
+                  >
+                    {destroyError || "-"}
+                  </dd>
+                </div>
+              </dl>
+              <pre className="max-h-48 overflow-auto border border-(--line) bg-(--paper-deep)/50 p-3 font-mono text-xs">
+                {prettyJson(lifecycle)}
+              </pre>
+            </div>
+          ) : (
+            <p className="text-sm text-(--muted)">No lifecycle receipt yet.</p>
+          )}
+        </section>
+
+        <section aria-label="Environment profile" className="space-y-3">
+          <SectionHeader
+            size="sm"
+            eyebrow="Runtime"
+            title="environment_profile.json"
+            description={
+              [
+                snapshot.current_profile_revision != null
+                  ? `rev ${snapshot.current_profile_revision}`
+                  : null,
+                typeof profile?.phase === "string" ? profile.phase : null,
+              ]
+                .filter(Boolean)
+                .join(" · ") || undefined
+            }
+          />
+          {profile ? (
+            <pre className="max-h-80 overflow-auto border border-(--line) bg-(--paper-deep)/50 p-3 font-mono text-xs leading-relaxed">
+              {prettyJson(profile)}
+            </pre>
+          ) : (
+            <p className="text-sm text-(--muted)">
+              No runtime profile revision on this job yet.
+            </p>
+          )}
+          {snapshot.resolved_commit ? (
+            <p className="mt-2 font-mono text-xs text-(--muted)">
+              resolved_commit {snapshot.resolved_commit}
+            </p>
+          ) : null}
+        </section>
+      </div>
     </section>
   );
 }

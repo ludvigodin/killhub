@@ -178,6 +178,7 @@ export type ScreenshotMeta = {
   caption?: string;
   storage_path?: string;
   created_at?: string;
+  /** Absolute CDN URL when Object Storage + CDN configured (D76); else API path. */
   url?: string;
 };
 

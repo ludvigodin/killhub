@@ -138,14 +138,15 @@ export function JobHeroTimeline({ snapshot, logs = [] }: JobHeroTimelineProps) {
     <section
       id="section-timeline"
       aria-label="Job timeline"
-      className={`job-timeline space-y-4 border border-(--line) bg-(--paper-deep)/55 px-3 py-5 sm:px-5 ${SECTION_SCROLL_MT}`}
+      className={`job-timeline ${SECTION_SCROLL_MT}`}
     >
       <SectionHeader
+        className="mb-3"
         eyebrow="Pattern A loop"
         title="Plan → execute → prove → destroy"
       />
 
-      <ol className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-0">
+      <ol className="flex flex-col gap-5 border border-(--line) bg-(--paper-deep)/55 px-3 py-5 sm:flex-row sm:items-start sm:gap-0 sm:px-5">
         {stages.map((stage, index) => (
           <StageNode
             key={stage.id}

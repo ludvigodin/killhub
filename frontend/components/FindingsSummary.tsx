@@ -2,6 +2,7 @@ import type { JobSnapshot } from "@/lib/api";
 import {
   countSeverities,
   readerSummary,
+  reportStatusTone,
   SEVERITY_ORDER,
   SEVERITY_TONE,
   type SeverityLevel,
@@ -15,42 +16,56 @@ export function FindingsSummary({ snapshot }: { snapshot: JobSnapshot }) {
   const verdict = securityVerdict(snapshot);
   const counts = countSeverities(report?.findings);
   const summary = readerSummary(report);
+  const statusTone = report ? reportStatusTone(report.status) : null;
 
   return (
     <section
       id="section-findings"
       aria-label="Findings summary"
-      className={`space-y-3 border border-(--line) bg-(--paper-deep)/60 px-4 py-4 ${SECTION_SCROLL_MT}`}
+      className={SECTION_SCROLL_MT}
     >
-      <SectionHeader eyebrow="Security assessment" title="Findings" />
+      <SectionHeader
+        className="mb-3"
+        eyebrow="Security assessment"
+        title="Findings"
+        meta={
+          statusTone ? (
+            <p className="type-mono" style={{ color: statusTone.fg }}>
+              report {statusTone.label}
+            </p>
+          ) : null
+        }
+      />
 
-      <p
-        className="type-display text-base font-medium tracking-tight"
-        style={{ color: verdict.color }}
-      >
-        {verdict.label}
-      </p>
+      <div className="space-y-3 border border-(--line) bg-(--paper-deep)/60 px-4 py-4">
+        <p
+          className="type-display text-base font-medium tracking-tight"
+          style={{ color: verdict.color }}
+        >
+          {verdict.label}
+        </p>
 
-      {summary ? (
-        <p className="text-sm leading-relaxed wrap-anywhere">{summary}</p>
-      ) : null}
+        {summary ? (
+          <p className="text-sm leading-relaxed wrap-anywhere">{summary}</p>
+        ) : null}
 
-      {counts.total > 0 ? (
-        <ul className="flex flex-wrap gap-2" aria-label="Severity counts">
-          {SEVERITY_ORDER.filter((sev) => counts[sev] > 0).map((sev) => (
-            <SeverityChip key={sev} severity={sev} count={counts[sev]} />
-          ))}
-          {counts.other > 0 ? (
-            <li className="inline-flex items-center rounded-md bg-(--paper-deep) px-2 py-0.5 font-mono text-xs text-(--muted)">
-              {counts.other} other
-            </li>
-          ) : null}
-        </ul>
-      ) : null}
+        {counts.total > 0 ? (
+          <ul className="flex flex-wrap gap-2" aria-label="Severity counts">
+            {SEVERITY_ORDER.filter((sev) => counts[sev] > 0).map((sev) => (
+              <SeverityChip key={sev} severity={sev} count={counts[sev]} />
+            ))}
+            {counts.other > 0 ? (
+              <li className="inline-flex items-center rounded-md bg-(--paper-deep) px-2 py-0.5 font-mono text-xs text-(--muted)">
+                {counts.other} other
+              </li>
+            ) : null}
+          </ul>
+        ) : null}
 
-      <p className="text-sm text-(--muted)">
-        {[verdict.reason, ...verdict.gaps].filter(Boolean).join(" ")}
-      </p>
+        <p className="text-sm text-(--muted)">
+          {[verdict.reason, ...verdict.gaps].filter(Boolean).join(" ")}
+        </p>
+      </div>
     </section>
   );
 }

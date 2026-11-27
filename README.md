@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="https://killhub.pro">
+    <img src="frontend/app/opengraph-image.jpg" alt="Killhub — Plan → sandboxed execution → verifiable output → destroy" width="800" />
+  </a>
+</p>
+
 # Killhub
 
 **Plan → sandboxed execution → verifiable output → destroy.**

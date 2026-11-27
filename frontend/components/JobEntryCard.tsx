@@ -9,6 +9,7 @@ import {
   ownerRepoFromGithubUrl,
 } from "@/lib/github";
 import { formatQueueLine } from "@/lib/queue";
+import { resolveScreenshotSrc, screenshotFallbackSrc } from "@/lib/screenshots";
 import { formatJobWhen, isJobStalled } from "@/lib/time";
 import { ProgressBar } from "./ProgressBar";
 import { RepoThumbnail } from "./RepoThumbnail";
@@ -17,6 +18,50 @@ import { StatusBadge } from "./StatusBadge";
 import { VerificationBadge } from "./VerificationBadge";
 
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
+
+function FeedThumb({
+  jobId,
+  screenshotId,
+  screenshotUrl,
+  repo,
+}: {
+  jobId: string;
+  screenshotId?: string | null;
+  screenshotUrl?: string | null;
+  repo: string;
+}) {
+  const preferred = screenshotId
+    ? resolveScreenshotSrc(jobId, screenshotId, screenshotUrl)
+    : null;
+  const [src, setSrc] = useState(preferred);
+  const [failed, setFailed] = useState(false);
+
+  if (!preferred || failed || !src) {
+    return <RepoThumbnail repo={repo} />;
+  }
+
+  return (
+    // biome-ignore lint/performance/noImgElement: dynamic CDN or API still bytes
+    <img
+      key={preferred}
+      src={src}
+      onError={() => {
+        if (!screenshotId) {
+          setFailed(true);
+          return;
+        }
+        const fallback = screenshotFallbackSrc(jobId, screenshotId, src);
+        if (fallback) {
+          setSrc(fallback);
+          return;
+        }
+        setFailed(true);
+      }}
+      alt=""
+      className="h-full w-full object-cover"
+    />
+  );
+}
 
 function HostIcon({
   host,
@@ -93,13 +138,6 @@ export function JobEntryCard({
     job.updated_at && job.updated_at !== job.created_at
       ? formatJobWhen(job.updated_at)
       : null;
-  const [failedShot, setFailedShot] = useState<string | null>(null);
-  const shot =
-    job.screenshot_url && job.screenshot_url.length > 0
-      ? job.screenshot_url
-      : job.screenshot_id != null && job.screenshot_id.length > 0
-        ? `/api/jobs/${encodeURIComponent(job.job_id)}/screenshots/${encodeURIComponent(job.screenshot_id)}`
-        : null;
   const delay = Math.min(index, 12) * 35;
   const repoHref = job.github_url;
   const cardHref = href ?? `/jobs/${encodeURIComponent(job.job_id)}`;
@@ -142,17 +180,13 @@ export function JobEntryCard({
         }
       >
         <div className="relative size-10 shrink-0 overflow-hidden rounded-md bg-(--paper-deep) sm:size-11">
-          {shot && shot !== failedShot ? (
-            // biome-ignore lint/performance/noImgElement: dynamic API screenshot bytes
-            <img
-              src={shot}
-              onError={() => setFailedShot(shot)}
-              alt=""
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <RepoThumbnail repo={title} />
-          )}
+          <FeedThumb
+            key={`${job.job_id}:${job.screenshot_id ?? ""}:${job.screenshot_url ?? ""}`}
+            jobId={job.job_id}
+            screenshotId={job.screenshot_id}
+            screenshotUrl={job.screenshot_url}
+            repo={title}
+          />
         </div>
 
         <div className="min-w-0 flex-1">

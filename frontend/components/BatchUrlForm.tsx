@@ -189,7 +189,9 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
           That URL doesn&apos;t look valid yet.
         </p>
       ) : null}
-      {batchError ? <ErrorBanner message={batchError} /> : null}
+      {batchError ? (
+        <ErrorBanner className="mt-4" message={batchError} />
+      ) : null}
       {hint ? <p className="mt-3 text-sm text-(--warn)">{hint}</p> : null}
       {results.length > 0 ? (
         <ul className="mt-4 space-y-1.5 text-sm">
