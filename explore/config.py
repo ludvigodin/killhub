@@ -111,6 +111,8 @@ class Settings(BaseSettings):
     job_timeout_seconds: int = Field(default=3600, alias="JOB_TIMEOUT_SECONDS")
     env_ttl_seconds: int = Field(default=7200, alias="ENV_TTL_SECONDS")
     max_repair_attempts: int = Field(default=3, alias="MAX_REPAIR_ATTEMPTS")
+    # D80: re-provision a vanished sandbox this many times per job (0 = off).
+    max_sandbox_heals: int = Field(default=1, alias="MAX_SANDBOX_HEALS")
     max_concurrent_jobs: int = Field(default=2, alias="MAX_CONCURRENT_JOBS")
     max_queued_jobs: int = Field(default=8, alias="MAX_QUEUED_JOBS")
     # Optional hard reject for inference budget demos (D40).
