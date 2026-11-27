@@ -18,6 +18,7 @@ from fixtures import intake_catalog, resolve_intake_fixture
 from jobs import get_ledger
 from ledger import Ledger
 from ledger.store import validate_github_url
+from novnc_bridge import console_metadata
 from service import (
     AdmissionError,
     cancel_job,
@@ -115,6 +116,10 @@ def get_job(job_id: str) -> Dict[str, Any]:
     snap = get_public_snapshot(job_id)
     if snap is None:
         raise _error(404, "job not found", "not_found")
+    settings = get_settings()
+    console = console_metadata(settings, get_ledger(settings), job_id)
+    if console is not None:
+        snap["novnc"] = console
     return snap
 
 
@@ -221,6 +226,8 @@ async def _event_stream(
     terminal = frozenset({"completed", "failed", "cancelled"})
     heartbeat_interval = max(1, keepalive_seconds)
     heartbeat_due = monotonic() + heartbeat_interval
+    settings = get_settings()
+    last_console = None
 
     while True:
         # Read the status before the events so a terminal transition during the
@@ -252,6 +259,14 @@ async def _event_stream(
                         body[key] = event.payload[key]
             yield _sse_format(event.event_id, event.type, body)
             cursor = event.event_id
+
+        # Availability belongs to the current socket, so derive it on connection
+        # and on change. Omitting the SSE id preserves the durable replay cursor.
+        console = console_metadata(settings, ledger, job_id)
+        if console is not None and console != last_console:
+            payload = json.dumps({"payload": console}, separators=(",", ":"))
+            yield f"event: novnc\ndata: {payload}\n\n"
+            last_console = console
 
         if job.status in terminal:
             return

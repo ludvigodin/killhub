@@ -8,6 +8,7 @@ import {
   type JobSnapshot,
   jobEventsUrl,
   listScreenshots,
+  type NoVncInfo,
   type ScreenshotMeta,
 } from "@/lib/api";
 import { snapshotSafety } from "@/lib/findings";
@@ -23,6 +24,7 @@ import { HackerVision } from "./HackerVision";
 import { JobHeroTimeline } from "./JobHeroTimeline";
 import { JobReport } from "./JobReport";
 import { LoadingPanel } from "./LoadingPanel";
+import { NoVncViewer } from "./NoVncViewer";
 import { ProgressBar } from "./ProgressBar";
 import {
   isProgressLogType,
@@ -265,6 +267,31 @@ export function JobLiveView({
           return;
         }
 
+        // Availability is transient and must not advance the job's ledger cursor.
+        if (type === "novnc") {
+          const console = data.payload;
+          let novnc: NoVncInfo;
+          if (console?.view_only !== true) return;
+          if (console.available === false) {
+            novnc = { available: false, view_only: true };
+          } else if (
+            console.available === true &&
+            console.ws_path === `/api/jobs/${jobId}/novnc` &&
+            typeof console.generation === "number"
+          ) {
+            novnc = {
+              available: true,
+              view_only: true,
+              generation: console.generation,
+              ws_path: console.ws_path,
+            };
+          } else {
+            return;
+          }
+          setSnapshot((prev) => (prev ? { ...prev, novnc } : prev));
+          return;
+        }
+
         const id =
           data.event_id || event.lastEventId || `${type}-${Date.now()}`;
 
@@ -394,6 +421,7 @@ export function JobLiveView({
         "lifecycle",
         "gap",
         "screenshot",
+        "novnc",
       ]) {
         source.addEventListener(type, (event) => {
           handlePayload(event as MessageEvent, type);
@@ -710,6 +738,17 @@ export function JobLiveView({
         />
       )}
 
+      {/* Changing generation tears down the old canvas and discards its grant. */}
+      {snapshot?.novnc && !terminal && !cancelling ? (
+        <NoVncViewer
+          key={`${jobId}:${snapshot.novnc.available ? snapshot.novnc.generation : "unavailable"}`}
+          available={
+            snapshot.novnc.available &&
+            snapshot.novnc.ws_path === `/api/jobs/${jobId}/novnc`
+          }
+          jobId={jobId}
+        />
+      ) : null}
       <ScreenshotTimeline jobId={jobId} shots={shots} />
 
       {containment ? <ContainmentPanel containment={containment} /> : null}

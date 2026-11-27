@@ -213,8 +213,9 @@ type LegacyEnvironmentProfile = {
   original_failure?: VerificationInfo["original_failure"];
 };
 
-type NoVncInfo = { view_only: true } & (
-  | { available: true; ws_path: string }
+/** Plane 1 publishes current availability without issuing a viewing grant. */
+export type NoVncInfo = { view_only: true } & (
+  | { available: true; ws_path: string; generation: number }
   | { available: false; ws_path?: null }
 );
 
