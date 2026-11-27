@@ -14,15 +14,15 @@
 
 ## Do
 
-- [ ] Create `frontend/` Next.js App Router + TypeScript
-- [ ] Landing shell (input placeholder) + `/jobs/[id]` placeholder
-- [ ] `GET /health` → `200`
-- [ ] Wire `frontend` into `docker-compose.yml`
-- [ ] Same-origin `/api` route stubs (no real jobs yet)
-- [ ] Add **Biome** (`@biomejs/biome`) with `biome.json` (or `biome.jsonc`) covering `frontend/`
-- [ ] Add **Knip** with `knip` config; wire unused-export/dep checks for the Next app
-- [ ] Add package scripts: `lint` → `biome check .`, `lint:fix` → `biome check --write .`, `knip` → `knip`, `typecheck` → `tsc --noEmit`, `build` → `next build`
-- [ ] Document commands in [LINT.md](LINT.md) if the package manager differs from `pnpm`
+- [x] Create `frontend/` Next.js App Router + TypeScript
+- [x] Landing shell (input placeholder) + `/jobs/[id]` placeholder
+- [x] `GET /health` → `200`
+- [x] Wire `frontend` into `docker-compose.yml`
+- [x] Same-origin `/api` route stubs (no real jobs yet)
+- [x] Add **Biome** (`@biomejs/biome`) with `biome.json` (or `biome.jsonc`) covering `frontend/`
+- [x] Add **Knip** with `knip` config; wire unused-export/dep checks for the Next app
+- [x] Add package scripts: `lint` → `biome check .`, `lint:fix` → `biome check --write .`, `knip` → `knip`, `typecheck` → `tsc --noEmit`, `build` → `next build`
+- [x] Document commands in [LINT.md](LINT.md) if the package manager differs from `pnpm`
 
 ## Do not
 

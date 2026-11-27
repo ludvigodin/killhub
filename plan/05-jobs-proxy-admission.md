@@ -14,11 +14,11 @@
 
 ## Do
 
-- [ ] URL form + `POST /api/jobs` → Internal API (server-side token only)
-- [ ] `GET /api/jobs/{id}` + `/events` proxy; hydrate snapshot then SSE with cursor
-- [ ] Cursor expired / pruned-range → client re-snapshots (D55, D67); no silent middle gaps
-- [ ] Admission: `400` bad URL; `429` rate/inference; `503` queue/concurrency (D40)
-- [ ] Navigate to `/jobs/{id}` after create
+- [x] URL form + `POST /api/jobs` → Internal API (server-side token only)
+- [x] `GET /api/jobs/{id}` + `/events` proxy; hydrate snapshot then SSE with cursor
+- [x] Cursor expired / pruned-range → client re-snapshots (D55, D67); no silent middle gaps
+- [x] Admission: `400` bad URL; `429` rate/inference; `503` queue/concurrency (D40)
+- [x] Navigate to `/jobs/{id}` after create
 
 ## Do not
 

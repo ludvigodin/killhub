@@ -13,11 +13,11 @@
 
 ## Do
 
-- [ ] Choose SQLite path under `storage/ledger/` (record in DECISIONS if not SQLite)
-- [ ] Persist Job + JobEvent + profile **revisions** + sandbox **generations** with field names from DATABASE.md (D64)
-- [ ] Event byte-budget pruning is contiguous + `gap` tombstone (D67)
-- [ ] Create job / append event / load snapshot helpers
-- [ ] Survive process restart (smoke: write → kill → read)
+- [x] Choose SQLite path under `storage/ledger/` (record in DECISIONS if not SQLite)
+- [x] Persist Job + JobEvent + profile **revisions** + sandbox **generations** with field names from DATABASE.md (D64)
+- [x] Event byte-budget pruning is contiguous + `gap` tombstone (D67)
+- [x] Create job / append event / load snapshot helpers
+- [x] Survive process restart (smoke: write → kill → read)
 
 ## Do not
 

@@ -67,11 +67,11 @@ Jobs are **server-owned** (Plane 1). Closing the tab does **not** cancel. Resume
 
 ### N0 — Scaffold
 
-- [ ] Next.js App Router + TypeScript in `frontend/`
-- [ ] Shell pages: landing (input), `/jobs/[id]`
-- [ ] Wire into `docker-compose.yml` as `frontend`
-- [ ] Same-origin `/api` routes (no browser → separate Explore URL required)
-- [ ] **Biome + Knip** installed with `lint` / `lint:fix` / `knip` scripts; both pass ([plan/LINT.md](plan/LINT.md))
+- [x] Next.js App Router + TypeScript in `frontend/`
+- [x] Shell pages: landing (input), `/jobs/[id]`
+- [x] Wire into `docker-compose.yml` as `frontend`
+- [x] Same-origin `/api` routes (no browser → separate Explore URL required)
+- [x] **Biome + Knip** installed with `lint` / `lint:fix` / `knip` scripts; both pass ([plan/LINT.md](plan/LINT.md))
 
 **Done when:** Frontend loads; `/health` returns `200`; Biome + Knip pass.
 
@@ -133,7 +133,7 @@ Jobs are **server-owned** (Plane 1). Closing the tab does **not** cancel. Resume
 
 ## Milestones
 
-- [ ] **N-M0:** Frontend boots in compose
+- [x] **N-M0:** Frontend boots in compose
 - [ ] **N-M1:** Input creates job via Plane 1 API
 - [ ] **N-M2:** Live status, progress, logs
 - [ ] **N-M3:** Report shows profile + vulns + sandbox lifecycle

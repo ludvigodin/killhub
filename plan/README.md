@@ -24,11 +24,11 @@ Plane detail (when a step says “see plane doc”):
 
 | Status | Step | Focus |
 |:------:|------|--------|
-| [ ] | [01-scaffold-frontend](01-scaffold-frontend.md) | Next.js compose shell (N0) |
-| [ ] | [02-scaffold-explore](02-scaffold-explore.md) | Explore worker shell (E0) |
-| [ ] | [03-ledger-core](03-ledger-core.md) | Durable job/event store (D41) |
-| [ ] | [04-internal-worker-api](04-internal-worker-api.md) | Python Internal Worker API (D52) |
-| [ ] | [05-jobs-proxy-admission](05-jobs-proxy-admission.md) | Next proxy + admission + SSE cursor (N1) |
+| [x] | [01-scaffold-frontend](01-scaffold-frontend.md) | Next.js compose shell (N0) |
+| [x] | [02-scaffold-explore](02-scaffold-explore.md) | Explore worker shell (E0) |
+| [x] | [03-ledger-core](03-ledger-core.md) | Durable job/event store (D41) |
+| [x] | [04-internal-worker-api](04-internal-worker-api.md) | Python Internal Worker API (D52) |
+| [x] | [05-jobs-proxy-admission](05-jobs-proxy-admission.md) | Next proxy + admission + SSE cursor (N1) |
 | [ ] | [06-msb-create-destroy](06-msb-create-destroy.md) | Microsandbox create/destroy + reaper (T0) |
 | [ ] | [07-msb-exec-copy](07-msb-exec-copy.md) | Exec + copy in/out (T1) |
 | [ ] | [08-net-policy-canaries](08-net-policy-canaries.md) | Network policy + canaries on create (D39, D44) |

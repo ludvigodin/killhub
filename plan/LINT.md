@@ -11,7 +11,7 @@ cd frontend
 pnpm lint:fix     # biome check --write .
 pnpm lint          # biome check .
 pnpm knip          # unused exports / deps
-pnpm typecheck     # tsc --noEmit (or project equivalent)
+pnpm typecheck     # next typegen && tsc --noEmit (typed routes)
 pnpm build         # next build (or project build) — proves the app compiles
 ```
 
@@ -29,20 +29,22 @@ pnpm exec next build
 
 ```bash
 cd explore
-pnpm exec --dir .. true 2>/dev/null || true
-ruff check .
-ruff format --check .
-# optional once configured: pytest -q
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt   # includes ruff
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
+.venv/bin/pytest -q   # required once ledger tests exist (step 03+)
 ```
 
-Or from repo root:
+
+Or from repo root (if `ruff` is on `PATH`):
 
 ```bash
 ruff check explore/
 ruff format --check explore/
 ```
 
-Install `ruff` in the explore toolchain in step 02 (or earlier Python scaffold); do not skip Python checks on Python-only edits.
+Install `ruff` via `explore/requirements-dev.txt` (step 02); do not skip Python checks on Python-only edits.
 
 ### Focused tests (required as the features land)
 

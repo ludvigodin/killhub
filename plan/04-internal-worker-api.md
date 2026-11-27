@@ -14,11 +14,11 @@
 
 ## Do
 
-- [ ] Freeze Internal API: `POST/GET/DELETE /internal/jobs…`, `GET …/events` (SSE), auth via `INTERNAL_API_TOKEN`
-- [ ] Bind explore API to localhost / compose-internal only
-- [ ] Snapshot includes `event_cursor`; SSE supports `Last-Event-ID` / `?after=`; contiguous prune + `gap` (D67)
-- [ ] Cancel: `cancel_requested_at` → freeze ordinary writers → finalizer allowlist (receipt + cleanup) → terminal `cancelled` (D61)
-- [ ] Background worker stub that can pick up a job (no sandbox yet)
+- [x] Freeze Internal API: `POST/GET/DELETE /internal/jobs…`, `GET …/events` (SSE), auth via `INTERNAL_API_TOKEN`
+- [x] Bind explore API to localhost / compose-internal only
+- [x] Snapshot includes `event_cursor`; SSE supports `Last-Event-ID` / `?after=`; contiguous prune + `gap` (D67)
+- [x] Cancel: `cancel_requested_at` → freeze ordinary writers → finalizer allowlist (receipt + cleanup) → terminal `cancelled` (D61)
+- [x] Background worker stub that can pick up a job (no sandbox yet)
 
 ## Do not
 

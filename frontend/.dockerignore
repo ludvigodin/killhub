@@ -1,0 +1,12 @@
+node_modules
+.next
+out
+build
+coverage
+.git
+*.log
+.env
+.env.*
+!.env.example
+README.md
+AGENTS.md

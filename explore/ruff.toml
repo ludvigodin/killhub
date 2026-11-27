@@ -1,0 +1,13 @@
+# Runtime image is 3.12; host test venv may be 3.9 — keep syntax portable.
+target-version = "py39"
+line-length = 100
+src = ["."]
+
+[lint]
+select = ["E", "F", "I", "UP", "B"]
+# Prefer typing.Optional/List for FastAPI deps evaluated on older hosts.
+ignore = ["UP017", "UP006", "UP007", "UP035", "UP045"]
+
+[format]
+quote-style = "double"
+indent-style = "space"

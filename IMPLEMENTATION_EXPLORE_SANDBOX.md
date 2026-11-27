@@ -98,22 +98,22 @@ Versioned executable schema (`schema_version: "1"`) — see [DATABASE.md](DATABA
 
 ### E0 — Scaffold
 
-- [ ] Scaffold `explore/` worker with local health for compose
-- [ ] `docker-compose.yml` service `explore` (same network as frontend)
-- [ ] `.env.example`: `VULTR_API_KEY`, `VULTR_INFERENCE_*`, `OPENCODE_*`, timeouts, caps
-- [ ] Empty `jobs.py` / `models.py` / `config.py`
+- [x] Scaffold `explore/` worker with local health for compose
+- [x] `docker-compose.yml` service `explore` (same network as frontend)
+- [x] `.env.example`: `VULTR_API_KEY`, `VULTR_INFERENCE_*`, `OPENCODE_*`, timeouts, caps
+- [x] Empty `jobs.py` / `models.py` / `config.py`
 
 **Done when:** Worker boots; can be reached by Next.js on the same host.
 
 ### E1 — Durable job ledger + Internal Worker API
 
-- [ ] Durable job/event ledger (SQLite default; D41) **owned by this sidecar** (D52)
-- [ ] Implement Internal Worker API **before** N1: create / snapshot (`event_cursor`) / events / cancel / screenshots / health ([API.md](API.md))
-- [ ] SSE replay + `cursor_expired` (D55); keep-alives (D50); structured types (D49)
-- [ ] Cancel: `cancel_requested_at` → freeze ordinary writers → finalizer (receipt + destroy) → terminal `cancelled` (D61); idempotent when already cancelled
-- [ ] SSE cursor + contiguous prune/`gap` events (D55, D67)
+- [x] Durable job/event ledger (SQLite default; D41) **owned by this sidecar** (D52)
+- [x] Implement Internal Worker API **before** N1: create / snapshot (`event_cursor`) / events / cancel / screenshots / health ([API.md](API.md))
+- [x] SSE replay + `cursor_expired` (D55); keep-alives (D50); structured types (D49)
+- [x] Cancel: `cancel_requested_at` → freeze ordinary writers → finalizer (receipt + destroy) → terminal `cancelled` (D61); idempotent when already cancelled
+- [x] SSE cursor + contiguous prune/`gap` events (D55, D67)
 - [ ] Startup reconciliation vs live Microsandbox inventory; set absolute `expires_at`
-- [ ] Persist profile **revisions**, sandbox **generations**, `resolved_commit`, readiness, verification, vuln_report, **receipt** (before terminal), screenshots[], `sandbox_id`, `inference_model`, `expires_at`, `cleanup`, `destroyed_at` (confirm-only — D57, D64)
+- [x] Persist profile **revisions**, sandbox **generations**, `resolved_commit`, readiness, verification, vuln_report, **receipt** (before terminal), screenshots[], `sandbox_id`, `inference_model`, `expires_at`, `cleanup`, `destroyed_at` (confirm-only — D57, D64)
 - [ ] Admission hooks: concurrency / queue / rate / inference / disk budgets (D40)
 
 **Done when:** Internal API serves create/snapshot/SSE/cancel; Next can proxy without a local store; restart keeps ledger.
@@ -219,8 +219,8 @@ Depends on [IMPLEMENTATION_TEST_VM.md](IMPLEMENTATION_TEST_VM.md).
 
 ## Milestones
 
-- [ ] **E-M0:** Worker boots
-- [ ] **E-M1:** Durable ledger drives Plane 1 API/SSE; restart reconciliation
+- [x] **E-M0:** Worker boots
+- [x] **E-M1:** Durable ledger drives Plane 1 API/SSE; restart reconciliation
 - [ ] **E-M2:** Bootstrap + plan loop → valid runtime profile via Vultr Inference; OpenCode lockdown
 - [ ] **E-M3:** Readiness via harness + containment/network probes; image replace path
 - [ ] **E-M4:** Optional in-guest screenshots when useful
