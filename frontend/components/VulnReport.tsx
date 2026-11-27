@@ -85,12 +85,14 @@ export function VulnReport({ report }: VulnReportProps) {
       <p className="text-sm">
         Status:{" "}
         <span className="font-medium">{report.status || "unknown"}</span>
-        {findings.length === 0 ? " · clean bill / no findings" : null}
       </p>
 
       {report.summary ? (
         <p className="border border-[var(--line)] bg-white/50 px-3 py-2 text-sm leading-relaxed">
-          {report.summary}
+          {report.summary ===
+          "No scan findings. Clean bill for this job's scanned surfaces."
+            ? "No findings recorded. This historical summary does not establish scan coverage."
+            : report.summary}
         </p>
       ) : null}
 

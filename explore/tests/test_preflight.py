@@ -137,7 +137,8 @@ def test_not_found_hard_fail(monkeypatch) -> None:
     get_settings.cache_clear()
 
 
-def test_archived_is_soft(monkeypatch) -> None:
+def test_archived_is_soft(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LEDGER_URL", f"sqlite:///{tmp_path / 'archive.db'}")
     monkeypatch.setenv("PREFLIGHT_ENABLED", "true")
     from config import get_settings
 

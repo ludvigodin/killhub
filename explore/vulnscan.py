@@ -35,6 +35,7 @@ LOCKFILE_NAMES = (
     "go.sum",
 )
 
+OSV_BATCH_LIMIT = 80
 OSV_QUERYBATCH = "https://api.osv.dev/v1/querybatch"
 
 
@@ -137,7 +138,7 @@ def copy_lockfiles_to_artifacts(
     *,
     job_id: str,
     settings: Settings,
-) -> list[Path]:
+) -> tuple[list[Path], bool]:
     """copy_out lockfiles to server-selected artifact dir (D60, D43)."""
     guest_paths = discover_guest_lockfiles(environment_id, job_id=job_id, settings=settings)
     host_paths: list[Path] = []
@@ -164,7 +165,7 @@ def copy_lockfiles_to_artifacts(
                 guest=guest,
                 error=exc.__class__.__name__,
             )
-    return host_paths
+    return host_paths, len(host_paths) < len(guest_paths) or len(guest_paths) >= 20
 
 
 def _parse_npm_lock(data: dict[str, Any]) -> list[tuple[str, str]]:
@@ -173,7 +174,7 @@ def _parse_npm_lock(data: dict[str, Any]) -> list[tuple[str, str]]:
     packages = data.get("packages")
     if isinstance(packages, dict):
         for key, meta in packages.items():
-            if not isinstance(meta, dict):
+            if not key or not isinstance(meta, dict):
                 continue
             version = meta.get("version")
             if not version:
@@ -185,8 +186,6 @@ def _parse_npm_lock(data: dict[str, Any]) -> list[tuple[str, str]]:
                     name = key[len("node_modules/") :]
                     if "node_modules/" in name:
                         name = name.rsplit("node_modules/", 1)[-1]
-                elif key == "":
-                    continue
                 else:
                     continue
             if isinstance(name, str) and isinstance(version, str):
@@ -254,7 +253,7 @@ def query_osv_batch(
     if ecosystem == "unknown" or not packages:
         return []
     # Cap queries to keep finalize bounded.
-    capped = packages[:80]
+    capped = packages[:OSV_BATCH_LIMIT]
     queries = [
         {"package": {"name": name, "ecosystem": ecosystem}, "version": version}
         for name, version in capped
@@ -271,15 +270,17 @@ def query_osv_batch(
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         payload = json.loads(resp.read().decode("utf-8"))
-    results = payload.get("results") or []
+    results = payload.get("results") if isinstance(payload, dict) else None
+    if not isinstance(results, list) or len(results) != len(capped):
+        raise ValueError("Incomplete OSV batch response")
     vulns: list[dict[str, Any]] = []
     for i, item in enumerate(results):
-        if not isinstance(item, dict):
-            continue
-        name, version = capped[i] if i < len(capped) else ("?", "?")
+        if not isinstance(item, dict) or not isinstance(item.get("vulns", []), list):
+            raise ValueError("Invalid OSV result")
+        name, version = capped[i]
         for vuln in item.get("vulns") or []:
-            if not isinstance(vuln, dict):
-                continue
+            if not isinstance(vuln, dict) or not vuln.get("id"):
+                raise ValueError("Invalid OSV advisory")
             vulns.append(
                 {
                     "package": name,
@@ -332,16 +333,20 @@ def sca_findings_from_lockfiles(
     """
     findings: list[dict[str, Any]] = []
     if not lockfiles:
-        return [], "ok"
+        return [], "partial"
+    incomplete = False
     errors = 0
     scanned = 0
     for path in lockfiles:
         try:
             ecosystem, packages = extract_packages(path)
-            scanned += 1
             if not packages:
+                incomplete = True
                 continue
+            if len(packages) > OSV_BATCH_LIMIT:
+                incomplete = True
             vulns = query_osv_batch(ecosystem, packages, endpoint=osv_endpoint)
+            scanned += 1
             for vuln in vulns:
                 fid = f"sca-{uuid.uuid4().hex[:8]}"
                 findings.append(
@@ -369,11 +374,9 @@ def sca_findings_from_lockfiles(
         ) as exc:
             errors += 1
             logger.warning("SCA failed for %s: %s", path, exc)
-    if scanned == 0:
+    if errors and scanned == 0:
         return findings, "failed"
-    if errors and findings:
-        return findings, "partial"
-    if errors and not findings:
+    if errors or incomplete:
         return findings, "partial"
     return findings, "ok"
 
@@ -506,7 +509,7 @@ def cite_checked_review(findings: list[dict[str, Any]], draft: str | None = None
     """
     ids = {str(f.get("id")) for f in findings if f.get("id")}
     if not findings:
-        return "No scan findings. Clean bill for this job's scanned surfaces."
+        return "No findings recorded."
 
     if draft:
         kept: list[str] = []
@@ -570,8 +573,11 @@ def run_vuln_scan(
 
     profile = _current_runtime_profile(job_id, cfg)
     lock_host: list[Path] = []
+    copy_incomplete = False
     if job.sandbox_id:
-        lock_host = copy_lockfiles_to_artifacts(job.sandbox_id, job_id=job_id, settings=cfg)
+        lock_host, copy_incomplete = copy_lockfiles_to_artifacts(
+            job.sandbox_id, job_id=job_id, settings=cfg
+        )
 
     endpoint = osv_endpoint or getattr(cfg, "vuln_scan_osv_url", None) or OSV_QUERYBATCH
     sca_findings, sca_status = sca_findings_from_lockfiles(lock_host, osv_endpoint=str(endpoint))
@@ -594,13 +600,14 @@ def run_vuln_scan(
         if str(f.get("id")) not in known:
             all_findings.append(f)
 
+    status = "partial" if copy_incomplete and sca_status == "ok" else sca_status
     summary = cite_checked_review(all_findings)
-    status = sca_status
-    if not lock_host and job.sandbox_id:
-        # Sandbox present but no lockfiles — clean bill is ok.
-        status = "ok" if sca_status == "ok" else sca_status
-    if not job.sandbox_id and not lock_host:
-        status = "ok" if not all_findings else status
+    if not lock_host:
+        summary = f"No dependency files were available for scanning. {summary}"
+    elif status == "failed":
+        summary = f"Dependency advisory lookup could not be completed. {summary}"
+    elif status == "partial":
+        summary = f"Dependency advisory coverage was incomplete. {summary}"
 
     report = ledger.upsert_vuln_report(
         job_id,

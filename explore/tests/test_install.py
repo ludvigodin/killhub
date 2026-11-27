@@ -59,6 +59,7 @@ def _env(tmp_path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("REAPER_ENABLED", "false")
     monkeypatch.setenv("PREFLIGHT_ENABLED", "false")
     monkeypatch.setenv("MSB_AUTO_CREATE", "false")
+    monkeypatch.setattr("screenshots.ensure_playwright_tooling", lambda *a, **kw: {"status": "ok"})
     monkeypatch.setenv("DISCOVER_ON_CLAIM", "false")
     monkeypatch.setenv("INSTALL_ON_CLAIM", "false")
     monkeypatch.setenv("MSB_DEFAULT_IMAGE", "debian")
