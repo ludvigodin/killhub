@@ -60,7 +60,7 @@ export function HubsFeed() {
   }, [page, offset]);
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col px-6 pb-12">
+    <div className="mx-auto flex w-full max-w-6xl flex-col px-4 pb-12 sm:px-6">
       <SiteNav />
 
       <header className="pb-8 pt-4 sm:pt-6">

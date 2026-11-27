@@ -73,12 +73,17 @@ export function JobFeed() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col px-6 pb-12">
+    <div className="mx-auto flex w-full max-w-6xl flex-col px-4 pb-12 sm:px-6">
       <SiteNav />
 
-      <header className="feed-hero mx-auto w-full max-w-3xl pb-12 pt-6 text-center sm:pt-10">
-        <div className="mb-6 flex justify-center">
-          <KillhubLogo size={64} />
+      <header className="feed-hero mx-auto w-full max-w-3xl pb-10 pt-4 text-center sm:pb-12 sm:pt-10">
+        <div className="mb-5 flex justify-center sm:mb-6">
+          <span className="sm:hidden">
+            <KillhubLogo size={52} />
+          </span>
+          <span className="hidden sm:inline">
+            <KillhubLogo size={64} />
+          </span>
         </div>
         <h1 className="type-display mx-auto mb-3 max-w-2xl text-2xl font-semibold tracking-tight text-(--ink) sm:text-3xl">
           Pull. Penetrate. Destroy.

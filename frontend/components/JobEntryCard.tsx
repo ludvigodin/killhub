@@ -204,11 +204,13 @@ export function JobEntryCard({
               <span className="text-xs text-(--muted)">{runsLabel}</span>
             ) : null}
           </div>
-          <p className="mt-0.5 truncate text-sm text-(--muted)">
+          <p className="mt-0.5 text-sm text-(--muted)">
             {errorLine && terminal ? (
-              <span style={{ color: "var(--danger)" }}>{errorLine}</span>
+              <span className="line-clamp-2 wrap-anywhere text-(--danger)">
+                {errorLine}
+              </span>
             ) : emphasizeRun ? (
-              <>
+              <span className="line-clamp-2">
                 <span className="type-mono tracking-wide">
                   {shortJobId(job.job_id)}
                 </span>
@@ -220,9 +222,9 @@ export function JobEntryCard({
                     {queueLine || job.current_step}
                   </>
                 ) : null}
-              </>
+              </span>
             ) : (
-              <>
+              <span className="line-clamp-2">
                 {queueLine || job.current_step || "Waiting…"}
                 {stalled ? (
                   <>
@@ -232,7 +234,7 @@ export function JobEntryCard({
                     <span className="text-(--muted)">May be stalled</span>
                   </>
                 ) : null}
-              </>
+              </span>
             )}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 sm:hidden">
@@ -254,6 +256,19 @@ export function JobEntryCard({
           </div>
         </div>
       </Link>
+
+      {!emphasizeRun ? (
+        <a
+          href={repoHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mr-2 inline-flex size-9 shrink-0 items-center justify-center rounded-md text-(--muted) transition hover:bg-(--accent-soft) hover:text-(--ink) sm:hidden"
+          aria-label={`Open ${title} on ${hostLabel}`}
+          title={`Open on ${hostLabel}`}
+        >
+          <HostIcon host={host} className="size-4" />
+        </a>
+      ) : null}
 
       <div className="hidden shrink-0 flex-col items-end justify-center gap-1 py-3 pr-3 sm:flex sm:pr-4">
         <time

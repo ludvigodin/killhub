@@ -17,7 +17,7 @@ async function JobShell({ params }: { params: Promise<{ id: string }> }) {
 export default function JobPage(props: PageProps<"/jobs/[id]">) {
   return (
     <main className="min-h-screen w-full">
-      <div className="mx-auto flex w-full max-w-6xl flex-col px-6 pb-12">
+      <div className="mx-auto flex w-full max-w-6xl flex-col px-4 pb-12 sm:px-6">
         <SiteNav />
         <div className="pt-4 sm:pt-6">
           <Suspense

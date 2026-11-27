@@ -28,7 +28,7 @@ export default function DeepLinkPage(props: {
     <main className="min-h-screen w-full">
       <Suspense
         fallback={
-          <p className="px-6 py-12 font-mono text-sm text-(--muted)">
+          <p className="px-4 py-12 font-mono text-sm text-(--muted) sm:px-6">
             Starting scan…
           </p>
         }

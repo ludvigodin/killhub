@@ -140,7 +140,7 @@ export function RepoHistory({ githubUrl, title }: RepoHistoryProps) {
     <>
       <header className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 max-w-3xl">
-          <h1 className="type-page-title mb-2">
+          <h1 className="type-page-title mb-2 wrap-anywhere">
             <a
               href={githubUrl}
               target="_blank"

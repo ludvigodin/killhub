@@ -738,7 +738,9 @@ export function JobLiveView({
         <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <Breadcrumbs items={jobBreadcrumbs(jobId, githubUrl)} />
-            <h1 className="type-page-title mb-1">{repoTitle ?? "Job"}</h1>
+            <h1 className="type-page-title mb-1 wrap-anywhere">
+              {repoTitle ?? "Job"}
+            </h1>
             {started ? (
               <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-(--muted)">
                 <time
@@ -774,7 +776,9 @@ export function JobLiveView({
             ) : null}
           </div>
           {actionsHost ? null : (
-            <div className="shrink-0 self-start sm:pt-1">{actions}</div>
+            <div className="flex w-full shrink-0 justify-start sm:w-auto sm:justify-end sm:self-start sm:pt-1">
+              {actions}
+            </div>
           )}
         </header>
       ) : actionsHost ? null : (

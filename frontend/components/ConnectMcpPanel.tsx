@@ -94,7 +94,7 @@ export function ConnectMcpPanel({ open, onClose }: ConnectMcpPanelProps) {
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
+    <div className="fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-4">
       <button
         type="button"
         className="absolute inset-0 bg-black/60 backdrop-blur-[1px]"
@@ -105,9 +105,9 @@ export function ConnectMcpPanel({ open, onClose }: ConnectMcpPanelProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative z-10 w-full max-w-md rounded-xl border border-(--line) bg-(--paper-deep) text-left shadow-2xl"
+        className="relative z-10 max-h-[min(92vh,40rem)] w-full max-w-md overflow-y-auto rounded-xl border border-(--line) bg-(--paper-deep) text-left shadow-2xl"
       >
-        <div className="flex items-start justify-between gap-4 border-b border-(--line) px-5 py-4">
+        <div className="flex items-start justify-between gap-3 border-b border-(--line) px-4 py-4 sm:gap-4 sm:px-5">
           <div className="min-w-0">
             <h2 id={titleId} className="type-section-title text-(--ink)">
               Connect MCP
@@ -121,20 +121,24 @@ export function ConnectMcpPanel({ open, onClose }: ConnectMcpPanelProps) {
             ref={closeRef}
             type="button"
             onClick={onClose}
-            className="shrink-0 rounded-md px-2 py-1 text-lg leading-none text-(--muted) transition hover:bg-(--paper) hover:text-(--ink)"
+            className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-lg leading-none text-(--muted) transition hover:bg-(--paper) hover:text-(--ink)"
             aria-label="Close"
           >
             ×
           </button>
         </div>
 
-        <div className="space-y-3 px-5 py-4">
-          <div className="flex gap-2" role="tablist" aria-label="MCP transport">
+        <div className="space-y-3 px-4 py-4 sm:px-5">
+          <div
+            className="flex flex-wrap gap-2"
+            role="tablist"
+            aria-label="MCP transport"
+          >
             <button
               type="button"
               role="tab"
               aria-selected={kind === "stdio"}
-              className={`rounded-md px-3 py-1.5 text-sm transition ${
+              className={`min-h-9 rounded-md px-3 py-1.5 text-sm transition ${
                 kind === "stdio"
                   ? "bg-(--accent) text-(--paper)"
                   : "border border-(--line) text-(--muted) hover:text-(--ink)"
@@ -144,13 +148,14 @@ export function ConnectMcpPanel({ open, onClose }: ConnectMcpPanelProps) {
                 setCopied(false);
               }}
             >
-              Stdio (recommended)
+              <span className="sm:hidden">Stdio</span>
+              <span className="hidden sm:inline">Stdio (recommended)</span>
             </button>
             <button
               type="button"
               role="tab"
               aria-selected={kind === "http"}
-              className={`rounded-md px-3 py-1.5 text-sm transition ${
+              className={`min-h-9 rounded-md px-3 py-1.5 text-sm transition ${
                 kind === "http"
                   ? "bg-(--accent) text-(--paper)"
                   : "border border-(--line) text-(--muted) hover:text-(--ink)"
@@ -196,7 +201,7 @@ export function ConnectMcpPanel({ open, onClose }: ConnectMcpPanelProps) {
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 border-t border-(--line) px-5 py-4">
+        <div className="flex flex-col gap-3 border-t border-(--line) px-4 py-4 sm:px-5">
           <button
             type="button"
             onClick={() => void copyConfig()}

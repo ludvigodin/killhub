@@ -84,7 +84,7 @@ function StageNode({
 
   return (
     <li
-      className="job-timeline-stage relative flex min-w-0 flex-1 flex-col items-center gap-2 text-center"
+      className="job-timeline-stage relative flex w-[7.5rem] shrink-0 snap-center flex-col items-center gap-2 text-center sm:w-auto sm:min-w-0 sm:flex-1"
       style={{ animationDelay: `${index * 55}ms` }}
     >
       {prevState ? (
@@ -146,7 +146,7 @@ export function JobHeroTimeline({ snapshot, logs = [] }: JobHeroTimelineProps) {
         title="Plan → execute → prove → destroy"
       />
 
-      <ol className="flex flex-col gap-5 border border-(--line) bg-(--paper-deep)/55 px-3 py-5 sm:flex-row sm:items-start sm:gap-0 sm:px-5">
+      <ol className="flex gap-4 overflow-x-auto border border-(--line) bg-(--paper-deep)/55 px-3 py-5 [-webkit-overflow-scrolling:touch] sm:flex-row sm:items-start sm:gap-0 sm:overflow-visible sm:px-5 max-sm:snap-x max-sm:snap-mandatory">
         {stages.map((stage, index) => (
           <StageNode
             key={stage.id}

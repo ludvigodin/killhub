@@ -114,10 +114,13 @@ export function HackerVision({
       aria-label="HackerVision telemetry"
       className="fixed inset-0 z-50 flex flex-col overflow-hidden bg-[#101e20] font-mono text-[#d5e8dc]"
     >
-      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[#38544b] px-4 py-3 sm:px-6">
-        <h2 className="text-lg font-bold tracking-tight text-[#aff0c9]">
-          HackerVision{" "}
-          <span className="font-normal text-[#a2b9ac]">/ Mainframe</span>
+      <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[#38544b] px-3 py-3 sm:px-6">
+        <h2 className="min-w-0 truncate text-base font-bold tracking-tight text-[#aff0c9] sm:text-lg">
+          HackerVision
+          <span className="hidden font-normal text-[#a2b9ac] sm:inline">
+            {" "}
+            / Mainframe
+          </span>
         </h2>
         <div className="flex items-center gap-3">
           <span className="hidden text-right text-xs sm:inline">
@@ -167,14 +170,14 @@ export function HackerVision({
           )}
         </div>
       </div>
-      <div className="max-h-[40vh] shrink-0 space-y-3 overflow-y-auto border-t border-[#38544b] px-4 py-3 sm:px-6">
+      <div className="max-h-[40vh] shrink-0 space-y-3 overflow-y-auto border-t border-[#38544b] px-3 py-3 sm:px-6">
         {unavailable && (
           <p className="text-sm">
             3D unavailable. Use the stations and event controls below.
           </p>
         )}
         {danger && (
-          <p className="text-sm text-[#ffd3ad]">
+          <p className="wrap-anywhere text-sm text-[#ffd3ad]">
             {danger.alert} · {danger.event.message}
             {modelMissing
               ? " · Raptor model unavailable"
@@ -195,7 +198,7 @@ export function HackerVision({
                 const item = lastByStation[i];
                 if (item) select(item);
               }}
-              className="border-t-2 border-[#445d53] py-2 text-xs hover:bg-[#28403b] aria-pressed:border-[#9ce4b4] aria-pressed:bg-[#243c32] disabled:opacity-40"
+              className="truncate border-t-2 border-[#445d53] px-1 py-2.5 text-xs hover:bg-[#28403b] aria-pressed:border-[#9ce4b4] aria-pressed:bg-[#243c32] disabled:opacity-40"
             >
               {name}
             </button>

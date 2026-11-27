@@ -7,10 +7,10 @@ export type SectionNavItem = {
   label: string;
 };
 
-/** Clears sticky SiteNav when scrolling to hash targets. */
+/** Clears sticky SiteNav (+ mobile section strip) when scrolling to hash targets. */
 export const SECTION_SCROLL_MT = "scroll-mt-28";
 
-/** Matches `top-28` sticky offset (SiteNav clearance). */
+/** Matches sticky SiteNav + mobile section strip clearance. */
 const STICKY_OFFSET_PX = 112;
 
 type SectionNavProps = {
@@ -83,9 +83,9 @@ export function SectionNav({ items }: SectionNavProps) {
     <>
       <nav
         aria-label="Page sections"
-        className="sticky top-19 z-40 -mx-6 mb-2 border-b border-(--line)/50 bg-(--paper)/85 px-6 py-2.5 backdrop-blur-md lg:hidden"
+        className="sticky top-14 z-40 -mx-4 mb-2 border-b border-(--line)/50 bg-(--paper)/85 px-4 py-2.5 backdrop-blur-md sm:-mx-6 sm:px-6 lg:hidden"
       >
-        <ul className="m-0 flex list-none gap-1.5 overflow-x-auto p-0 scrollbar-none [&::-webkit-scrollbar]:hidden">
+        <ul className="-mx-1 m-0 flex list-none gap-1.5 overflow-x-auto p-0 px-1 scrollbar-none [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden">
           {items.map((item) => {
             const active = item.id === activeId;
             return (
