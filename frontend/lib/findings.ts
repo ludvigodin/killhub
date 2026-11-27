@@ -1,4 +1,4 @@
-import type { JobSnapshot, VulnFinding } from "@/lib/api";
+import type { JobSnapshot, SafetyOutcome, VulnFinding } from "@/lib/api";
 
 export const SEVERITY_ORDER = [
   "critical",
@@ -53,13 +53,12 @@ export function countSeverities(
   return counts;
 }
 
+const TERMINAL = new Set(["completed", "failed", "cancelled"]);
+
 export function securityVerdict(job: JobSnapshot) {
   const report = job.vuln_report;
   const counts = countSeverities(report?.findings);
-  const gates = job.receipt?.dossier?.gates as
-    | { reasons?: unknown }
-    | undefined;
-  const reasons = gates?.reasons;
+  const reasons = job.receipt?.dossier?.gates?.reasons;
   const bypass =
     Array.isArray(reasons) &&
     reasons.some(
@@ -128,6 +127,19 @@ export function securityVerdict(job: JobSnapshot) {
       "The dependency scan and sandbox checks raised no warnings for this run. Other risks may still exist.",
     gaps,
   };
+}
+
+/**
+ * Slim feed/detail stamp matching explore `summary_safety`.
+ * Null while running or before a receipt exists.
+ */
+export function snapshotSafety(job: JobSnapshot): SafetyOutcome | null {
+  if (!TERMINAL.has(job.status) || !job.receipt) return null;
+  const verdict = securityVerdict(job);
+  if (verdict.label === "High risk") return "high_risk";
+  if (verdict.label === "Review before use") return "review";
+  if (verdict.label === "Safety unknown") return "unknown";
+  return "safe";
 }
 
 export function formatFindingDetail(detail: unknown): string | null {

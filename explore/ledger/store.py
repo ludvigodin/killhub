@@ -214,7 +214,7 @@ class Ledger:
         return job
 
     def try_claim_pending_job(self, job_id: str) -> Job | None:
-        """Claim or expire the same pending row before it consumes a worker slot."""
+        """Claim or expire a waiting row before it consumes a worker slot."""
         with self._conn:
             # Concurrent workers must decide using one locked status and deadline.
             lock = " FOR UPDATE" if self._conn.engine == "postgres" else ""
@@ -223,7 +223,11 @@ class Ledger:
             if raw is None:
                 return None
             job = self._row_to_job(raw)
-            if job.status != "pending" or job.cancel_requested_at is not None or job.sandbox_id:
+            if (
+                job.status not in {"pending", "queued"}
+                or job.cancel_requested_at is not None
+                or job.sandbox_id
+            ):
                 return None
 
             try:
@@ -272,7 +276,9 @@ class Ledger:
         return self._row_to_job(row)
 
     def list_jobs(self) -> list[Job]:
-        rows = self._conn.execute("SELECT * FROM jobs ORDER BY created_at ASC").fetchall()
+        rows = self._conn.execute(
+            "SELECT * FROM jobs ORDER BY created_at ASC, job_id ASC"
+        ).fetchall()
         return [self._row_to_job(r) for r in rows]
 
     def count_jobs(self) -> int:

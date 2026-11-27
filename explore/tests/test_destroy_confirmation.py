@@ -360,8 +360,13 @@ def test_claim_records_expiry_before_taking_a_worker_slot(tmp_path: Path) -> Non
     )
     ledger = get_ledger(cfg)
     try:
-        expired = ledger.create_job("https://github.com/example/fixture", env_ttl_seconds=-60)
-        waiting = ledger.create_job("https://github.com/example/fixture", env_ttl_seconds=60)
+        # Jobs created in the same second have a stable FIFO job-id tie-break.
+        expired = ledger.create_job(
+            "https://github.com/example/fixture", env_ttl_seconds=-60, job_id="a-expired"
+        )
+        waiting = ledger.create_job(
+            "https://github.com/example/fixture", env_ttl_seconds=60, job_id="b-waiting"
+        )
 
         claimed = claim_pending_job(settings=cfg)
 

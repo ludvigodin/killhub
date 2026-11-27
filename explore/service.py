@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from admission import (
@@ -16,7 +17,7 @@ from git_url import validate_public_git_url
 from jobs import get_ledger
 from ledger import Ledger
 from ledger.store import utc_now
-from models import CleanupState, Job
+from models import CleanupState, Job, JobStatus
 from safety import summary_safety
 
 logger = logging.getLogger("killhub.admission")
@@ -36,6 +37,10 @@ RUNNING_STATUSES = frozenset(
         "finalizing",
     }
 )
+
+_ETA_SAMPLE = 20
+_ETA_MIN_SECONDS = 60
+_ETA_MAX_SECONDS = 7200
 
 
 class AdmissionError(Exception):
@@ -127,6 +132,96 @@ def release_admission_slot(
     store.on_terminal(was_running=was_running)
 
 
+def _parse_iso(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _estimated_job_seconds(ledger: Ledger, settings: Settings) -> int:
+    """Median duration of recent terminal jobs, else ESTIMATED_JOB_SECONDS."""
+    durations: list[float] = []
+    for job in reversed(ledger.list_jobs()):
+        if job.status not in TERMINAL:
+            continue
+        start = _parse_iso(job.created_at)
+        end = _parse_iso(job.updated_at)
+        if start is None or end is None:
+            continue
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=timezone.utc)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        secs = (end - start).total_seconds()
+        if secs < _ETA_MIN_SECONDS or secs > _ETA_MAX_SECONDS:
+            continue
+        durations.append(secs)
+        if len(durations) >= _ETA_SAMPLE:
+            break
+    if not durations:
+        return max(_ETA_MIN_SECONDS, int(settings.estimated_job_seconds or 900))
+    durations.sort()
+    mid = len(durations) // 2
+    if len(durations) % 2:
+        median = durations[mid]
+    else:
+        median = (durations[mid - 1] + durations[mid]) / 2.0
+    return int(max(_ETA_MIN_SECONDS, min(_ETA_MAX_SECONDS, round(median))))
+
+
+def queue_info_for_job(
+    job: Job,
+    *,
+    ledger: Ledger,
+    settings: Settings,
+) -> dict[str, Any] | None:
+    """Derived FIFO queue position + soft ETA for pending/queued jobs (D40 UX)."""
+    if job.status not in QUEUED_STATUSES:
+        return None
+    jobs = ledger.list_jobs()
+    running = sum(1 for j in jobs if j.status in RUNNING_STATUSES)
+    waiting = [j for j in jobs if j.status in QUEUED_STATUSES]
+
+    def _ahead(other: Job) -> bool:
+        if other.created_at < job.created_at:
+            return True
+        if other.created_at > job.created_at:
+            return False
+        return other.job_id < job.job_id
+
+    earlier = sum(1 for j in waiting if _ahead(j))
+    position = earlier + 1
+    slots = max(1, int(settings.max_concurrent_jobs or 1))
+    estimate = _estimated_job_seconds(ledger, settings)
+    # Jobs that fit into the current free slots can start without waiting.
+    expected = ((position - 1 + running) // slots) * estimate
+    return {
+        "queue_position": position,
+        "expected_wait_seconds": int(expected),
+        "queue_length": len(waiting),
+    }
+
+
+def _attach_queue_fields(
+    payload: dict[str, Any],
+    job: Job,
+    *,
+    ledger: Ledger,
+    settings: Settings,
+) -> dict[str, Any]:
+    info = queue_info_for_job(job, ledger=ledger, settings=settings)
+    if info is None:
+        payload["queue_position"] = None
+        payload["expected_wait_seconds"] = None
+    else:
+        payload["queue_position"] = info["queue_position"]
+        payload["expected_wait_seconds"] = info["expected_wait_seconds"]
+    return payload
+
+
 def create_job(
     github_url: str,
     *,
@@ -148,12 +243,25 @@ def create_job(
             )
     _enforce_admission(cfg, client_ip=client_ip)
     ledger = get_ledger(cfg)
+    running = sum(1 for j in ledger.list_jobs() if j.status in RUNNING_STATUSES)
+    initial_status: JobStatus
+    if running >= cfg.max_concurrent_jobs:
+        initial_status = "queued"
+        initial_step = "in queue"
+    else:
+        initial_status = "pending"
+        initial_step = "accepted"
     try:
         # The host reaper reads this immutable deadline from the sandbox label.
         lifetime = cfg.env_ttl_seconds
         if cfg.job_timeout_seconds > 0:
             lifetime = min(lifetime, cfg.job_timeout_seconds)
-        job = ledger.create_job(github_url, env_ttl_seconds=lifetime)
+        job = ledger.create_job(
+            github_url,
+            env_ttl_seconds=lifetime,
+            status=initial_status,
+            current_step=initial_step,
+        )
     except Exception:
         # Undo Valkey queue reservation if ledger create fails.
         release_admission_slot(was_running=False, settings=cfg)
@@ -169,8 +277,17 @@ def create_job(
     return refreshed
 
 
-def get_public_snapshot(job_id: str) -> dict[str, Any] | None:
-    return get_ledger().get_snapshot(job_id)
+def get_public_snapshot(job_id: str, *, settings: Settings | None = None) -> dict[str, Any] | None:
+    """Return the ledger snapshot with the current queue estimate."""
+    cfg = settings or get_settings()
+    ledger = get_ledger(cfg)
+    snap = ledger.get_snapshot(job_id)
+    if snap is None:
+        return None
+    job = ledger.get_job(job_id)
+    if job is None:
+        return None
+    return _attach_queue_fields(snap, job, ledger=ledger, settings=cfg)
 
 
 def _job_summary_dict(
@@ -194,7 +311,7 @@ def _job_summary_dict(
         )
     receipt = ledger.get_receipt(job.job_id)
     vuln_report = ledger.get_vuln_report(job.job_id)
-    return {
+    summary = {
         "job_id": job.job_id,
         "github_url": job.github_url,
         "status": job.status,
@@ -213,6 +330,7 @@ def _job_summary_dict(
             receipt=receipt,
         ),
     }
+    return _attach_queue_fields(summary, job, ledger=ledger, settings=settings)
 
 
 def list_job_summaries(
@@ -436,20 +554,20 @@ def _pipeline_flags_enabled(cfg: Settings) -> bool:
 
 
 def claim_pending_job(*, settings: Settings | None = None) -> Job | None:
-    """Background worker: pick the oldest pending job and move it to analyzing."""
+    """Background worker: pick the oldest pending or queued job and move it to analyzing."""
     from stall import reason_for_misconfigured_worker
 
     global _pipeline_flags_warned
     cfg = settings or get_settings()
     if not _pipeline_flags_enabled(cfg):
-        # D81: do not claim into a stub with no runner; leave jobs pending.
+        # D81: do not claim into a stub with no runner; leave jobs pending/queued.
         if not _pipeline_flags_warned:
             logger.error("%s", reason_for_misconfigured_worker())
             _pipeline_flags_warned = True
         return None
     ledger = get_ledger(cfg)
     for job in ledger.list_jobs():
-        if job.status != "pending":
+        if job.status not in QUEUED_STATUSES:
             continue
         updated = ledger.try_claim_pending_job(job.job_id)
         if updated is None:

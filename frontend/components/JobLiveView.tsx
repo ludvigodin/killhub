@@ -10,7 +10,9 @@ import {
   listScreenshots,
   type ScreenshotMeta,
 } from "@/lib/api";
+import { snapshotSafety } from "@/lib/findings";
 import { ownerRepoFromGithubUrl, repoPathFromGithubUrl } from "@/lib/github";
+import { formatQueueLine, isInQueue } from "@/lib/queue";
 import { formatJobWhen, isJobStalled } from "@/lib/time";
 import { type BreadcrumbItem, Breadcrumbs } from "./Breadcrumbs";
 import { ContainmentPanel } from "./ContainmentPanel";
@@ -26,6 +28,7 @@ import {
   ProgressLog,
   type ProgressLogEntry,
 } from "./ProgressLog";
+import { ResultStamp } from "./ResultStamp";
 import { type ScreenshotItem, ScreenshotTimeline } from "./ScreenshotTimeline";
 import { StatusBadge } from "./StatusBadge";
 import { VerificationBadge } from "./VerificationBadge";
@@ -411,6 +414,28 @@ export function JobLiveView({
     };
   }, [jobId]);
 
+  // Queue position/ETA change when peers claim — SSE alone won't refresh them.
+  const queueStatus = snapshot?.status;
+  useEffect(() => {
+    if (!queueStatus || !isInQueue(queueStatus)) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const snap = await getJob(jobId);
+        if (!cancelled) onSnapshot(snap);
+      } catch {
+        // Keep last known queue fields if poll fails.
+      }
+    };
+    const id = window.setInterval(() => {
+      void tick();
+    }, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [jobId, queueStatus]);
+
   async function onCancel() {
     setBusy(true);
     setError(null);
@@ -429,6 +454,20 @@ export function JobLiveView({
   const stalled =
     Boolean(snapshot) && !terminal && isJobStalled(snapshot?.updated_at);
   const cancelling = Boolean(snapshot?.cancel_requested_at && !terminal);
+  const queueLine = snapshot
+    ? formatQueueLine({
+        status: snapshot.status,
+        queue_position:
+          typeof snapshot.queue_position === "number"
+            ? snapshot.queue_position
+            : null,
+        expected_wait_seconds:
+          typeof snapshot.expected_wait_seconds === "number"
+            ? snapshot.expected_wait_seconds
+            : null,
+        fallback: snapshot.current_step || null,
+      })
+    : null;
   const showReport = Boolean(
     snapshot &&
       (terminal ||
@@ -447,6 +486,12 @@ export function JobLiveView({
     typeof snapshot?.error === "string" && snapshot.error.trim().length > 0
       ? snapshot.error.trim()
       : null;
+  const dossierCode =
+    typeof snapshot?.receipt?.dossier?.code === "string" &&
+    snapshot.receipt.dossier.code.trim().length > 0
+      ? snapshot.receipt.dossier.code.trim()
+      : null;
+  const safety = snapshot ? snapshotSafety(snapshot) : null;
 
   const actions = (
     <div className="flex flex-wrap items-center justify-end gap-2">
@@ -548,7 +593,11 @@ export function JobLiveView({
             className="space-y-4 border border-(--line) bg-(--paper-deep)/60 px-4 py-5"
           >
             <div className="flex flex-wrap items-center gap-3">
-              <StatusBadge status={snapshot.status} />
+              {safety ? (
+                <ResultStamp safety={safety} />
+              ) : (
+                <StatusBadge status={snapshot.status} />
+              )}
               <VerificationBadge kind={snapshot.verification?.kind} />
               {cancelling ? (
                 <span className="inline-flex items-center gap-1.5 font-mono text-xs tracking-wide text-(--warn)">
@@ -559,6 +608,11 @@ export function JobLiveView({
                 <span className="inline-flex items-center gap-1.5 font-mono text-xs tracking-wide text-(--muted)">
                   May be stalled
                 </span>
+              ) : queueLine ? (
+                <span className="inline-flex items-center gap-1.5 font-mono text-xs tracking-wide text-(--muted)">
+                  <span className="job-live-dot" aria-hidden />
+                  Waiting
+                </span>
               ) : !terminal ? (
                 <span className="inline-flex items-center gap-1.5 font-mono text-xs tracking-wide text-(--accent)">
                   <span className="job-live-dot" aria-hidden />
@@ -566,7 +620,8 @@ export function JobLiveView({
                 </span>
               ) : null}
               <p className="text-sm text-(--muted)">
-                {snapshot.current_step ||
+                {queueLine ||
+                  snapshot.current_step ||
                   (terminal ? "Finished." : "Waiting for next step…")}
               </p>
             </div>
@@ -619,7 +674,14 @@ export function JobLiveView({
         />
       )}
 
-      {jobError ? <ErrorBanner message={jobError} code="job_error" /> : null}
+      {jobError ? (
+        <ErrorBanner message={jobError} code={dossierCode || "job_error"} />
+      ) : dossierCode ? (
+        <ErrorBanner
+          message={`Job ended with ${dossierCode.replaceAll("_", " ")}.`}
+          code={dossierCode}
+        />
+      ) : null}
 
       <ScreenshotTimeline jobId={jobId} shots={shots} />
 

@@ -124,6 +124,8 @@ class Settings(BaseSettings):
     max_sandbox_heals: int = Field(default=1, alias="MAX_SANDBOX_HEALS")
     max_concurrent_jobs: int = Field(default=2, alias="MAX_CONCURRENT_JOBS")
     max_queued_jobs: int = Field(default=8, alias="MAX_QUEUED_JOBS")
+    # Soft ETA for in-queue jobs when no recent terminal durations exist (D40 UX).
+    estimated_job_seconds: int = Field(default=900, alias="ESTIMATED_JOB_SECONDS")
     # Optional hard reject for inference budget demos (D40).
     inference_budget_reject: bool = Field(
         default=False,

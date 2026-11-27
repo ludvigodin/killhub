@@ -50,6 +50,10 @@ export type JobSummary = {
   verification?: VerificationInfo | null;
   /** Slim security stamp for feed cards; null while running / no receipt. */
   safety?: SafetyOutcome | null;
+  /** 1-based FIFO place when pending/queued; null otherwise. */
+  queue_position?: number | null;
+  /** Soft ETA while pending/queued; null otherwise. */
+  expected_wait_seconds?: number | null;
 };
 
 export type JobListResponse = {
@@ -264,6 +268,10 @@ export type JobSnapshot = {
   scenario_plan?: TestScenarioPlan | null;
   detonation_verdict?: DetonationVerdict | null;
   novnc?: NoVncInfo | null;
+  /** 1-based FIFO place when pending/queued; null otherwise. */
+  queue_position?: number | null;
+  /** Soft ETA while pending/queued; null otherwise. */
+  expected_wait_seconds?: number | null;
 };
 
 export type ScreenshotMeta = {

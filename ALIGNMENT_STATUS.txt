@@ -7,10 +7,10 @@ Workspace: /home/hej/Dokument/hackathon/killhub
 Integration branch: integration-alignment-0-22
 Antigravity Wave 0: 284e41f (teardown and recovery), bf3a9b9 (worker schema sync)
 Review grounding: 30c5d35 (validated finding priorities and evidence-only prose)
-Upstream reviewed: main at 343e41d (stall, heartbeat, and frontend changes)
+Upstream merged: main at d664068 (watchdog, queue estimates, and frontend updates)
 
 Wave 0 is on GitHub. Git contains the teardown code and all four worker
-schemas. The merge retains atomic claims, confirmed-only cleanup, terminal
+schemas. The merge retains atomic pending/queued claims, confirmed-only cleanup, terminal
 receipt and verdict evidence, and upstream heartbeat and stall handling.
 A stale heartbeat observation cannot replace a newer job record. The feed
 honors an inconclusive or suspicious verdict even when the dependency scan
@@ -35,19 +35,22 @@ Hackbus cards and Git evidence
 45  End-to-end integration and real VX1 acceptance — open. Local gates exercise
     the committed worker and frontend. Dedicated VX1 acceptance is unverified.
 
-Verification for the upstream merge candidate
+Verification for the upstream merge
 
-Python reported 299 passed and one skipped live PostgreSQL test. Ruff, Biome,
+Python reported 303 passed and one skipped live PostgreSQL test. Ruff, Biome,
 Knip, Next.js route type generation, TypeScript, the Turbopack production build,
-both frontend test files, and all four JSON Schema validations passed. The
-new watchdog regression tests use SQLite and an injected CLI runner.
+three frontend test files, and all four JSON Schema validations passed. Queue
+and watchdog regressions use SQLite and explicit settings or CLI dependencies.
 
 Protected files and collaboration
 
 The 41 tracked Markdown files match baseline b41beda. Keep them byte-for-byte
 intact, preserve local tooling files, and add no monkeypatches. Coordinate
 shared files on Hackbus before writing. Operate on integration-alignment-0-22,
-with main used as the upstream merge source. Read ALIGNMENT_PLAN.md, AGENTS.md,
+with main used as the upstream merge source. Keep Antigravity's locked intake
+form version until the team coordinates its copy change. Hackbus cards 46–50
+cover operator inventory, reverse-proxy review, evidence retention, screenshot
+fallback, and saved-evidence replay. Read ALIGNMENT_PLAN.md, AGENTS.md,
 and the matching plan step and run the gate in plan/LINT.md.
 
 Task status
