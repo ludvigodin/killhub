@@ -46,6 +46,8 @@ async def worker_loop(settings: Settings | None = None) -> None:
 
 
 def _run_claimed_job(job_id: str, settings: Settings) -> None:
+    from profile import ProfileError
+
     from containment import ContainmentError
     from discover import DiscoverError
     from errors import HarnessError
@@ -53,7 +55,6 @@ def _run_claimed_job(job_id: str, settings: Settings) -> None:
     from heartbeat import JobHeartbeat
     from install import InstallError
     from jobs import get_ledger
-    from profile import ProfileError
     from selfheal import heal_lost_sandbox
     from verify import VerifyError
 

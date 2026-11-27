@@ -1,4 +1,4 @@
-"""Heartbeats for long-running sandbox waits (Activity log density)."""
+"""Labeled wait heartbeats for Activity log density."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from config import get_settings
-from job_pulse import with_heartbeat
+from heartbeat import with_heartbeat
 from jobs import get_ledger, reset_ledger_for_tests
 
 
@@ -49,6 +49,14 @@ def test_with_heartbeat_emits_start_and_elapsed_logs() -> None:
     messages = [e.message for e in events if e.type == "log"]
     assert any(m == "testing pulse…" for m in messages)
     assert any(m.startswith("still testing pulse (") for m in messages)
+    refreshed = ledger.get_job(job.job_id)
+    assert refreshed is not None
+    assert refreshed.current_step.startswith("still testing pulse (")
+    assert any(
+        e.payload.get("current_step", "").startswith("still testing pulse (")
+        for e in events
+        if e.type == "log"
+    )
 
 
 def test_with_heartbeat_announce_false_skips_start_log() -> None:

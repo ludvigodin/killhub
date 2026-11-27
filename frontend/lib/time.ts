@@ -1,7 +1,7 @@
 /** Shared job/run timestamp formatting for feed cards and headers. */
 
 /** Align with explore `JOB_STALL_SECONDS` default (D81) — client hint only. */
-export const JOB_STALL_SECONDS = 600;
+const JOB_STALL_SECONDS = 600;
 
 export function relativeTime(iso: string, now = Date.now()): string {
   const then = Date.parse(iso);

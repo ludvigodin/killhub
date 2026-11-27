@@ -23,6 +23,7 @@ logger = logging.getLogger("killhub.admission")
 
 TERMINAL = frozenset({"completed", "failed", "cancelled"})
 QUEUED_STATUSES = frozenset({"pending", "queued"})
+_pipeline_flags_warned = False
 RUNNING_STATUSES = frozenset(
     {
         "analyzing",
@@ -441,9 +442,16 @@ def _pipeline_flags_enabled(cfg: Settings) -> bool:
 
 def claim_pending_job() -> Job | None:
     """Background worker: pick the oldest pending job and move it to analyzing."""
-    from stall import fail_job, reason_for_misconfigured_worker
+    from stall import reason_for_misconfigured_worker
 
+    global _pipeline_flags_warned
     cfg = get_settings()
+    if not _pipeline_flags_enabled(cfg):
+        # D81: do not claim into a stub with no runner; leave jobs pending.
+        if not _pipeline_flags_warned:
+            logger.error("%s", reason_for_misconfigured_worker())
+            _pipeline_flags_warned = True
+        return None
     ledger = get_ledger(cfg)
     for job in ledger.list_jobs():
         if job.status != "pending":
@@ -473,16 +481,6 @@ def claim_pending_job() -> Job | None:
             store = get_admission_store(cfg)
             if store.backend == "valkey":
                 store.on_claimed()
-            if not _pipeline_flags_enabled(cfg):
-                # D81: never leave a claimed stub with no runner.
-                fail_job(
-                    updated.job_id,
-                    code="worker_misconfigured",
-                    reason=reason_for_misconfigured_worker(),
-                    settings=cfg,
-                    destroy=False,
-                )
-                return None
             return updated
         except Ledger.WriterFrozenError:
             continue

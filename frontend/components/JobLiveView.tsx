@@ -314,7 +314,7 @@ export function JobLiveView({
           if (typeof data.current_step === "string") {
             next.current_step = data.current_step;
           }
-          // Nested progress fields on status/log payloads.
+          // Nested progress fields on status/log/wait payloads.
           const payload = data.payload;
           if (payload) {
             if (typeof payload.status === "string") {
@@ -323,9 +323,13 @@ export function JobLiveView({
             if (typeof payload.progress === "number") {
               next.progress = payload.progress;
             }
-            if (typeof payload.current_step === "string") {
-              next.current_step = payload.current_step;
-            }
+            // Status events use `step`; wait heartbeats use `current_step`.
+            const step =
+              (typeof payload.current_step === "string" &&
+                payload.current_step) ||
+              (typeof payload.step === "string" && payload.step) ||
+              null;
+            if (step) next.current_step = step;
             if (typeof payload.cancel_requested_at === "string") {
               next.cancel_requested_at = payload.cancel_requested_at;
             }

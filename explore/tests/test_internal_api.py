@@ -185,7 +185,10 @@ def test_worker_claims_pending_when_pipeline_enabled(
     from config import get_settings
     from service import claim_pending_job
 
-    monkeypatch.setenv("DISCOVER_ON_CLAIM", "true")
+    # Pretend a pipeline is configured without enabling the background runner's
+    # real discover/install path (would race the TestClient worker loop).
+    monkeypatch.setattr("service._pipeline_flags_enabled", lambda _cfg: True)
+    monkeypatch.setattr("worker._run_claimed_job", lambda *_a, **_k: None)
     get_settings.cache_clear()
     try:
         create = client.post(
@@ -207,13 +210,13 @@ def test_worker_claims_pending_when_pipeline_enabled(
         get_settings.cache_clear()
 
 
-def test_claim_without_pipeline_flags_fails(
+def test_claim_without_pipeline_flags_skips(
     client: TestClient, auth_header: dict[str, str], monkeypatch
 ) -> None:
     from config import get_settings
     from service import claim_pending_job
 
-    # Default claim flags are off — claiming must fail closed (D81).
+    # Default claim flags are off — do not claim into a stub (D81).
     for key in (
         "MSB_AUTO_CREATE",
         "DISCOVER_ON_CLAIM",
@@ -237,8 +240,7 @@ def test_claim_without_pipeline_flags_fails(
         assert claimed is None
 
         snap = client.get(f"/internal/jobs/{job_id}", headers=auth_header).json()
-        assert snap["status"] == "failed"
-        assert snap["receipt"]["dossier"]["code"] == "worker_misconfigured"
+        assert snap["status"] == "pending"
     finally:
         get_settings.cache_clear()
 

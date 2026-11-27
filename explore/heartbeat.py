@@ -2,18 +2,24 @@
 
 SSE comment keep-alives do not write the ledger. Long harness steps must bump
 ``updated_at`` so the reaper and UI can distinguish a live worker from a stall.
+
+Labeled :func:`with_heartbeat` wraps emit Activity-visible ``log`` events for
+long Plane-2 waits (msb create, clone, apt, snapshot).
 """
 
 from __future__ import annotations
 
 import logging
 import threading
-from typing import Any
+import time
+from typing import Any, Callable, TypeVar
 
 from config import Settings, get_settings
 from jobs import get_ledger
 
 logger = logging.getLogger("killhub.heartbeat")
+
+T = TypeVar("T")
 
 
 def touch_job_heartbeat(
@@ -34,6 +40,78 @@ def touch_job_heartbeat(
         )
     except Exception:  # noqa: BLE001 — never fail the pipeline on heartbeat
         logger.debug("heartbeat skipped for %s", job_id, exc_info=True)
+
+
+def log_wait(
+    job_id: str,
+    message: str,
+    *,
+    settings: Settings,
+    kind: str = "wait",
+    update_step: bool = True,
+    **payload: Any,
+) -> None:
+    """Activity-visible log for a long-running step (not the D81 liveness pulse).
+
+    When ``update_step`` is true, also mirrors ``message`` onto the job's
+    ``current_step`` so the live progress line tracks the wait.
+    """
+    ledger = get_ledger(settings)
+    body: dict[str, Any] = {"kind": kind, **payload}
+    if update_step:
+        body.setdefault("current_step", message)
+        try:
+            ledger.update_job_fields(job_id, current_step=message)
+        except Exception:  # noqa: BLE001 — never fail the pipeline on UI pulse
+            logger.debug("current_step update skipped for %s", job_id, exc_info=True)
+    ledger.append_event(
+        job_id,
+        typ="log",
+        message=message,
+        payload=body,
+    )
+
+
+def with_heartbeat(
+    job_id: str,
+    *,
+    settings: Settings,
+    label: str,
+    fn: Callable[[], T],
+    interval_seconds: float = 15.0,
+    announce: bool = True,
+) -> T:
+    """Run ``fn`` while emitting Activity logs every ``interval_seconds``.
+
+    Each pulse updates ``current_step`` so the Progress line stays live during
+    long msb/clone/apt waits.
+    """
+    if announce:
+        log_wait(job_id, f"{label}…", settings=settings)
+    stop = threading.Event()
+    started = time.monotonic()
+
+    def pulse() -> None:
+        while not stop.wait(interval_seconds):
+            elapsed = int(time.monotonic() - started)
+            log_wait(
+                job_id,
+                f"still {label} ({elapsed}s)",
+                settings=settings,
+                elapsed_seconds=elapsed,
+            )
+
+    thread = threading.Thread(
+        target=pulse,
+        name=f"kh-wait-{label[:24].replace(' ', '-')}",
+        daemon=True,
+    )
+    thread.start()
+    try:
+        return fn()
+    finally:
+        stop.set()
+        thread.join(timeout=1.0)
 
 
 class JobHeartbeat:
@@ -87,4 +165,9 @@ class JobHeartbeat:
             touch_job_heartbeat(self._job_id, settings=self._settings)
 
 
-__all__ = ["JobHeartbeat", "touch_job_heartbeat"]
+__all__ = [
+    "JobHeartbeat",
+    "log_wait",
+    "touch_job_heartbeat",
+    "with_heartbeat",
+]

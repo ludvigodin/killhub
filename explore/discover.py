@@ -34,7 +34,7 @@ from harness import (
     replace_environment,
     wait_until_ready,
 )
-from job_pulse import with_heartbeat
+from heartbeat import with_heartbeat
 from jobs import get_ledger
 
 logger = logging.getLogger("killhub.discover")
@@ -117,7 +117,12 @@ def _status(
         job_id,
         typ="status",
         message=step,
-        payload={"status": status, "step": step, "progress": progress},
+        payload={
+            "status": status,
+            "step": step,
+            "current_step": step,
+            "progress": progress,
+        },
     )
 
 
@@ -582,21 +587,15 @@ def discover_runtime_profile(
                 steps_completed=["pending"],
             )
             _span(job_id, "bootstrap_create", settings=cfg, status="start")
-            # create_environment includes guest ready-wait; heartbeat covers both.
-            gen = with_heartbeat(
+            # create_environment heartbeats msb create + guest ready-wait.
+            gen = create_environment(
                 job_id,
+                default_bootstrap_plan(cfg),
                 settings=cfg,
-                label="creating microsandbox",
-                announce=False,
-                fn=lambda: create_environment(
-                    job_id,
-                    default_bootstrap_plan(cfg),
-                    settings=cfg,
-                ),
             )
             environment_id = gen.environment_id
             created_here = True
-            wait_until_ready(environment_id, settings=cfg)
+            wait_until_ready(environment_id, settings=cfg, job_id=job_id)
             _span(
                 job_id,
                 "bootstrap_create",
@@ -604,13 +603,7 @@ def discover_runtime_profile(
                 detail={"environment_id": environment_id, "generation": gen.generation},
             )
         elif environment_id:
-            env_id = environment_id
-            with_heartbeat(
-                job_id,
-                settings=cfg,
-                label="waiting for sandbox guest",
-                fn=lambda: wait_until_ready(env_id, settings=cfg),
-            )
+            wait_until_ready(environment_id, settings=cfg, job_id=job_id)
         else:
             raise DiscoverError(
                 "no sandbox; create=True required for bootstrap discover",
@@ -739,17 +732,11 @@ def discover_runtime_profile(
                 ],
             )
             _span(job_id, "sandbox_replace", settings=cfg, status="start")
-            new_gen = with_heartbeat(
+            new_gen = replace_environment(
                 job_id,
+                plan_for_image(runtime_image, settings=cfg),
                 settings=cfg,
-                label=f"replacing sandbox → {runtime_image}",
-                announce=False,
-                fn=lambda: replace_environment(
-                    job_id,
-                    plan_for_image(runtime_image, settings=cfg),
-                    settings=cfg,
-                    reclone=True,
-                ),
+                reclone=True,
             )
             environment_id = new_gen.environment_id
             replaced = True

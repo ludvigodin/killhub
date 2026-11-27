@@ -73,7 +73,7 @@ function SiteNavFrame({
   scrolled: boolean;
 }) {
   return (
-    <nav className="sticky top-0 z-50 -mx-6 px-6">
+    <nav className="sticky top-0 z-50 ml-[calc(50%-50vw)] w-screen">
       <div
         aria-hidden
         className={
@@ -82,7 +82,7 @@ function SiteNavFrame({
             : "pointer-events-none absolute inset-0 -z-10 border-b border-transparent bg-(--paper)/70 opacity-0 backdrop-blur-md backdrop-saturate-150 transition-opacity duration-300 ease-out"
         }
       />
-      <div className="relative flex items-center justify-between gap-4 py-6">
+      <div className="relative mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-6 py-6">
         <Link href="/" className="no-underline" aria-label="Killhub home">
           <KillhubLogo size={26} />
         </Link>

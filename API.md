@@ -313,7 +313,7 @@ pending → [queued] → analyzing → planning → provisioning → installing
 
 Destroy triggers: after finalizer on terminal paths \| absolute `expires_at` — **not** readiness alone. Cleanup may end `destroy_failed` without job-level `destroyed_at` (D57). Gate outcomes: [DECISIONS.md](DECISIONS.md) D66.
 
-**Stall / timeout terminalization (D81):** Plane-1 reaper also fails non-terminal jobs when (1) `now - created_at >= JOB_TIMEOUT_SECONDS` → receipt `dossier.code=job_timeout`; (2) `now >= expires_at` (even with no sandbox) → `expires_at`; (3) claimed/in-flight with `now - updated_at >= JOB_STALL_SECONDS` → `job_stalled`. Claiming with no pipeline flags fails as `worker_misconfigured`. Workers emit ledger `progress` heartbeats (`payload.kind=heartbeat`) so `updated_at` reflects liveness; SSE comment keep-alives alone do not.
+**Stall / timeout terminalization (D81):** Plane-1 reaper also fails non-terminal jobs when (1) `now - created_at >= JOB_TIMEOUT_SECONDS` → receipt `dossier.code=job_timeout`; (2) `now >= expires_at` (even with no sandbox) → `expires_at`; (3) claimed/in-flight with `now - updated_at >= JOB_STALL_SECONDS` → `job_stalled`. Claiming with no pipeline flags is a no-op (jobs stay `pending`). Workers emit ledger `progress` heartbeats (`payload.kind=heartbeat`) so `updated_at` reflects liveness; SSE comment keep-alives alone do not.
 
 ---
 

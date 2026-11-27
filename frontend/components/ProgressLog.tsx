@@ -30,7 +30,12 @@ export function isProgressLogType(type: string): boolean {
 }
 
 export function ProgressLog({ entries }: ProgressLogProps) {
-  const lines = entries.filter((e) => isProgressLogType(e.type));
+  // Show status/progress steps, but hide D81 liveness pulses (kind=heartbeat).
+  const lines = entries.filter(
+    (e) =>
+      isProgressLogType(e.type) &&
+      !(e.type === "progress" && e.kind === "heartbeat"),
+  );
   return (
     <section aria-label="Job event log">
       <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">

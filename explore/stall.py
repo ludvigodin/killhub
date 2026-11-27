@@ -194,12 +194,7 @@ def classify_stale_job(
         return "expires_at"
 
     # Silence on ledger updates (heartbeats keep updated_at fresh).
-    if (
-        stall_timeout
-        and not waiting
-        and updated_age is not None
-        and updated_age >= stall_timeout
-    ):
+    if stall_timeout and not waiting and updated_age is not None and updated_age >= stall_timeout:
         return "job_stalled"
 
     return None
