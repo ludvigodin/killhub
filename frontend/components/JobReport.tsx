@@ -14,21 +14,12 @@ function prettyJson(value: unknown): string {
   }
 }
 
-function containmentClaimLabel(
-  containment: Record<string, unknown> | null | undefined,
-): string | null {
-  if (!containment || !("claim" in containment)) return null;
-  return String(containment.claim);
-}
-
 export function JobReport({ snapshot }: JobReportProps) {
   const receipt = snapshot.receipt;
   const dossier = (receipt?.dossier || {}) as Record<string, unknown>;
   const gates = dossier.gates as Record<string, unknown> | undefined;
-  const containment = receipt?.containment;
   const lifecycle = receipt?.lifecycle;
   const profile = snapshot.profile;
-  const claim = containmentClaimLabel(containment);
 
   return (
     <section className="space-y-8" aria-label="Intake receipt">
@@ -43,7 +34,7 @@ export function JobReport({ snapshot }: JobReportProps) {
         </h2>
         <p className="mt-1 text-sm text-(--muted)">
           Durable intake dossier — outlives the sandbox. Scan-based by default;
-          not a pentest suite.
+          not a pentest suite. Containment matrix is shown above.
         </p>
       </div>
 
@@ -81,38 +72,12 @@ export function JobReport({ snapshot }: JobReportProps) {
 
       <VulnReport report={snapshot.vuln_report} />
 
-      <section aria-label="Containment evidence">
-        <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
-          Containment
-        </p>
-        {containment ? (
-          <div className="space-y-2 text-sm">
-            {claim ? (
-              <p>
-                Claim: <span className="font-medium">{claim}</span>
-              </p>
-            ) : (
-              <p className="text-(--muted)">
-                Matrix recorded (see JSON below).
-              </p>
-            )}
-            <pre className="max-h-48 overflow-auto border border-(--line) bg-white/50 p-3 font-mono text-xs">
-              {prettyJson(containment)}
-            </pre>
-          </div>
-        ) : (
-          <p className="text-sm text-(--muted)">
-            No containment matrix on this receipt.
-          </p>
-        )}
-      </section>
-
       <section aria-label="Lifecycle evidence">
         <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
           Lifecycle
         </p>
         {lifecycle ? (
-          <pre className="max-h-48 overflow-auto border border-(--line) bg-white/50 p-3 font-mono text-xs">
+          <pre className="max-h-48 overflow-auto border border-(--line) bg-(--paper-deep)/50 p-3 font-mono text-xs">
             {prettyJson(lifecycle)}
           </pre>
         ) : (
@@ -125,7 +90,7 @@ export function JobReport({ snapshot }: JobReportProps) {
           environment_profile.json
         </p>
         {profile ? (
-          <pre className="max-h-80 overflow-auto border border-(--line) bg-white/50 p-3 font-mono text-xs leading-relaxed">
+          <pre className="max-h-80 overflow-auto border border-(--line) bg-(--paper-deep)/50 p-3 font-mono text-xs leading-relaxed">
             {prettyJson(profile)}
           </pre>
         ) : (

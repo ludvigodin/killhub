@@ -5,7 +5,7 @@ import { type JobSummary, listJobs } from "@/lib/api";
 import { JobEntryCard } from "./JobEntryCard";
 
 const POLL_MS = 4000;
-const PAGE_SIZE = 9;
+const PAGE_SIZE = 12;
 
 type RepoHistoryProps = {
   githubUrl: string;
@@ -62,10 +62,10 @@ export function RepoHistory({ githubUrl }: RepoHistoryProps) {
   }, [githubUrl, page, offset]);
 
   return (
-    <section aria-label="Repo runs" className="flex flex-col gap-4">
+    <section aria-label="Repo runs" className="flex flex-col gap-3">
       <div className="flex items-baseline justify-between gap-3">
         <h2
-          className="text-xl font-semibold tracking-tight"
+          className="text-lg font-semibold tracking-tight"
           style={{
             fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
           }}
@@ -81,15 +81,15 @@ export function RepoHistory({ githubUrl }: RepoHistoryProps) {
         </p>
       </div>
 
-      {error ? <p className="text-sm text-[#9b2c2c]">{error}</p> : null}
+      {error ? <p className="text-sm text-(--danger)">{error}</p> : null}
 
       {!loading && jobs.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-(--line) bg-white/40 px-6 py-12 text-center">
+        <div className="rounded-lg border border-dashed border-(--line) bg-(--paper-deep)/50 px-6 py-12 text-center">
           <p className="text-(--muted)">No runs for this repository yet.</p>
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="overflow-hidden rounded-lg border border-(--line) bg-(--paper-deep)/40">
             {jobs.map((job, i) => (
               <JobEntryCard key={job.job_id} job={job} index={i} />
             ))}
@@ -101,7 +101,7 @@ export function RepoHistory({ githubUrl }: RepoHistoryProps) {
             >
               <button
                 type="button"
-                className="rounded-md border border-(--line) bg-white/60 px-3 py-1.5 text-sm text-(--ink) transition enabled:hover:border-(--accent) enabled:hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-md border border-(--line) bg-(--paper-deep) px-3 py-1.5 text-sm text-(--ink) transition enabled:hover:border-(--accent) disabled:cursor-not-allowed disabled:opacity-40"
                 disabled={page <= 0 || loading}
                 onClick={() => setPage((p) => Math.max(0, p - 1))}
               >
@@ -112,7 +112,7 @@ export function RepoHistory({ githubUrl }: RepoHistoryProps) {
               </p>
               <button
                 type="button"
-                className="rounded-md border border-(--line) bg-white/60 px-3 py-1.5 text-sm text-(--ink) transition enabled:hover:border-(--accent) enabled:hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-md border border-(--line) bg-(--paper-deep) px-3 py-1.5 text-sm text-(--ink) transition enabled:hover:border-(--accent) disabled:cursor-not-allowed disabled:opacity-40"
                 disabled={page + 1 >= pageCount || loading}
                 onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
               >

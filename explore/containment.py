@@ -261,6 +261,16 @@ def probe_timeout_enforcement(
     )
     guest_alive = alive.exit_code == 0 and "alive" in (alive.stdout or "")
     ok = timed_out and guest_alive
+    absorption = {
+        "kind": "infinite_loop",
+        "command": "while true; do :; done",
+        "absorbed": ok,
+        "summary": (
+            "Adversarial busy-loop absorbed by exec timeout; guest still alive"
+            if ok
+            else "Busy-loop was not cleanly absorbed (timeout or guest liveness failed)"
+        ),
+    }
     evidence = {
         "dimension": "timeout_enforcement",
         "ok": ok,
@@ -270,16 +280,25 @@ def probe_timeout_enforcement(
         "detail": detail,
         "probe_session": session,
         "classification": "policy_denied" if ok else "inconclusive",
+        "absorption": absorption,
     }
     _containment_event(
         job_id,
-        f"timeout_enforcement → {'ok' if ok else 'incomplete'}",
+        (
+            "ABSORBED ∞ loop — sandbox timeout killed busy-loop; guest alive"
+            if ok
+            else f"timeout_enforcement → {'ok' if ok else 'incomplete'}"
+        ),
         settings=settings,
         **evidence,
     )
     _log(
         job_id,
-        f"containment timeout_enforcement → {evidence['classification']}",
+        (
+            "containment ABSORBED infinite_loop → guest alive"
+            if ok
+            else f"containment timeout_enforcement → {evidence['classification']}"
+        ),
         settings=settings,
         kind="containment_probe",
         **evidence,
@@ -424,10 +443,24 @@ def probe_host_access_denied(
             )
 
     install_ok = bool(install_cp and install_cp.get("classification") == "policy_denied")
-    # Proven host deny needs verify-phase policy_denied AND install-phase CP deny
-    # so offline mode cannot masquerade as CP isolation (D65).
+    # Guest-network aliases (host_internal / gateway) cannot get a Plane-1 positive
+    # control without dialling an unrelated host (D65). Record them, but only score
+    # probes that had a live host positive control — otherwise claim stays forever
+    # incomplete even when CP + management denials are solid.
+    scorable = [p for p in probes if p.get("host_ok")]
+    for probe in probes:
+        probe["scorable"] = bool(probe.get("host_ok"))
+    cp_probe = next((p for p in probes if p["name"] == "control_plane"), None)
+    # Proven host deny needs verify-phase policy_denied on every scorable probe
+    # AND install-phase CP deny so offline mode cannot masquerade as isolation.
     proven = (
-        bool(cp_url) and install_ok and all(p["classification"] == "policy_denied" for p in probes)
+        bool(cp_url)
+        and install_ok
+        and cp_probe is not None
+        and cp_probe["classification"] == "policy_denied"
+        and bool(scorable)
+        and all(p["classification"] == "policy_denied" for p in scorable)
+        and not any_bypass
     )
     if any_bypass:
         classification = "policy_bypass"
@@ -441,6 +474,7 @@ def probe_host_access_denied(
         "ok": proven,
         "classification": classification,
         "probes": probes,
+        "scorable_count": len(scorable),
         "install_cp_probe": install_cp,
         "probe_session": session,
     }

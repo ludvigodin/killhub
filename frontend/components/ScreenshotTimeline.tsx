@@ -1,3 +1,7 @@
+"use client";
+
+import { useState } from "react";
+
 export type ScreenshotItem = {
   screenshot_id: string;
   step?: string;
@@ -11,48 +15,135 @@ type ScreenshotTimelineProps = {
   shots: ScreenshotItem[];
 };
 
-export function ScreenshotTimeline({ jobId, shots }: ScreenshotTimelineProps) {
+function shotSrc(jobId: string, shot: ScreenshotItem): string {
   return (
-    <section aria-label="Screenshot timeline">
-      <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
-        Screenshots
-      </p>
-      {shots.length === 0 ? (
-        <p className="border border-dashed border-(--line) bg-white/40 px-3 py-4 text-sm text-(--muted)">
-          No stills yet — optional for this job (CLI MCP / early fail stay
-          empty).
+    shot.url ||
+    `/api/jobs/${encodeURIComponent(jobId)}/screenshots/${encodeURIComponent(shot.screenshot_id)}`
+  );
+}
+
+function ShotImage({
+  src,
+  alt,
+  className,
+  priority = false,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  priority?: boolean;
+}) {
+  return (
+    // biome-ignore lint/performance/noImgElement: local API bytes, not next/image CDN
+    <img
+      src={src}
+      alt={alt}
+      className={`opacity-0 transition-opacity duration-500 data-[ready=true]:opacity-100 ${className ?? ""}`}
+      loading={priority ? "eager" : "lazy"}
+      onLoad={(e) => {
+        e.currentTarget.dataset.ready = "true";
+      }}
+    />
+  );
+}
+
+export function ScreenshotTimeline({ jobId, shots }: ScreenshotTimelineProps) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  if (shots.length === 0) return null;
+
+  const activeId =
+    selectedId && shots.some((s) => s.screenshot_id === selectedId)
+      ? selectedId
+      : shots[shots.length - 1].screenshot_id;
+  const featured =
+    shots.find((s) => s.screenshot_id === activeId) ?? shots[shots.length - 1];
+  const featuredSrc = shotSrc(jobId, featured);
+
+  return (
+    <section
+      aria-label="Screenshot trail"
+      className="overflow-hidden border border-(--line) bg-(--paper-deep)/55"
+    >
+      <div className="flex flex-wrap items-end justify-between gap-2 border-b border-(--line) px-3 py-4 sm:px-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.14em] text-(--muted)">
+            Verifiable stills
+          </p>
+          <h2
+            className="mt-1 text-lg font-semibold tracking-tight sm:text-xl"
+            style={{
+              fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
+            }}
+          >
+            Screenshot trail
+          </h2>
+        </div>
+        <p className="font-mono text-xs text-(--muted)">
+          {shots.length} still{shots.length === 1 ? "" : "s"}
         </p>
-      ) : (
-        <ul className="grid gap-4 sm:grid-cols-2">
-          {shots.map((shot) => {
-            const src =
-              shot.url ||
-              `/api/jobs/${encodeURIComponent(jobId)}/screenshots/${encodeURIComponent(shot.screenshot_id)}`;
+      </div>
+
+      <figure className="relative bg-(--paper)">
+        <ShotImage
+          key={featured.screenshot_id}
+          src={featuredSrc}
+          alt={featured.caption || `Screenshot ${featured.screenshot_id}`}
+          priority
+          className="aspect-[16/9] w-full object-cover object-top sm:aspect-[2/1]"
+        />
+        <figcaption className="absolute inset-x-0 bottom-0 bg-linear-to-t from-[#0a0b0d]/95 via-[#0a0b0d]/55 to-transparent px-3 pb-3 pt-10 sm:px-4">
+          <p
+            className="text-sm font-semibold tracking-tight text-(--ink) sm:text-base"
+            style={{
+              fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
+            }}
+          >
+            {featured.step || "still"}
+          </p>
+          {featured.caption ? (
+            <p className="mt-0.5 text-xs text-(--muted) sm:text-sm">
+              {featured.caption}
+            </p>
+          ) : null}
+        </figcaption>
+      </figure>
+
+      {shots.length > 1 ? (
+        <ol
+          className="flex gap-2 overflow-x-auto border-t border-(--line) px-3 py-3 sm:px-4"
+          aria-label="Screenshot history"
+        >
+          {shots.map((shot, index) => {
+            const src = shotSrc(jobId, shot);
+            const selected = shot.screenshot_id === featured.screenshot_id;
             return (
-              <li key={shot.screenshot_id} className="min-w-0">
-                <figure className="overflow-hidden border border-(--line) bg-white/70">
-                  {/* biome-ignore lint/performance/noImgElement: local API bytes, not next/image CDN */}
-                  <img
+              <li key={shot.screenshot_id} className="shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(shot.screenshot_id)}
+                  aria-pressed={selected}
+                  aria-label={`Show still ${index + 1}: ${shot.step || shot.screenshot_id}`}
+                  className={`block w-28 overflow-hidden border transition duration-200 sm:w-32 ${
+                    selected
+                      ? "border-(--accent) ring-2 ring-(--accent-soft)"
+                      : "border-(--line) opacity-75 hover:opacity-100"
+                  }`}
+                >
+                  <ShotImage
                     src={src}
-                    alt={shot.caption || `Screenshot ${shot.screenshot_id}`}
-                    className="aspect-video w-full object-cover object-top opacity-0 transition-opacity duration-500 data-[ready=true]:opacity-100"
-                    loading="lazy"
-                    onLoad={(e) => {
-                      e.currentTarget.dataset.ready = "true";
-                    }}
+                    alt=""
+                    className="aspect-video w-full object-cover object-top"
                   />
-                  <figcaption className="border-t border-(--line) px-3 py-2 text-xs text-(--muted)">
-                    <span className="font-medium text-(--ink)">
-                      {shot.step || "still"}
-                    </span>
-                    {shot.caption ? ` · ${shot.caption}` : null}
-                  </figcaption>
-                </figure>
+                  <span className="block truncate px-1.5 py-1 font-mono text-[10px] text-(--muted)">
+                    {index + 1}. {shot.step || "still"}
+                  </span>
+                </button>
               </li>
             );
           })}
-        </ul>
-      )}
+        </ol>
+      ) : null}
     </section>
   );
 }

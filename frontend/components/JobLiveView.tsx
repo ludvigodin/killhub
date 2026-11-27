@@ -9,9 +9,11 @@ import {
   listScreenshots,
   type ScreenshotMeta,
 } from "@/lib/api";
+import { ContainmentPanel } from "./ContainmentPanel";
 import { ErrorBanner } from "./ErrorBanner";
 import { FindingsSummary } from "./FindingsSummary";
 import { HackerVision } from "./HackerVision";
+import { JobHeroTimeline } from "./JobHeroTimeline";
 import { JobReport } from "./JobReport";
 import { ProgressBar } from "./ProgressBar";
 import {
@@ -310,24 +312,33 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
       ) : null}
 
       {snapshot ? (
-        <section
-          aria-label="Job status"
-          className="space-y-4 border border-(--line) bg-white/55 px-4 py-5"
-        >
-          <div className="flex flex-wrap items-center gap-3">
-            <StatusBadge status={snapshot.status} />
-            <p className="text-sm text-(--muted)">
-              {snapshot.current_step || "Waiting for next step…"}
+        <>
+          <JobHeroTimeline snapshot={snapshot} logs={logs} />
+          <section
+            aria-label="Job status"
+            className="space-y-4 border border-(--line) bg-(--paper-deep)/60 px-4 py-5"
+          >
+            <div className="flex flex-wrap items-center gap-3">
+              <StatusBadge status={snapshot.status} />
+              <p className="text-sm text-(--muted)">
+                {snapshot.current_step || "Waiting for next step…"}
+              </p>
+            </div>
+            <ProgressBar progress={snapshot.progress} />
+            <p className="font-mono text-xs text-(--muted)">
+              cursor {snapshot.event_cursor ?? "—"}
             </p>
-          </div>
-          <ProgressBar progress={snapshot.progress} />
-          <p className="font-mono text-xs text-(--muted)">
-            cursor {snapshot.event_cursor ?? "—"}
-          </p>
-        </section>
+          </section>
+        </>
       ) : (
         <p className="text-(--muted)">Loading snapshot…</p>
       )}
+
+      <ScreenshotTimeline jobId={jobId} shots={shots} />
+
+      {snapshot?.receipt?.containment ? (
+        <ContainmentPanel containment={snapshot.receipt.containment} />
+      ) : null}
 
       {snapshot && (snapshot.vuln_report || terminal) ? (
         <FindingsSummary snapshot={snapshot} />
@@ -340,7 +351,7 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
           type="button"
           onClick={() => void onCancel()}
           disabled={busy || terminal}
-          className="rounded-md border border-(--line) bg-white px-4 py-2 text-sm transition-opacity disabled:opacity-50"
+          className="rounded-md border border-(--line) bg-(--paper-deep) px-4 py-2 text-sm transition-opacity disabled:opacity-50"
         >
           Cancel job
         </button>
@@ -351,7 +362,7 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
           type="button"
           aria-pressed={vision}
           onClick={() => setVision(!vision)}
-          className="rounded-md border border-(--line) bg-white px-4 py-2 font-mono text-sm aria-pressed:bg-[#102e32] aria-pressed:text-[#80ffdb]"
+          className="rounded-md border border-(--line) bg-(--paper-deep) px-4 py-2 font-mono text-sm aria-pressed:bg-[#102e32] aria-pressed:text-[#80ffdb]"
         >
           HackerVision
         </button>
@@ -361,8 +372,6 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
           <ProgressLog entries={logs} />
         )}
       </div>
-
-      <ScreenshotTimeline jobId={jobId} shots={shots} />
 
       {showReport && snapshot ? (
         <div className="border-t border-(--line) pt-8">

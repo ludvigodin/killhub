@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
+import { KillhubLogo } from "@/components/KillhubLogo";
 import { RepoHistory } from "@/components/RepoHistory";
 import { githubUrlFromRepoSlug, ownerRepoFromGithubUrl } from "@/lib/github";
 
@@ -45,8 +46,13 @@ export default function RepoPage(props: {
 }) {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 py-12 sm:py-16">
-      <Link href="/" className="mb-8 text-sm text-(--muted)">
-        ← Killhub
+      <Link
+        href="/"
+        className="mb-8 inline-flex items-center gap-2 text-sm text-(--muted) no-underline hover:text-(--ink)"
+        aria-label="Back to Killhub"
+      >
+        <span aria-hidden>←</span>
+        <KillhubLogo size={20} withWordmark />
       </Link>
       <Suspense
         fallback={

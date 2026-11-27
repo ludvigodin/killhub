@@ -91,7 +91,7 @@ export function EnvStatus({ snapshot }: EnvStatusProps) {
         </div>
       </dl>
       {kind === "generated_demo" && verification?.original_failure != null ? (
-        <div className="border border-(--line) bg-white/50 px-3 py-2 text-sm">
+        <div className="border border-(--line) bg-(--paper-deep)/50 px-3 py-2 text-sm">
           <p className="text-xs uppercase tracking-wide text-(--muted)">
             Original setup failure
           </p>

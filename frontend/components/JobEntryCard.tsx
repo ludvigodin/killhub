@@ -60,7 +60,7 @@ export function JobEntryCard({
       : job.screenshot_id != null && job.screenshot_id.length > 0
         ? `/api/jobs/${encodeURIComponent(job.job_id)}/screenshots/${encodeURIComponent(job.screenshot_id)}`
         : null;
-  const delay = Math.min(index, 12) * 40;
+  const delay = Math.min(index, 12) * 35;
   const githubHref = job.github_url;
   const cardHref = href ?? `/jobs/${encodeURIComponent(job.job_id)}`;
   const runsLabel =
@@ -69,42 +69,38 @@ export function JobEntryCard({
       : runCount === 1
         ? "1 run"
         : null;
+  const progress = Math.max(0, Math.min(100, job.progress));
 
   return (
     <article
-      className="job-entry group relative flex flex-col overflow-hidden rounded-lg border border-(--line) bg-white/55 shadow-[0_1px_0_rgba(21,32,43,0.04)] transition duration-300 ease-out hover:-translate-y-0.5 hover:border-(--accent) hover:bg-white/80 hover:shadow-[0_12px_28px_rgba(21,32,43,0.08)]"
+      className="job-entry group relative flex items-center border-b border-(--line) transition-colors duration-200 last:border-b-0 hover:bg-(--paper-deep)/80"
       style={{ animationDelay: `${delay}ms` }}
     >
       <Link
         href={cardHref}
-        className="flex flex-1 flex-col no-underline -outline-offset-2"
+        className="flex min-w-0 flex-1 items-center gap-3 px-3 py-3 no-underline -outline-offset-2 sm:gap-4 sm:px-4 sm:pr-2"
         aria-label={
           runsLabel ? `Open history for ${title}` : `Open job ${title}`
         }
       >
-        <div className="relative aspect-16/10 overflow-hidden bg-(--paper-deep)">
+        <div className="relative size-10 shrink-0 overflow-hidden rounded-md bg-(--paper-deep) sm:size-11">
           {shot && shot !== failedShot ? (
             // biome-ignore lint/performance/noImgElement: dynamic API screenshot bytes
             <img
               src={shot}
               onError={() => setFailedShot(shot)}
               alt=""
-              className="h-full w-full object-cover transition duration-500 ease-out group-hover:scale-[1.03]"
+              className="h-full w-full object-cover"
             />
           ) : (
             <RepoThumbnail repo={title} />
           )}
-          <div className="absolute inset-x-0 bottom-0 h-1.5 bg-black/10">
-            <div
-              className="h-full bg-(--accent) transition-[width] duration-700 ease-out"
-              style={{ width: `${Math.max(0, Math.min(100, job.progress))}%` }}
-            />
-          </div>
         </div>
-        <div className="flex flex-1 flex-col gap-2 px-3.5 py-3">
-          <div className="flex items-start justify-between gap-2">
+
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
             <p
-              className="truncate text-base font-semibold tracking-tight text-(--ink)"
+              className="truncate text-sm font-semibold tracking-tight text-(--ink) sm:text-base"
               style={{
                 fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
               }}
@@ -112,26 +108,37 @@ export function JobEntryCard({
               {title}
             </p>
             <StatusBadge status={job.status} />
+            {runsLabel ? (
+              <span className="text-xs text-(--muted)">{runsLabel}</span>
+            ) : null}
           </div>
-          <p className="line-clamp-2 text-sm text-(--muted)">
+          <p className="mt-0.5 truncate text-sm text-(--muted)">
             {job.current_step || "Waiting…"}
           </p>
-          <p className="mt-auto pr-8 text-xs tracking-wide text-(--muted)">
-            {runsLabel ? `${runsLabel} · ` : null}
-            {relativeTime(job.created_at)}
-          </p>
+          <div className="mt-2 h-0.5 overflow-hidden rounded-full bg-(--line)">
+            <div
+              className="h-full bg-(--accent) transition-[width] duration-700 ease-out"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
         </div>
       </Link>
-      <a
-        href={githubHref}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="absolute bottom-3 right-3 z-10 inline-flex size-7 items-center justify-center rounded-md text-(--muted) transition hover:bg-(--accent-soft) hover:text-(--ink)"
-        aria-label={`Open ${title} on GitHub`}
-        title="Open on GitHub"
-      >
-        <GithubIcon className="size-4" />
-      </a>
+
+      <div className="hidden shrink-0 flex-col items-end justify-center gap-1.5 py-3 pr-3 sm:flex sm:pr-4">
+        <p className="text-xs tabular-nums text-(--muted)">
+          {relativeTime(job.created_at)}
+        </p>
+        <a
+          href={githubHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex size-7 items-center justify-center rounded-md text-(--muted) transition hover:bg-(--accent-soft) hover:text-(--ink)"
+          aria-label={`Open ${title} on GitHub`}
+          title="Open on GitHub"
+        >
+          <GithubIcon className="size-4" />
+        </a>
+      </div>
     </article>
   );
 }

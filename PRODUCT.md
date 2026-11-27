@@ -2,7 +2,7 @@
 
 ## What
 
-**Killhub** turns a **public git repository URL** (allowlisted hosts — GitHub, GitLab, Bitbucket, Codeberg) into a **verified running environment** plus an **intake dossier** (durable receipt of how it ran and what risk was found):
+**Killhub** is a Pattern A agent loop on Vultr: **plan → sandboxed execution → verifiable output → destroy**. It turns a **public git repository URL** (allowlisted hosts — GitHub, GitLab, Bitbucket, Codeberg) into a **verified running environment** plus an **intake dossier** (durable receipt of how it ran and what risk was found):
 
 1. User pastes one or many public git URLs on the home **feed** (video-site entry grid · status · report) — or an MCP client calls the same Jobs API via the operator stdio MCP (D81).
 2. Plane 1 runs **pre-flight** (URL, admission, cheap risk) before spending a sandbox when hard-fail applies.
@@ -15,12 +15,12 @@
 
 ## Why
 
-Standing up someone else’s repo is slow, brittle, and unsafe if done on a shared laptop or production host. Killhub exists to:
+Standing up someone else’s repo is slow, brittle, and unsafe if done on a shared laptop or production host — and a chat agent that only describes a run is not proof. Killhub exists to:
 
-- **Understand** a repo before trusting it (inspect docs, infer services, validate a spec).
-- **Isolate** execution on a short-lived Microsandbox (not the operator’s machine).
-- **Prove** it works (readiness) and **surface risk** (cited SCA report; optional MCP assessment; containment evidence) before humans dig in.
-- **Leave a receipt** — profile, probes, findings, lifecycle — that outlives the destroyed sandbox.
+- **Plan** how to demonstrate the repo (inspect docs, infer services, write an executable profile).
+- **Execute in a sandbox** on a short-lived Microsandbox (not the operator’s machine).
+- **Return verifiable output** (readiness, optional stills, containment absorption) and **surface risk** (cited SCA; optional MCP assessment) before humans dig in.
+- **Destroy** the VM and **leave a receipt** — profile, probes, findings, lifecycle — that outlives the sandbox.
 - **Show work** continuously (structured events + optional stills) so operators trust the automation.
 
 ## Who it is for
@@ -29,15 +29,12 @@ Operators, security-minded engineers, and internal teams who need to quickly and
 
 ## Success looks like
 
-A user pastes public git URL(s) into the home feed and, without refreshing, sees entries appear, then for each job:
+A user pastes public git URL(s) into the home feed and, without refreshing, sees the Pattern A loop for each job:
 
-- Live status, progress, and structured evidence events (with keep-alives on long steps)  
-- A validated `environment_profile.json`  
-- **Verifiable execution** — MCP handshake / HTTP (or other profile) readiness with an honest label: `original_application`, `generated_demo`, or `setup_failed`  
-- Sandbox lifecycle signals (bootstrap create → optional image replace → work → **destroyed** only when removal is confirmed)  
-- An intake **receipt**: cited vulnerability report that separates **dependency advisories (SCA)** from other finding classes; does not erase readiness evidence  
-
-- Screenshots when they add signal (HTTP verify); not required for every job  
+- **Plan** — live status/progress plus a validated `environment_profile.json`  
+- **Sandboxed execution** — bootstrap create → optional image replace → clone/install/launch in one disposable microVM  
+- **Verifiable output** — MCP handshake / HTTP (or other profile) readiness with an honest label (`original_application` · `generated_demo` · `setup_failed`); optional screenshots; containment absorption  
+- **Destroy** — sandbox **destroyed** only when removal is confirmed; durable **receipt** (cited SCA separate from other findings) outlives the VM  
 
 …while Killhub secrets never enter the sandbox (canaries only), OpenCode cannot shell the control plane, Plane 2 cannot call Plane 1, adversarial probes stay contained, and the sandbox is destroyed on job completion / fail / cancel / absolute expiry (even if the control plane restarts).
 

@@ -1,10 +1,10 @@
 # Killhub
 
-**Paste a public git URL. Get a verified running environment — and a receipt that outlives the sandbox.**
+**Plan → sandboxed execution → verifiable output → destroy.**
 
 **Try it live → [https://killhub.pro](https://killhub.pro)**
 
-Killhub stands up someone else’s repo the way you’d want a security-minded operator to: understand first, isolate always, prove readiness, surface known risk, then destroy the machine.
+Paste a public git URL. Killhub’s agent **plans** how to bring the repo up, **executes** real install/launch work inside a disposable Vultr Microsandbox, returns **verifiable output** (readiness, stills, containment), then **destroys** the VM — leaving a durable receipt. An agent that only chats is a demo; an agent that executes safely is a product.
 
 Built on **Vultr** end-to-end — Cloud Compute control plane, [Serverless Inference](https://docs.vultr.com/products/serverless/inference/provisioning) for the agent, [Microsandbox](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute) microVMs for untrusted code.
 
@@ -14,7 +14,7 @@ Built on **Vultr** end-to-end — Cloud Compute control plane, [Serverless Infer
 
 1. Open **[killhub.pro](https://killhub.pro)**
 2. Paste a **public** git HTTPS URL (`github.com`, `gitlab.com`, `bitbucket.org`, or `codeberg.org`)
-3. Watch live status, readiness evidence, and the intake receipt — then the disposable sandbox is destroyed
+3. Watch the Pattern A loop: plan → sandboxed execution → verifiable output → destroy
 
 Public demo is anonymous and admission-limited (rate / concurrency / queue). Prefer small getting-started or MCP repos for a first run.
 
@@ -22,20 +22,20 @@ Public demo is anonymous and admission-limited (rate / concurrency / queue). Pre
 
 ## The problem
 
-Bringing up a stranger’s git repo is slow, brittle, and unsafe on a shared laptop or production host.
+Bringing up a stranger’s git repo is slow, brittle, and unsafe on a shared laptop or production host — and a chat agent that only *describes* a run is not proof.
 
 ```mermaid
 flowchart LR
   A["Public git repo"] --> B{"Run it where?"}
   B -->|"Your laptop"| C["Risk · pollution · no audit trail"]
   B -->|"Shared host"| D["Blast radius · secret leakage"]
-  B -->|"Killhub"| E["Isolated microVM · readiness · receipt"]
+  B -->|"Killhub"| E["Plan · sandbox · prove · destroy"]
   style E fill:#1a7f37,color:#fff
   style C fill:#cf222e,color:#fff
   style D fill:#cf222e,color:#fff
 ```
 
-Killhub exists so you can **understand**, **isolate**, **prove**, and **leave a dossier** — without trusting the repo with your keys or your machine.
+Killhub exists so you can **plan**, **execute in isolation**, **prove**, and **destroy** — without trusting the repo with your keys or your machine.
 
 ---
 
@@ -43,12 +43,11 @@ Killhub exists so you can **understand**, **isolate**, **prove**, and **leave a 
 
 | Outcome | Meaning |
 |---------|---------|
-| **Live job** | Status, progress, structured evidence — no refresh required |
-| **`environment_profile.json`** | Versioned plan: how Killhub decided to demo the repo |
-| **Honest label** | `original_application` · `generated_demo` · `setup_failed` |
-| **Readiness evidence** | MCP handshake (`tools/list`) or HTTP / profile probe |
-| **Intake receipt** | Cited SCA findings (+ optional MCP assessment when planned) |
-| **Containment proof** | Isolation probes absorbed inside the sandbox — then destroy |
+| **Plan** | Versioned `environment_profile.json` — how Killhub decided to demo the repo |
+| **Sandboxed execution** | Real clone / install / launch in one disposable microVM |
+| **Verifiable output** | Readiness evidence · optional screenshots · honest `verification.kind` |
+| **Containment moment** | ∞ loop / hostile egress absorbed inside the sandbox |
+| **Destroy + receipt** | Confirmed VM removal; cited SCA + dossier outlive the sandbox |
 
 Screenshots appear when they add signal. They never gate completion.
 
@@ -56,18 +55,15 @@ Screenshots appear when they add signal. They never gate completion.
 
 ## How it works
 
-One public URL in. One disposable microVM. One durable receipt out.
+Pattern A on Vultr: one public URL in → real sandboxed work → evidence out → VM gone.
 
 ```mermaid
 flowchart TB
-  U["Paste public git URL"] --> P["Pre-flight<br/>URL · admission · cheap risk"]
-  P --> V["Bootstrap Microsandbox on VX1"]
-  V --> A["Environment Agent inspect / discover<br/>OpenCode → Vultr Inference"]
-  A --> F["runtime environment_profile.json<br/>git_mcp · webapp · demo"]
-  F --> I["Phased install · launch · readiness"]
-  I --> S["SCA scan · optional MCP assessment"]
-  S --> R["Receipt · destroy sandbox · terminal status"]
-  R --> UI["UI: profile · evidence · report"]
+  U["Paste public git URL"] --> P["Plan<br/>pre-flight · Environment Agent · profile"]
+  P --> E["Sandboxed execution<br/>Microsandbox on VX1"]
+  E --> V["Verifiable output<br/>readiness · stills · containment"]
+  V --> D["Destroy<br/>receipt · confirmed removal"]
+  D --> UI["UI: timeline · evidence · dossier"]
 ```
 
 Bootstrap comes **before** runtime-profile discovery ([DECISIONS.md](DECISIONS.md) D36).
@@ -78,11 +74,11 @@ Bootstrap comes **before** runtime-profile discovery ([DECISIONS.md](DECISIONS.m
 
 ## Architecture at a glance
 
-Two planes. Hard boundary. Secrets stay on the control plane.
+Two planes implementing Pattern A. Hard boundary. Secrets stay on the control plane.
 
 ```mermaid
 flowchart TB
-  subgraph plane1 ["Plane 1 · Control plane"]
+  subgraph plane1 ["Plane 1 · Plan & verify"]
     UI["Next.js UI"]
     API["Jobs API + SSE"]
     Agent["Environment Agent"]
@@ -90,7 +86,7 @@ flowchart TB
     Ledger["Durable ledger"]
   end
 
-  subgraph plane2 ["Plane 2 · Disposable Microsandbox"]
+  subgraph plane2 ["Plane 2 · Sandboxed execution"]
     VM["One microVM per job"]
     Work["Clone · install · launch · readiness"]
   end
@@ -104,10 +100,10 @@ flowchart TB
   API --> Ledger
 ```
 
-| Plane | What it is | Owns |
-|------:|------------|------|
-| **1** | Next.js + `explore/` workers on Vultr Cloud Compute | UI, Jobs API/SSE, plan loop, harness, vuln review, secrets |
-| **2** | One Microsandbox microVM per job on VX1 | Untrusted clone/install/run — explore and test share the same VM |
+| Plane | Pattern A role | Owns |
+|------:|----------------|------|
+| **1** | Plan + verify + destroy orchestration | Next.js + `explore/` on Vultr Cloud Compute — UI, Jobs API/SSE, agent, harness, receipt, secrets |
+| **2** | Sandboxed execution | One Microsandbox microVM per job on VX1 — untrusted clone/install/run (explore and test share the same VM) |
 
 There is **no** separate Explore VM vs Test VM.
 
@@ -137,11 +133,13 @@ flowchart LR
   CP -.->|"secrets never injected"| SB
 ```
 
-Sandbox → control plane is **denied**. Real Killhub secrets never enter the guest (canaries only).
+Sandbox → control plane is **denied**. Real Killhub secrets never enter the guest (canaries only). After verifiable output, Plane 1 confirms **destroy** — the dossier stays on the ledger.
 
 ---
 
 ## Job lifecycle
+
+Statuses map onto the Pattern A loop: **plan** (`analyzing` / `planning`) → **sandboxed execution** (`provisioning` / `installing`) → **verifiable output** (`verifying` ⇄ `repairing` / `scanning`) → **destroy** (`finalizing` → terminal).
 
 ```mermaid
 stateDiagram-v2
@@ -166,46 +164,50 @@ stateDiagram-v2
   cancelled --> [*]
 ```
 
-Readiness is **evidence**, not a destroy trigger. The sandbox dies on `completed` / fail / cancel / absolute TTL — even if the control plane restarts.
+Readiness is **verifiable output**, not a destroy trigger. The sandbox dies on `completed` / fail / cancel / absolute TTL — even if the control plane restarts.
 
 ---
 
 ## Security story (in one picture)
 
+Containment-first: show the sandbox absorbing something unsafe, then destroy it. Chat without execution is out of scope.
+
 ```mermaid
 flowchart TB
-  subgraph yes ["In scope"]
+  subgraph yes ["Verifiable / in scope"]
     SCA["SCA / advisories with citations"]
     MCP["Optional MCP Inspector/SDK when planned"]
-    CONT["Containment + network + canary probes"]
+    CONT["Containment moment · network · canary probes"]
   end
-  subgraph no ["Out of scope"]
+  subgraph no ["Not a chat demo / out of scope"]
     EXP["Weaponize CVEs"]
     PEN["Generic app/web exploit suites"]
     PATCH["Auto-patch / remediate"]
   end
 ```
 
-Untrusted code never runs as a privileged control-plane process. OpenCode only sees harness tools. Plane 2 network policy is probe-tested.
+Untrusted code never runs as a privileged control-plane process. OpenCode only sees harness tools. Plane 2 network policy is probe-tested. Secrets never enter the guest.
 
 ---
 
 ## Vultr-native stack
 
-| Layer | Where |
-|-------|-------|
-| Public demo | **[https://killhub.pro](https://killhub.pro)** — Vultr Cloud Compute behind HTTPS reverse proxy (app on `127.0.0.1`) |
-| Agent reasoning | Vultr Serverless Inference (`api.vultrinference.com`) |
-| Untrusted execution | Microsandbox on Vultr VX1 — one microVM per job |
-| Local dev | `docker-compose` for Plane 1; sandboxes still provisioned on VX1 |
+Vultr is the control and execution fabric — not static hosting.
+
+| Layer | Pattern A role | Where |
+|-------|----------------|-------|
+| Public demo | Plan / verify UI + API | **[https://killhub.pro](https://killhub.pro)** — Vultr Cloud Compute behind HTTPS reverse proxy (app on `127.0.0.1`) |
+| Agent reasoning | Plan | Vultr Serverless Inference (`api.vultrinference.com`) |
+| Untrusted execution | Sandboxed execution | Microsandbox on Vultr VX1 — one microVM per job |
+| Local dev | Plane 1 only | `docker-compose` for control plane; sandboxes still provisioned on VX1 |
 
 ---
 
 ## Golden fixtures (v1)
 
-Pinned commits live in fixture config ([DECISIONS.md](DECISIONS.md) D53).
+Pinned commits live in fixture config ([DECISIONS.md](DECISIONS.md) D53). Use these to demo the full loop end-to-end.
 
-| Outcome | Repo |
+| Verifiable outcome | Repo |
 |---------|------|
 | `webapp` → `original_application` | [heroku/nodejs-getting-started](https://github.com/heroku/nodejs-getting-started) |
 | `git_mcp` filesystem (stdio) | [modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers) |
@@ -215,7 +217,7 @@ Pinned commits live in fixture config ([DECISIONS.md](DECISIONS.md) D53).
 
 ## Who it’s for
 
-Operators, security-minded engineers, and internal teams who need to quickly and safely bring up — or invent a minimal demo of — public git repos (MCP servers, webapps, oddball content) with a clear environment profile and audit trail.
+Operators, security-minded engineers, and builders of agentic apps who need **executed** bring-up of public git repos (MCP servers, webapps, oddball content) — with a plan, a sandbox, verifiable output, and confirmed destroy — not a narrative that pretends the work ran.
 
 ---
 
@@ -280,4 +282,4 @@ Private repos / OAuth · multi-user billing · long-lived customer sandboxes · 
 
 ## Definition of done
 
-On **[killhub.pro](https://killhub.pro)** (or a local control plane), a user pastes a public git URL and, without refreshing, sees live status, a validated profile, verifiable readiness with an honest label, and a cited intake receipt — while one Microsandbox absorbs the work and is destroyed on completion, with Killhub secrets never entering the guest.
+On **[killhub.pro](https://killhub.pro)** (or a local control plane), a user pastes a public git URL and sees the Pattern A loop without refreshing: **plan** (profile) → **sandboxed execution** → **verifiable output** (readiness / stills / containment) → **destroy** with a durable receipt — Killhub secrets never enter the guest.

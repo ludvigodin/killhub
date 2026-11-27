@@ -17,7 +17,7 @@ export function FindingsSummary({ snapshot }: { snapshot: JobSnapshot }) {
   return (
     <section
       aria-label="Findings summary"
-      className="space-y-3 border border-(--line) bg-white/55 px-4 py-4"
+      className="space-y-3 border border-(--line) bg-(--paper-deep)/60 px-4 py-4"
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm uppercase tracking-wide text-(--muted)">
