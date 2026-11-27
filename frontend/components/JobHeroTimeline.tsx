@@ -84,7 +84,7 @@ function StageNode({
 
   return (
     <li
-      className="job-timeline-stage relative flex w-[7.5rem] shrink-0 snap-center flex-col items-center gap-2 text-center sm:w-auto sm:min-w-0 sm:flex-1"
+      className="job-timeline-stage relative flex w-30 shrink-0 snap-center flex-col items-center gap-2 text-center sm:w-auto sm:min-w-0 sm:flex-1"
       style={{ animationDelay: `${index * 55}ms` }}
     >
       {prevState ? (
