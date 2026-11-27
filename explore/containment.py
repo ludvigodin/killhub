@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
+import socket
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -28,7 +29,6 @@ from ledger.store import utc_now
 
 logger = logging.getLogger("killhub.containment")
 
-GUEST_HELPERS = "/opt/killhub/helpers"
 DIMENSIONS = (
     "timeout_enforcement",
     "host_access_denied",
@@ -119,6 +119,19 @@ def _host_fetch_ok(url: str, *, timeout: float = 5.0) -> tuple[bool, str]:
             return 200 <= int(code) < 400, f"http_{code}"
     except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
         return False, f"{exc.__class__.__name__}"
+
+
+def _tcp_positive_control(url: str) -> tuple[str | None, str]:
+    """Return the exact responsive peer for comparison from the verify guest."""
+    endpoint = urlsplit(url)
+    port = endpoint.port or (443 if endpoint.scheme == "https" else 80)
+    try:
+        with socket.create_connection((endpoint.hostname or "", port), timeout=5) as sock:
+            address = sock.getpeername()[0]
+    except OSError as exc:
+        return None, type(exc).__name__
+    host = f"[{address}]" if ":" in address else address
+    return f"tcp://{host}:{port}", "connected"
 
 
 def _guest_fetch(
@@ -289,15 +302,24 @@ def probe_host_access_denied(
     if host and host not in {"local", "localhost", "127.0.0.1"}:
         targets.append({"name": "msb_host", "url": f"http://{host}/"})
 
+    if cfg.install_egress_probe_url:
+        targets.append({"name": "public_egress", "url": cfg.install_egress_probe_url})
+    if cfg.management_probe_address:
+        authority = urlsplit(f"tcp://{cfg.management_probe_address}").hostname
+        host_literal = f"[{authority}]" if authority and ":" in authority else authority
+        targets.append({"name": "host_web", "url": f"http://{host_literal}:80/"})
+        targets.append({"name": "host_management", "url": f"tcp://{cfg.management_probe_address}"})
+
     probes: list[dict[str, Any]] = []
     any_bypass = False
 
     for target in targets:
         url = target["url"]
-        host_ok, host_detail = _host_fetch_ok(url)
+        peer, host_detail = _tcp_positive_control(url)
+        host_ok = peer is not None
         guest_class, guest_code, guest_detail = _guest_fetch(
             environment_id,
-            url,
+            peer or url,
             job_id=job_id,
             settings=cfg,
             probe_session=session,
@@ -318,6 +340,7 @@ def probe_host_access_denied(
             "url": url,
             "host_ok": host_ok,
             "host_detail": host_detail,
+            "checked_peer": peer,
             "guest_class": guest_class,
             "guest_exit": guest_code,
             "guest_detail": guest_detail,
@@ -502,14 +525,18 @@ def probe_sibling_access_denied(
         evidence["sibling_start_exit"] = start.exit_code
 
         # Positive control: sibling serves locally (retry — server needs a beat).
+        if sibling_ip is None:
+            evidence.update(ok=False, classification="inconclusive", reason="no_sibling_ip")
+            return evidence
+        sibling_url = f"http://{sibling_ip}:8080/"
         local = exec_command(
             sibling_name,
             [
                 "sh",
                 "-lc",
                 "for i in 1 2 3 4 5 6; do "
-                "wget -qO- --timeout=2 http://127.0.0.1:8080/ >/dev/null 2>&1 && exit 0; "
-                "curl -fsS --max-time 2 http://127.0.0.1:8080/ >/dev/null 2>&1 && exit 0; "
+                f"wget -qO- --timeout=2 {sibling_url} >/dev/null 2>&1 && exit 0; "
+                f"curl -fsS --max-time 2 {sibling_url} >/dev/null 2>&1 && exit 0; "
                 "sleep 1; done; exit 1",
             ],
             job_id=job_id,
@@ -528,7 +555,7 @@ def probe_sibling_access_denied(
                 }
             )
         else:
-            url = f"http://{sibling_ip}:8080/"
+            url = sibling_url
             guest_class, guest_code, guest_detail = _guest_fetch(
                 environment_id,
                 url,

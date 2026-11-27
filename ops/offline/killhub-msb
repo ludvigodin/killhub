@@ -1,0 +1,18 @@
+#!/usr/bin/python3
+"""Dispatch the VX1 verify-phase restore into a separate host network namespace."""
+import os
+import sys
+from uuid import UUID
+
+MSB = "/opt/killhub-msb/bin/msb"
+args = sys.argv[1:]
+if args[:2] != ["snapshot", "restore"]:
+    os.execv(MSB, [MSB, *args])
+
+if len(args) != 6 or args[3] != "--name" or args[5] != "--no-net":
+    sys.exit("Unexpected verify-phase restore arguments")
+name = args[4]
+job = UUID(name.removeprefix("kh-"))
+if name != f"kh-{job}" or args[2] != f"kh-snap-{job.hex}":
+    sys.exit("Restore requires matching canonical job and snapshot IDs")
+os.execv("/usr/bin/systemctl", ["systemctl", "--no-ask-password", "start", f"killhub-offline@{job}.service"])

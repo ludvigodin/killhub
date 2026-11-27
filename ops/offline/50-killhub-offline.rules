@@ -1,0 +1,8 @@
+polkit.addRule(function(action, subject) {
+    if (subject.user === "killhub-worker" &&
+        action.id === "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("verb") === "start" &&
+        /^killhub-offline@[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.service$/.test(action.lookup("unit"))) {
+        return polkit.Result.YES;
+    }
+});
