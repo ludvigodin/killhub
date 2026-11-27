@@ -11,6 +11,8 @@ from admission import (
     get_admission_store,
 )
 from config import Settings, get_settings
+from fixtures import match_fixture
+from git_url import validate_public_git_url
 from jobs import get_ledger
 from ledger import Ledger
 from ledger.store import utc_now
@@ -133,6 +135,15 @@ def create_job(
     from preflight import apply_preflight_to_job, run_preflight
 
     cfg = settings or get_settings()
+    if cfg.public_demo_fixtures_only:
+        github_url = validate_public_git_url(github_url)
+        fixture = match_fixture(github_url)
+        if not fixture or not fixture.get("public_demo") or not fixture.get("commit"):
+            raise AdmissionError(
+                "Demo intake accepts only the three pinned Killhub SCA fixture repositories.",
+                "demo_fixture_required",
+                403,
+            )
     _enforce_admission(cfg, client_ip=client_ip)
     ledger = get_ledger(cfg)
     try:

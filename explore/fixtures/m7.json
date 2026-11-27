@@ -63,6 +63,27 @@
         "forbid_demo_intent": true,
         "forbid_inventable_services": true
       }
+    },
+    "sca_npm_affected": {
+      "id": "sca_npm_affected",
+      "github_url": "https://github.com/mokafari/killhub-sca-npm-affected-20261127",
+      "commit": "753dc89a6b45ed29aafd373acb186af858159b8a",
+      "ref": "main",
+      "public_demo": true
+    },
+    "sca_npm_control": {
+      "id": "sca_npm_control",
+      "github_url": "https://github.com/mokafari/killhub-sca-npm-control-20261127",
+      "commit": "43549c389fc4fa3801abd778de8843a196a788cc",
+      "ref": "main",
+      "public_demo": true
+    },
+    "sca_python_affected": {
+      "id": "sca_python_affected",
+      "github_url": "https://github.com/mokafari/killhub-sca-python-affected-20261127",
+      "commit": "93c6de467d9b99492804da441ca019cb531a4a12",
+      "ref": "main",
+      "public_demo": true
     }
   }
 }
