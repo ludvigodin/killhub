@@ -1,27 +1,75 @@
 "use client";
 
 import { useEffect, useEffectEvent, useState } from "react";
-import { cancelJob, getJob, type JobSnapshot, jobEventsUrl } from "@/lib/api";
+import {
+  cancelJob,
+  getJob,
+  type JobSnapshot,
+  jobEventsUrl,
+  listScreenshots,
+  type ScreenshotMeta,
+} from "@/lib/api";
 import { ErrorBanner } from "./ErrorBanner";
+import { ProgressBar } from "./ProgressBar";
+import {
+  isProgressLogType,
+  ProgressLog,
+  type ProgressLogEntry,
+} from "./ProgressLog";
+import { type ScreenshotItem, ScreenshotTimeline } from "./ScreenshotTimeline";
+import { StatusBadge } from "./StatusBadge";
 
 type JobLiveViewProps = {
   jobId: string;
 };
 
-type LogLine = { id: string; type: string; message: string };
+type SsePayload = {
+  event_id?: string;
+  message?: string;
+  status?: string;
+  progress?: number;
+  current_step?: string;
+  code?: string;
+  timestamp?: string;
+  screenshot_id?: string;
+  step?: string;
+  caption?: string;
+  url?: string;
+  payload?: Record<string, unknown>;
+};
+
+function toShot(meta: ScreenshotMeta, jobId: string): ScreenshotItem {
+  return {
+    screenshot_id: meta.screenshot_id,
+    step: meta.step,
+    caption: meta.caption,
+    created_at: meta.created_at,
+    url:
+      meta.url ||
+      `/api/jobs/${encodeURIComponent(jobId)}/screenshots/${encodeURIComponent(meta.screenshot_id)}`,
+  };
+}
 
 export function JobLiveView({ jobId }: JobLiveViewProps) {
   const [snapshot, setSnapshot] = useState<JobSnapshot | null>(null);
-  const [logs, setLogs] = useState<LogLine[]>([]);
+  const [logs, setLogs] = useState<ProgressLogEntry[]>([]);
+  const [shots, setShots] = useState<ScreenshotItem[]>([]);
   const [error, setError] = useState<{ message: string; code?: string } | null>(
     null,
   );
   const [busy, setBusy] = useState(false);
 
-  const onEvent = useEffectEvent((line: LogLine) => {
+  const onLog = useEffectEvent((line: ProgressLogEntry) => {
     setLogs((prev) => {
       if (prev.some((p) => p.id === line.id)) return prev;
-      return [...prev, line].slice(-200);
+      return [...prev, line].slice(-300);
+    });
+  });
+
+  const onShot = useEffectEvent((shot: ScreenshotItem) => {
+    setShots((prev) => {
+      if (prev.some((p) => p.screenshot_id === shot.screenshot_id)) return prev;
+      return [...prev, shot];
     });
   });
 
@@ -32,15 +80,26 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
   useEffect(() => {
     let cancelled = false;
     let source: EventSource | null = null;
-    let cursor: string | null = null;
+
+    async function loadScreenshots() {
+      try {
+        const list = await listScreenshots(jobId);
+        if (cancelled) return;
+        setShots(list.map((s) => toShot(s, jobId)));
+      } catch {
+        // Empty timeline is valid (D31); ignore hydrate miss.
+      }
+    }
 
     async function hydrateAndSubscribe() {
       try {
         const snap = await getJob(jobId);
         if (cancelled) return;
         onSnapshot(snap);
-        cursor = snap.event_cursor;
-        openSse(cursor);
+        await loadScreenshots();
+        // Replay retained events from the start of the window, then tail live.
+        // Snapshot carries status/progress; id-dedup keeps reconnect stable (D55).
+        openSse(null);
       } catch (err) {
         if (cancelled) return;
         const e = err as Error & { code?: string };
@@ -50,21 +109,15 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
 
     function openSse(after: string | null) {
       source?.close();
+      // EventSource ignores SSE comment keep-alives (`: keepalive`) — no flicker (D50).
       source = new EventSource(jobEventsUrl(jobId, after));
 
       const handlePayload = (event: MessageEvent, type: string) => {
-        let data: {
-          event_id?: string;
-          message?: string;
-          status?: string;
-          progress?: number;
-          current_step?: string;
-          code?: string;
-          payload?: Record<string, unknown>;
-        };
+        let data: SsePayload;
         try {
-          data = JSON.parse(String(event.data)) as typeof data;
+          data = JSON.parse(String(event.data)) as SsePayload;
         } catch {
+          // Malformed or empty frames — ignore (keep-alive comments never reach here).
           return;
         }
 
@@ -74,15 +127,50 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
           return;
         }
 
-        const id = data.event_id || event.lastEventId || String(Date.now());
-        onEvent({
-          id,
-          type,
-          message: data.message || type,
-        });
+        const id =
+          data.event_id || event.lastEventId || `${type}-${Date.now()}`;
+
+        if (isProgressLogType(type)) {
+          onLog({
+            id,
+            type,
+            message: data.message || type,
+            timestamp: data.timestamp,
+          });
+        }
+
+        if (type === "screenshot") {
+          const shotId =
+            data.screenshot_id ||
+            (typeof data.payload?.screenshot_id === "string"
+              ? data.payload.screenshot_id
+              : null);
+          if (shotId) {
+            onShot({
+              screenshot_id: shotId,
+              step:
+                data.step ||
+                (typeof data.payload?.step === "string"
+                  ? data.payload.step
+                  : undefined),
+              caption:
+                data.caption ||
+                data.message ||
+                (typeof data.payload?.caption === "string"
+                  ? data.payload.caption
+                  : undefined),
+              url:
+                data.url ||
+                (typeof data.payload?.url === "string"
+                  ? data.payload.url
+                  : undefined) ||
+                `/api/jobs/${encodeURIComponent(jobId)}/screenshots/${encodeURIComponent(shotId)}`,
+            });
+          }
+        }
 
         if (data.event_id) {
-          cursor = data.event_id;
+          // cursor advanced via snapshot patch below
         }
 
         setSnapshot((prev) => {
@@ -92,6 +180,19 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
           if (typeof data.progress === "number") next.progress = data.progress;
           if (typeof data.current_step === "string") {
             next.current_step = data.current_step;
+          }
+          // Nested progress fields on status/log payloads.
+          const payload = data.payload;
+          if (payload) {
+            if (typeof payload.status === "string") {
+              next.status = payload.status;
+            }
+            if (typeof payload.progress === "number") {
+              next.progress = payload.progress;
+            }
+            if (typeof payload.current_step === "string") {
+              next.current_step = payload.current_step;
+            }
           }
           if (data.event_id) next.event_cursor = data.event_id;
           return next;
@@ -117,7 +218,6 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
 
       source.onmessage = (event) => handlePayload(event, "message");
       source.onerror = () => {
-        // Browser reconnects EventSource; on persistent failure re-hydrate.
         if (source?.readyState === EventSource.CLOSED) {
           void resnapshot();
         }
@@ -129,7 +229,9 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
         const snap = await getJob(jobId);
         if (cancelled) return;
         onSnapshot(snap);
-        openSse(snap.event_cursor);
+        await loadScreenshots();
+        // After cursor_expired / drop: full retained replay + live tail.
+        openSse(null);
         setError(null);
       } catch (err) {
         const e = err as Error & { code?: string };
@@ -162,23 +264,31 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
     }
   }
 
+  const terminal =
+    snapshot?.status === "cancelled" ||
+    snapshot?.status === "completed" ||
+    snapshot?.status === "failed";
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <p className="font-mono text-sm text-[var(--muted)]">{jobId}</p>
 
       {snapshot ? (
-        <div className="rounded-md border border-[var(--line)] bg-white/60 px-4 py-4">
-          <p className="text-sm uppercase tracking-wide text-[var(--muted)]">
-            Status
-          </p>
-          <p className="mt-1 text-xl font-medium">{snapshot.status}</p>
-          <p className="mt-2 text-sm text-[var(--muted)]">
-            {snapshot.current_step || "—"} · {snapshot.progress}%
-          </p>
-          <p className="mt-1 font-mono text-xs text-[var(--muted)]">
+        <section
+          aria-label="Job status"
+          className="space-y-4 border border-[var(--line)] bg-white/55 px-4 py-5"
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <StatusBadge status={snapshot.status} />
+            <p className="text-sm text-[var(--muted)]">
+              {snapshot.current_step || "Waiting for next step…"}
+            </p>
+          </div>
+          <ProgressBar progress={snapshot.progress} />
+          <p className="font-mono text-xs text-[var(--muted)]">
             cursor {snapshot.event_cursor ?? "—"}
           </p>
-        </div>
+        </section>
       ) : (
         <p className="text-[var(--muted)]">Loading snapshot…</p>
       )}
@@ -189,35 +299,16 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
         <button
           type="button"
           onClick={() => void onCancel()}
-          disabled={
-            busy ||
-            snapshot?.status === "cancelled" ||
-            snapshot?.status === "completed" ||
-            snapshot?.status === "failed"
-          }
-          className="rounded-md border border-[var(--line)] bg-white px-4 py-2 text-sm disabled:opacity-50"
+          disabled={busy || terminal}
+          className="rounded-md border border-[var(--line)] bg-white px-4 py-2 text-sm transition-opacity disabled:opacity-50"
         >
           Cancel job
         </button>
       </div>
 
-      <div>
-        <p className="mb-2 text-sm uppercase tracking-wide text-[var(--muted)]">
-          Events
-        </p>
-        <ul className="max-h-80 space-y-1 overflow-y-auto rounded-md border border-[var(--line)] bg-white/50 p-3 font-mono text-xs">
-          {logs.length === 0 ? (
-            <li className="text-[var(--muted)]">Waiting for SSE…</li>
-          ) : (
-            logs.map((line) => (
-              <li key={line.id}>
-                <span className="text-[var(--accent)]">{line.type}</span>{" "}
-                {line.message}
-              </li>
-            ))
-          )}
-        </ul>
-      </div>
+      <ProgressLog entries={logs} />
+
+      <ScreenshotTimeline jobId={jobId} shots={shots} />
     </div>
   );
 }

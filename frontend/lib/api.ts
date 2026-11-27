@@ -16,7 +16,18 @@ export type JobSnapshot = {
   error: string | null;
   cancel_requested_at: string | null;
   updated_at: string;
+  screenshot_ids?: string[];
   [key: string]: unknown;
+};
+
+export type ScreenshotMeta = {
+  screenshot_id: string;
+  job_id?: string;
+  step?: string;
+  caption?: string;
+  storage_path?: string;
+  created_at?: string;
+  url?: string;
 };
 
 async function parseJson<T>(res: Response): Promise<T> {
@@ -73,4 +84,25 @@ export function jobEventsUrl(jobId: string, after: string | null): string {
   const base = `/api/jobs/${encodeURIComponent(jobId)}/events`;
   if (!after) return base;
   return `${base}?after=${encodeURIComponent(after)}`;
+}
+
+export async function listScreenshots(
+  jobId: string,
+): Promise<ScreenshotMeta[]> {
+  const res = await fetch(
+    `/api/jobs/${encodeURIComponent(jobId)}/screenshots`,
+    {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    },
+  );
+  const body = await parseJson<ScreenshotMeta[] & ApiError>(res);
+  if (!res.ok) {
+    const errBody = body as unknown as ApiError;
+    throw Object.assign(new Error(errBody.error || "screenshots failed"), {
+      code: errBody.code || "error",
+      status: res.status,
+    });
+  }
+  return Array.isArray(body) ? body : [];
 }

@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from api.routes import router as internal_router
 from config import get_settings
 from jobs import init_ledger, reset_ledger_for_tests
+from reaper import reaper_loop
 from worker import worker_loop
 
 logging.basicConfig(level=logging.INFO)
@@ -22,7 +23,8 @@ logger = logging.getLogger("killhub.explore")
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     init_ledger(settings)
-    task = asyncio.create_task(worker_loop(settings), name="killhub-worker-stub")
+    worker_task = asyncio.create_task(worker_loop(settings), name="killhub-worker")
+    reaper_task = asyncio.create_task(reaper_loop(settings), name="killhub-reaper")
     logger.info(
         "explore listening intent host=%s port=%s",
         settings.explore_host,
@@ -31,15 +33,16 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        for task in (worker_task, reaper_task):
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         reset_ledger_for_tests()
 
 
-app = FastAPI(title="Killhub explore", version="0.0.3", lifespan=lifespan)
+app = FastAPI(title="Killhub explore", version="0.0.4", lifespan=lifespan)
 app.include_router(internal_router)
 
 

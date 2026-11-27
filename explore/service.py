@@ -63,9 +63,19 @@ def _enforce_admission(cfg: Settings) -> None:
 
 
 def create_job(github_url: str, *, settings: Settings | None = None) -> Job:
+    """Admit + create ledger row, then Plane-1 pre-flight (D45) before any msb."""
+    from preflight import apply_preflight_to_job, run_preflight
+
     cfg = settings or get_settings()
     _enforce_admission(cfg)
-    return get_ledger(cfg).create_job(github_url, env_ttl_seconds=cfg.env_ttl_seconds)
+    ledger = get_ledger(cfg)
+    job = ledger.create_job(github_url, env_ttl_seconds=cfg.env_ttl_seconds)
+    result = run_preflight(job.github_url, settings=cfg)
+    if not result.meta.get("skipped"):
+        apply_preflight_to_job(job.job_id, result, settings=cfg)
+    refreshed = ledger.get_job(job.job_id)
+    assert refreshed is not None
+    return refreshed
 
 
 def get_public_snapshot(job_id: str) -> dict[str, Any] | None:
@@ -74,10 +84,10 @@ def get_public_snapshot(job_id: str) -> dict[str, Any] | None:
 
 def cancel_job(job_id: str) -> dict[str, Any]:
     """
-    D61 cancel: request → freeze → finalizer (receipt + cleanup stub) → terminal cancelled.
+    D61 cancel: request → freeze → finalizer (receipt + destroy) → terminal cancelled.
 
-    No Microsandbox yet — cleanup is confirmed immediately when no live generation
-    needs destroy, or marked destroyed without msb when a generation row exists.
+    Live generations are destroyed via harness/`msb` (D57). Jobs with no sandbox
+    generation complete cleanup without inventing a Plane 2 destroy.
     """
     ledger = get_ledger()
     job = ledger.get_job(job_id)
@@ -119,6 +129,8 @@ def cancel_job(job_id: str) -> dict[str, Any]:
 
 
 def _run_cancel_finalizer(ledger: Ledger, job_id: str) -> None:
+    from harness import DestroyResult, destroy_environment
+
     now = utc_now()
     job = ledger.get_job(job_id)
     assert job is not None
@@ -141,42 +153,39 @@ def _run_cancel_finalizer(ledger: Ledger, job_id: str) -> None:
         payload={"status": "finalizing"},
         finalizer=True,
     )
-    ledger.append_event(
-        job_id,
-        typ="lifecycle",
-        message="sandbox destroy stub (no live msb yet)",
-        payload={"phase": "destroying", "reason": "cancel"},
-        finalizer=True,
-    )
+
+    destroy_result = DestroyResult(confirmed=True, error=None)
+    if job.sandbox_id and job.current_sandbox_generation is not None:
+        destroy_result = destroy_environment(
+            job.sandbox_id,
+            job_id=job_id,
+            reason="cancel",
+            finalizer=True,
+        )
+    else:
+        ledger.append_event(
+            job_id,
+            typ="lifecycle",
+            message="no live sandbox to destroy",
+            payload={"phase": "destroyed", "reason": "cancel", "confirmed": True},
+            finalizer=True,
+        )
 
     job = ledger.get_job(job_id)
     assert job is not None
-    destroyed_at = now
-    if job.current_sandbox_generation is not None:
-        ledger.mark_generation_state(
-            job_id,
-            job.current_sandbox_generation,
-            "destroyed",
-            destroyed_at=destroyed_at,
-        )
-
+    destroyed_at = utc_now() if destroy_result.confirmed else None
+    cleanup_status = "destroyed" if destroy_result.confirmed else "destroy_failed"
     ledger.update_job_fields(
         job_id,
         finalizer=True,
         cleanup=CleanupState(
-            status="destroyed",
+            status=cleanup_status,
             attempts=1,
-            updated_at=now,
+            last_error=destroy_result.error,
+            updated_at=utc_now(),
         ),
         destroyed_at=destroyed_at,
         current_step="cancelled",
-    )
-    ledger.append_event(
-        job_id,
-        typ="lifecycle",
-        message="sandbox destroyed (cancel stub)",
-        payload={"phase": "destroyed", "reason": "cancel"},
-        finalizer=True,
     )
 
     ledger.upsert_receipt(
@@ -186,7 +195,8 @@ def _run_cancel_finalizer(ledger: Ledger, job_id: str) -> None:
         lifecycle={
             "cancel": True,
             "destroyed_at": destroyed_at,
-            "cleanup": "destroyed",
+            "cleanup": cleanup_status,
+            "destroy_error": destroy_result.error,
         },
         dossier={
             "outcome": "cancelled",
@@ -235,7 +245,7 @@ def claim_pending_job() -> Job | None:
             ledger.append_event(
                 job.job_id,
                 typ="log",
-                message="background worker stub claimed job (no sandbox yet)",
+                message="background worker claimed job",
                 payload={"kind": "agent"},
             )
             return updated

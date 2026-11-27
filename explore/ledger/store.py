@@ -103,6 +103,8 @@ class Ledger:
         )
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
+        self._conn.execute("PRAGMA journal_mode = WAL")
+        self._conn.execute("PRAGMA busy_timeout = 5000")
         self._conn.executescript(SCHEMA_SQL)
         self._conn.execute(
             "INSERT OR REPLACE INTO ledger_meta(key, value) VALUES (?, ?)",
@@ -748,6 +750,31 @@ class Ledger:
             (job_id, screenshot_id),
         ).fetchone()
         return dict(row) if row else None
+
+    def insert_screenshot(
+        self,
+        job_id: str,
+        *,
+        step: str,
+        caption: str,
+        storage_path: str,
+        screenshot_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Persist screenshot metadata (bytes already on host via D60 copy_out)."""
+        shot_id = screenshot_id or str(uuid.uuid4())
+        now = utc_now()
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO screenshots (
+                    screenshot_id, job_id, step, caption, storage_path, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (shot_id, job_id, step, caption, storage_path, now),
+            )
+        row = self.get_screenshot(job_id, shot_id)
+        assert row is not None
+        return row
 
     def get_vuln_report(self, job_id: str) -> dict[str, Any] | None:
         row = self._conn.execute(
