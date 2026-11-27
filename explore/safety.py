@@ -19,6 +19,7 @@ def _severity_counts(findings: list[Any] | None) -> dict[str, int]:
         "medium": 0,
         "low": 0,
         "info": 0,
+        "unknown": 0,
         "other": 0,
         "missing_severity": 0,
     }
@@ -33,7 +34,11 @@ def _severity_counts(findings: list[Any] | None) -> dict[str, int]:
             counts["missing_severity"] += 1
             continue
         sev = str(raw).lower()
-        if sev in counts:
+        if sev == "moderate":
+            sev = "medium"
+        if sev == "unknown":
+            counts["unknown"] += 1
+        elif sev in counts:
             counts[sev] += 1
         else:
             counts["other"] += 1
@@ -98,7 +103,13 @@ def summary_safety(
 
     if bypass or counts["critical"] or counts["high"]:
         return "high_risk"
-    if counts["medium"] or counts["low"] or counts["other"] or counts["missing_severity"]:
+    if (
+        counts["medium"]
+        or counts["low"]
+        or counts["other"]
+        or counts["unknown"]
+        or counts["missing_severity"]
+    ):
         return "review"
     if gaps:
         return "unknown"
@@ -106,5 +117,15 @@ def summary_safety(
 
 
 def review_priority(finding: dict[str, Any]) -> int:
-    rank = {"critical": 0, "high": 1, "medium": 2, "moderate": 2, "low": 3, "info": 5}
-    return rank.get(str(finding.get("severity")).lower(), 4)
+    # unknown / missing sort after low so known severities win enrichment pick order.
+    rank = {
+        "critical": 0,
+        "high": 1,
+        "medium": 2,
+        "moderate": 2,
+        "low": 3,
+        "unknown": 4,
+        "info": 5,
+    }
+    sev = str(finding.get("severity") or "unknown").lower()
+    return rank.get(sev, 4)

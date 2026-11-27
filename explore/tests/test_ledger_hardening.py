@@ -342,8 +342,22 @@ def test_upsert_vuln_report_fills_missing_severity_and_title(db_path: Path) -> N
             job.job_id, summary="s", findings=[{"id": "canary-1", "source": "canary"}], status="ok"
         )
         assert report["findings"] == [
-            {"id": "canary-1", "source": "canary", "severity": "medium", "title": "canary-1"}
+            {"id": "canary-1", "source": "canary", "severity": "unknown", "title": "canary-1"}
         ]
+        preserved = ledger.upsert_vuln_report(
+            job.job_id,
+            summary="s",
+            findings=[
+                {
+                    "id": "sca-1",
+                    "source": "sca",
+                    "severity": "unknown",
+                    "title": "GHSA-xxxx",
+                }
+            ],
+            status="partial",
+        )
+        assert preserved["findings"][0]["severity"] == "unknown"
 
 
 def test_shared_sqlite_ledger_serializes_concurrent_writers(db_path):

@@ -99,22 +99,32 @@ def test_id_only_and_successful_protection_use_recorded_evidence():
 
 
 @pytest.mark.parametrize("response_id", ["GHSA-test", "GHSA-other"])
-def test_advisory_description_requires_matching_id(monkeypatch, response_id):
+def test_advisory_enrichment_requires_matching_id(monkeypatch, response_id):
     from io import BytesIO
 
-    from vulnscan import _load_advisory_summary
+    from vulnscan import _enrich_sca_findings
 
-    finding = {"detail": {"osv_id": "GHSA-test"}, "title": "GHSA-test"}
+    finding = {
+        "detail": {"osv_id": "GHSA-test"},
+        "title": "GHSA-test",
+        "severity": "unknown",
+        "source": "sca",
+    }
 
-    def lookup(url, timeout):
-        assert url == "https://api.osv.dev/v1/vulns/GHSA-test" and timeout <= 3
+    def lookup(req, timeout=None):  # noqa: ANN001
+        url = req if isinstance(req, str) else getattr(req, "full_url", req)
+        assert "GHSA-test" in str(url) and (timeout is None or timeout <= 3)
         return BytesIO(json.dumps({"id": response_id, "summary": "Published description"}).encode())
 
     monkeypatch.setattr("urllib.request.urlopen", lookup)
-    _load_advisory_summary(finding, 10)
-    assert finding["title"] == (
-        "Published description" if response_id == "GHSA-test" else "GHSA-test"
-    )
+    incomplete = _enrich_sca_findings([finding], deadline=__import__("time").monotonic() + 10)
+    if response_id == "GHSA-test":
+        assert finding["title"] == "Published description"
+        assert incomplete is False
+    else:
+        assert finding["title"] == "GHSA-test"
+        assert finding["severity"] == "unknown"
+        assert incomplete is True
 
 
 def test_sca_from_lockfile_with_mock_osv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -303,3 +313,136 @@ def test_large_lock_coverage(tmp_path, monkeypatch, limit, fail_second, expected
     assert (status, checked) == expected
     assert discovered == 161
     assert len(set(batches)) == checked
+
+
+def test_osv_severity_from_cvss_vector() -> None:
+    from vulnscan import _osv_severity
+
+    # CVSS:3.1 critical (9.8) — previously misclassified as medium.
+    critical = {
+        "severity": [
+            {
+                "type": "CVSS_V3",
+                "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+            }
+        ]
+    }
+    assert _osv_severity(critical) == "critical"
+
+    high = {
+        "severity": [
+            {
+                "type": "CVSS_V3",
+                "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+            }
+        ]
+    }
+    assert _osv_severity(high) == "high"
+
+    assert _osv_severity({"database_specific": {"severity": "HIGH"}}) == "high"
+    assert _osv_severity({"affected": [{"ecosystem_specific": {"severity": "low"}}]}) == "low"
+    assert _osv_severity({"id": "GHSA-empty"}) == "unknown"
+
+
+def test_id_only_batch_enriches_severity_and_aliases(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lock = {
+        "lockfileVersion": 3,
+        "packages": {
+            "node_modules/left-pad": {"version": "1.3.0"},
+            "node_modules/right-pad": {"version": "1.0.0"},
+        },
+    }
+    path = tmp_path / "package-lock.json"
+    path.write_text(json.dumps(lock), encoding="utf-8")
+
+    def fake_batch(ecosystem, packages, **kwargs):
+        return [
+            {
+                "package": name,
+                "version": version,
+                "ecosystem": "npm",
+                "osv_id": "GHSA-shared",
+                "summary": "GHSA-shared",
+                "aliases": [],
+                "severity": "unknown",
+                "advisory_url": "https://osv.dev/vulnerability/GHSA-shared",
+            }
+            for name, version in packages
+        ]
+
+    fetches: list[str] = []
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, _n: int = -1):
+            return json.dumps(
+                {
+                    "id": "GHSA-shared",
+                    "summary": "Shared advisory title",
+                    "aliases": ["CVE-2024-0001"],
+                    "severity": [
+                        {
+                            "type": "CVSS_V3",
+                            "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+                        }
+                    ],
+                }
+            ).encode()
+
+    def fake_urlopen(url, timeout=None):  # noqa: ANN001
+        fetches.append(str(url))
+        return _Resp()
+
+    monkeypatch.setattr("vulnscan.query_osv_batch", fake_batch)
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    findings, status, checked, discovered = sca_findings_from_lockfiles([path])
+    assert status == "ok"
+    assert checked == discovered == 2
+    assert len(findings) == 2
+    assert all(f["severity"] == "critical" for f in findings)
+    assert all(f["title"] == "Shared advisory title" for f in findings)
+    assert all(f["detail"]["aliases"] == ["CVE-2024-0001"] for f in findings)
+    # One GET cached across two packages sharing the advisory id.
+    assert len(fetches) == 1
+
+
+def test_enrichment_timeout_keeps_unknown_and_marks_partial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lock = {
+        "lockfileVersion": 3,
+        "packages": {"node_modules/left-pad": {"version": "1.3.0"}},
+    }
+    path = tmp_path / "package-lock.json"
+    path.write_text(json.dumps(lock), encoding="utf-8")
+
+    def fake_batch(ecosystem, packages, **kwargs):
+        return [
+            {
+                "package": "left-pad",
+                "version": "1.3.0",
+                "ecosystem": "npm",
+                "osv_id": "GHSA-timeout",
+                "summary": "GHSA-timeout",
+                "aliases": [],
+                "severity": "unknown",
+                "advisory_url": "https://osv.dev/vulnerability/GHSA-timeout",
+            }
+        ]
+
+    monkeypatch.setattr("vulnscan.query_osv_batch", fake_batch)
+    # Soft-fail path: fetch returns None rather than raising.
+    monkeypatch.setattr("vulnscan._fetch_osv_vuln", lambda *_a, **_k: None)
+    findings, status, checked, discovered = sca_findings_from_lockfiles([path])
+    assert checked == discovered == 1
+    assert len(findings) == 1
+    assert findings[0]["severity"] == "unknown"
+    assert findings[0]["detail"]["osv_id"] == "GHSA-timeout"
+    assert status == "partial"

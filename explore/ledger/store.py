@@ -1297,10 +1297,14 @@ class Ledger:
             if finding.get("source") not in FINDING_SOURCES:
                 raise ValueError(f"finding {i} has unknown source {finding.get('source')!r}")
             # Stream-lifted findings may omit these; keep them renderable.
+            # Do not invent medium for SCA/missing severity (PRODUCT_FIXES §2).
+            severity = finding.get("severity")
+            if not isinstance(severity, str) or not severity.strip():
+                severity = "unknown"
             normalized.append(
                 {
                     **finding,
-                    "severity": finding.get("severity") or "medium",
+                    "severity": severity.strip().lower(),
                     "title": finding.get("title") or str(finding["id"]),
                 }
             )

@@ -98,6 +98,18 @@ def test_review_from_medium_finding() -> None:
     )
 
 
+def test_review_from_unknown_finding_severity() -> None:
+    assert (
+        summary_safety(
+            status="completed",
+            verification={"kind": "original_application"},
+            vuln_report=_ok_report([{"severity": "unknown", "title": "GHSA-x", "source": "sca"}]),
+            receipt=_receipt(),
+        )
+        == "review"
+    )
+
+
 def test_unknown_when_containment_not_proven() -> None:
     assert (
         summary_safety(

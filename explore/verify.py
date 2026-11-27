@@ -672,9 +672,10 @@ def verify_readiness(
             "at": utc_now(),
         }
 
-    # Persist — never completed, never destroy (D37).
-    # Emit evidence while still non-terminal, then flip status (D61 freeze).
-    new_status = "verifying" if passed else "failed"
+    # Persist evidence only — never completed, never destroy (D37).
+    # Failed readiness stays non-terminal so the finalizer owns SCA + destroy +
+    # terminal status (D37, D53, D61). Discover already follows this pattern.
+    new_status = "verifying"
     _log(
         job_id,
         f"readiness passed={passed} kind={verification.get('kind')}",
@@ -684,8 +685,8 @@ def verify_readiness(
         verification=verification,
     )
     job_fields = {
-        "current_step": "readiness passed" if passed else "readiness failed",
-        "progress": 90 if passed else 100,
+        "current_step": "readiness passed" if passed else "readiness failed — awaiting finalize",
+        "progress": 90,
         "readiness": readiness,
         "verification": verification,
         "verify_result": last_detail,
@@ -694,27 +695,13 @@ def verify_readiness(
         "readiness_passed": passed,
         "verification_kind": verification.get("kind"),
     }
-    if passed:
-        ledger.append_event(
-            job_id,
-            typ="status",
-            message=new_status,
-            payload={"status": new_status, **event_payload},
-        )
-        ledger.update_job_fields(job_id, status=new_status, **job_fields)
-    else:
-        # Failed readiness is terminal: receipt + status event + status atomically (D61).
-        ledger.finalize_job(
-            job_id,
-            status="failed",
-            receipt={
-                "verification": verification,
-                "dossier": {"outcome": "setup_failed", "readiness": readiness},
-            },
-            event_message=new_status,
-            event_payload=event_payload,
-            **job_fields,
-        )
+    ledger.append_event(
+        job_id,
+        typ="status",
+        message=new_status,
+        payload={"status": new_status, **event_payload},
+    )
+    ledger.update_job_fields(job_id, status=new_status, **job_fields)
 
     # Confirm sandbox still present (not destroyed by this step).
     job_after = ledger.get_job(job_id)

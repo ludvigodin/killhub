@@ -335,6 +335,10 @@ def test_http_probe_failure_is_setup_failed(monkeypatch: pytest.MonkeyPatch) -> 
     assert result.verification_kind == "setup_failed"
     job = get_ledger().get_job(job_id)
     assert job is not None
-    assert job.status == "failed"
-    assert job.status != "completed"
+    # Evidence only: finalizer owns terminal status + destroy (PRODUCT_FIXES §1).
+    assert job.status == "verifying"
+    assert job.status not in {"failed", "completed", "cancelled"}
+    assert job.readiness and job.readiness.get("passed") is False
+    assert job.verification and job.verification.get("kind") == "setup_failed"
     assert job.destroyed_at is None
+    assert get_ledger().get_receipt(job_id) is None

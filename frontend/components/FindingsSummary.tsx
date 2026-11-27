@@ -56,6 +56,11 @@ export function FindingsSummary({ snapshot }: { snapshot: JobSnapshot }) {
             {SEVERITY_ORDER.filter((sev) => counts[sev] > 0).map((sev) => (
               <SeverityChip key={sev} severity={sev} count={counts[sev]} />
             ))}
+            {counts.unknown > 0 ? (
+              <li className="inline-flex items-center rounded-md bg-(--paper-deep) px-2 py-0.5 font-mono text-xs text-(--muted)">
+                {counts.unknown} unknown
+              </li>
+            ) : null}
             {counts.other > 0 ? (
               <li className="inline-flex items-center rounded-md bg-(--paper-deep) px-2 py-0.5 font-mono text-xs text-(--muted)">
                 {counts.other} other

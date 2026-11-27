@@ -233,7 +233,10 @@ def _parse_toml_lock(text: str) -> list[tuple[str, str]]:
     workspace members, VCS pins) are skipped: OSV can't match them as PyPI
     releases.
     """
-    import tomllib
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # Python < 3.11
+        import tomli as tomllib  # type: ignore[no-redef]
 
     data = tomllib.loads(text)
     pkgs: list[tuple[str, str]] = []
@@ -319,6 +322,7 @@ def query_osv_batch(
         for vuln in item.get("vulns") or []:
             if not isinstance(vuln, dict) or not vuln.get("id"):
                 raise ValueError("Invalid OSV advisory")
+            # Batch payloads are ID/modified only; severity stays unknown until enrich.
             vulns.append(
                 {
                     "package": name,
@@ -327,27 +331,143 @@ def query_osv_batch(
                     "osv_id": vuln.get("id"),
                     "summary": vuln.get("summary") or vuln.get("id") or "advisory",
                     "aliases": vuln.get("aliases") or [],
-                    "severity": _osv_severity(vuln),
+                    "severity": _osv_severity(vuln) if vuln.get("severity") else "unknown",
                     "advisory_url": _osv_url(vuln),
                 }
             )
     return vulns
 
 
+_SEVERITY_LABELS = frozenset({"critical", "high", "medium", "moderate", "low", "info"})
+
+
+def _cvss_band(score: float) -> str:
+    # CVSS v3/v4 qualitative severity bands.
+    if score >= 9.0:
+        return "critical"
+    if score >= 7.0:
+        return "high"
+    if score >= 4.0:
+        return "medium"
+    if score >= 0.0:
+        return "low"
+    return "unknown"
+
+
+def _cvss_base_from_vector(vector: str) -> float | None:
+    """Compute CVSS v3.x base score from a vector string, or None if unsupported."""
+    raw = vector.strip()
+    if not raw.upper().startswith("CVSS:3"):
+        return None
+    parts = raw.split("/")
+    if len(parts) < 2:
+        return None
+    metrics: dict[str, str] = {}
+    for part in parts[1:]:
+        if ":" not in part:
+            continue
+        key, value = part.split(":", 1)
+        metrics[key.upper()] = value.upper()
+    required = ("AV", "AC", "PR", "UI", "S", "C", "I", "A")
+    if any(k not in metrics for k in required):
+        return None
+
+    av = {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.2}.get(metrics["AV"])
+    ac = {"L": 0.77, "H": 0.44}.get(metrics["AC"])
+    scope_changed = metrics["S"] == "C"
+    pr = (
+        {"N": 0.85, "L": 0.68, "H": 0.5} if scope_changed else {"N": 0.85, "L": 0.62, "H": 0.27}
+    ).get(metrics["PR"])
+    ui = {"N": 0.85, "R": 0.62}.get(metrics["UI"])
+    cia = {"H": 0.56, "L": 0.22, "N": 0.0}
+    c_score = cia.get(metrics["C"])
+    i_score = cia.get(metrics["I"])
+    a_score = cia.get(metrics["A"])
+    if None in (av, ac, pr, ui, c_score, i_score, a_score):
+        return None
+
+    exploitability = 8.22 * av * ac * pr * ui  # type: ignore[operator]
+    impact_sub = 1 - ((1 - c_score) * (1 - i_score) * (1 - a_score))  # type: ignore[operator]
+    if scope_changed:
+        impact = 7.52 * (impact_sub - 0.029) - 3.25 * (impact_sub - 0.02) ** 15
+        if impact <= 0:
+            return 0.0
+        base = min(1.08 * (impact + exploitability), 10.0)
+    else:
+        impact = 6.42 * impact_sub
+        if impact <= 0:
+            return 0.0
+        base = min(impact + exploitability, 10.0)
+    # Round up to 1 decimal (CVSS rounding).
+    return float(int(base * 10 + 0.999999) / 10)
+
+
+def _normalize_severity_label(raw: Any) -> str | None:
+    if not isinstance(raw, str):
+        return None
+    label = raw.strip().lower()
+    if label == "moderate":
+        return "medium"
+    if label in _SEVERITY_LABELS:
+        return label
+    return None
+
+
+def _severity_from_score_field(score: Any) -> str | None:
+    if isinstance(score, (int, float)):
+        return _cvss_band(float(score))
+    if not isinstance(score, str):
+        return None
+    text = score.strip()
+    if not text:
+        return None
+    labeled = _normalize_severity_label(text)
+    if labeled:
+        return labeled
+    # Bare numeric score.
+    try:
+        return _cvss_band(float(text))
+    except ValueError:
+        pass
+    # CVSS vector string.
+    if "CVSS:" in text.upper() or "/AV:" in text.upper():
+        base = _cvss_base_from_vector(text)
+        if base is not None:
+            return _cvss_band(base)
+        upper = text.upper()
+        if "CRITICAL" in upper:
+            return "critical"
+        if "HIGH" in upper:
+            return "high"
+        if "MEDIUM" in upper or "MODERATE" in upper:
+            return "medium"
+        if "LOW" in upper:
+            return "low"
+    return None
+
+
 def _osv_severity(vuln: dict[str, Any]) -> str:
+    """Resolve severity from a full OSV record. Never invent medium."""
     for entry in vuln.get("severity") or []:
         if not isinstance(entry, dict):
             continue
-        score = str(entry.get("score") or "")
-        # CVSS vector often embeds severity; default medium.
-        if "CRITICAL" in score.upper():
-            return "critical"
-        if "/AV:" in score and "9." in score:
-            return "critical"
+        band = _severity_from_score_field(entry.get("score"))
+        if band:
+            return band
     db = vuln.get("database_specific") or {}
-    if isinstance(db, dict) and db.get("severity"):
-        return str(db["severity"]).lower()
-    return "medium"
+    if isinstance(db, dict):
+        labeled = _normalize_severity_label(db.get("severity"))
+        if labeled:
+            return labeled
+    for affected in vuln.get("affected") or []:
+        if not isinstance(affected, dict):
+            continue
+        eco = affected.get("ecosystem_specific") or {}
+        if isinstance(eco, dict):
+            labeled = _normalize_severity_label(eco.get("severity"))
+            if labeled:
+                return labeled
+    return "unknown"
 
 
 def _osv_url(vuln: dict[str, Any]) -> str | None:
@@ -371,25 +491,66 @@ def _advisory_id_only(finding: dict[str, Any]) -> bool:
     )
 
 
-def _load_advisory_summary(finding: dict[str, Any], timeout: float) -> None:
-    """Best-effort context for the leading advisory, within the existing lookup budget."""
-    advisory_id = finding["detail"]["osv_id"]
+def _fetch_osv_vuln(advisory_id: str, *, timeout: float) -> dict[str, Any] | None:
     if (
         not isinstance(advisory_id, str)
         or timeout <= 0
         or not re.fullmatch(r"[A-Za-z0-9_-]{1,120}", advisory_id)
     ):
-        return
+        return None
     try:
         url = f"https://api.osv.dev/v1/vulns/{advisory_id}"
         with urllib.request.urlopen(url, timeout=min(timeout, 3.0)) as response:
             data = json.loads(response.read(256_000))
         if isinstance(data, dict) and data.get("id") == advisory_id:
-            description = data.get("summary") or data.get("details")
-            if isinstance(description, str) and description.strip():
-                finding["title"] = " ".join(description.split())[:500]
-    except (OSError, ValueError):
-        pass  # The batch match remains valid even when its description is unavailable.
+            return data
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    return None
+
+
+def _enrich_sca_findings(
+    findings: list[dict[str, Any]],
+    *,
+    deadline: float,
+) -> bool:
+    """Fetch full OSV records for unique IDs. Returns True if enrichment incomplete."""
+    cache: dict[str, dict[str, Any] | None] = {}
+    incomplete = False
+    for finding in findings:
+        detail = finding.get("detail") if isinstance(finding.get("detail"), dict) else {}
+        advisory_id = detail.get("osv_id")
+        if not isinstance(advisory_id, str) or not advisory_id:
+            continue
+        # Skip findings that already carry a known severity (tests / non-batch sources).
+        current = str(finding.get("severity") or "unknown").lower()
+        needs_score = current in {"", "unknown"}
+        needs_title = _advisory_id_only(finding)
+        if not needs_score and not needs_title:
+            continue
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            incomplete = True
+            break
+        if advisory_id not in cache:
+            cache[advisory_id] = _fetch_osv_vuln(advisory_id, timeout=remaining)
+        record = cache[advisory_id]
+        if record is None:
+            if needs_score:
+                incomplete = True
+            # Keep provisional unknown; IDs already retained.
+            continue
+        if needs_score:
+            finding["severity"] = _osv_severity(record)
+        aliases = record.get("aliases") or []
+        if isinstance(aliases, list):
+            detail["aliases"] = [a for a in aliases if isinstance(a, str)]
+        description = record.get("summary") or record.get("details")
+        if isinstance(description, str) and description.strip():
+            finding["title"] = " ".join(description.split())[:500]
+        finding["advisory_url"] = finding.get("advisory_url") or _osv_url(record)
+        finding["detail"] = detail
+    return incomplete
 
 
 def sca_findings_from_lockfiles(
@@ -425,10 +586,11 @@ def sca_findings_from_lockfiles(
                 scanned += len(batch)
                 for vuln in vulns:
                     fid = f"sca-{uuid.uuid4().hex[:8]}"
+                    # querybatch is ID-only; provisional unknown until enrichment.
                     findings.append(
                         {
                             "id": fid,
-                            "severity": vuln.get("severity") or "medium",
+                            "severity": vuln.get("severity") or "unknown",
                             "package": f"{vuln.get('package')}@{vuln.get('version')}",
                             "title": str(vuln.get("summary") or vuln.get("osv_id") or "advisory"),
                             "advisory_url": vuln.get("advisory_url"),
@@ -450,13 +612,12 @@ def sca_findings_from_lockfiles(
         ) as exc:
             errors += 1
             logger.warning("SCA failed for %s: %s", path, exc)
+    enrichment_incomplete = False
     if findings and osv_endpoint == OSV_QUERYBATCH:
-        leading = min(findings, key=review_priority)
-        if _advisory_id_only(leading):
-            _load_advisory_summary(leading, deadline - time.monotonic())
+        enrichment_incomplete = _enrich_sca_findings(findings, deadline=deadline)
     if errors and scanned == 0:
         return findings, "failed", scanned, discovered
-    if errors or incomplete:
+    if errors or incomplete or enrichment_incomplete:
         return findings, "partial", scanned, discovered
     return findings, "ok", scanned, discovered
 
@@ -482,7 +643,7 @@ def collect_stream_findings(job_id: str, settings: Settings) -> list[dict[str, A
         out.append(
             {
                 "id": fid,
-                "severity": payload.get("severity") or "medium",
+                "severity": payload.get("severity") or "unknown",
                 "package": payload.get("package"),
                 "title": event.message,
                 "advisory_url": payload.get("advisory_url"),

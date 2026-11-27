@@ -130,6 +130,11 @@ export function VulnReport({ report }: VulnReportProps) {
               </li>
             );
           })}
+          {counts.unknown > 0 ? (
+            <li className="inline-flex items-center rounded-md bg-(--paper-deep) px-2 py-0.5 font-mono text-xs text-(--muted)">
+              {counts.unknown} unknown
+            </li>
+          ) : null}
           {counts.other > 0 ? (
             <li className="inline-flex items-center rounded-md bg-(--paper-deep) px-2 py-0.5 font-mono text-xs text-(--muted)">
               {counts.other} other
@@ -193,7 +198,7 @@ export function VulnReport({ report }: VulnReportProps) {
                         className="inline-flex items-center rounded-md px-1.5 py-0.5 font-mono text-xs uppercase"
                         style={{ background: tone.bg, color: tone.fg }}
                       >
-                        {f.severity || "info"}
+                        {f.severity || "unknown"}
                       </span>
                       {f.id ? (
                         <span className="font-mono text-xs text-(--muted)">

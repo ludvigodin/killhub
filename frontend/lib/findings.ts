@@ -13,6 +13,7 @@ export type SeverityLevel = (typeof SEVERITY_ORDER)[number];
 export type SeverityCounts = Record<SeverityLevel, number> & {
   total: number;
   other: number;
+  unknown: number;
 };
 
 export const SEVERITY_TONE: Record<SeverityLevel, { bg: string; fg: string }> =
@@ -25,8 +26,9 @@ export const SEVERITY_TONE: Record<SeverityLevel, { bg: string; fg: string }> =
   };
 
 export function normalizeSeverity(raw: string | undefined): string {
-  const severity = (raw || "info").toLowerCase();
-  return severity === "moderate" ? "medium" : severity;
+  const severity = (raw || "unknown").toLowerCase();
+  if (severity === "moderate") return "medium";
+  return severity;
 }
 
 export function countSeverities(
@@ -40,6 +42,7 @@ export function countSeverities(
     info: 0,
     total: 0,
     other: 0,
+    unknown: 0,
   };
   if (!Array.isArray(findings)) return counts;
   for (const f of findings) {
@@ -47,6 +50,8 @@ export function countSeverities(
     const sev = normalizeSeverity(f.severity);
     if (sev in SEVERITY_TONE) {
       counts[sev as SeverityLevel] += 1;
+    } else if (sev === "unknown") {
+      counts.unknown += 1;
     } else {
       counts.other += 1;
     }
@@ -141,7 +146,10 @@ export function securityVerdict(job: JobSnapshot) {
     counts.medium ||
     counts.low ||
     counts.other ||
-    report?.findings?.some((f) => !f.severity)
+    counts.unknown ||
+    report?.findings?.some(
+      (f) => !f.severity || normalizeSeverity(f.severity) === "unknown",
+    )
   )
     return {
       label: "Review before use",

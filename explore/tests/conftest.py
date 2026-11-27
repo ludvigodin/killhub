@@ -15,6 +15,29 @@ from config import get_settings
 TOKEN = "test-internal-token"
 
 
+@pytest.fixture(autouse=True)
+def _isolate_deployment_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> Iterator[None]:
+    """Keep the suite offline-stable when explore/.env points at live VX1 storage.
+
+    pydantic Settings loads ``env_file=".env"`` from cwd. explore/.env is a
+    symlink to the deployment dotenv, so delenv falls through to live s3/CDN.
+    Run each test with a cwd that has no .env (PRODUCT_FIXES §6).
+    """
+    monkeypatch.chdir(tmp_path_factory.mktemp("cwd"))
+    monkeypatch.setenv("STORAGE_BACKEND", "filesystem")
+    monkeypatch.setenv("OBJECT_STORAGE_CDN_BASE_URL", "")
+    monkeypatch.setenv("OBJECT_STORAGE_ENDPOINT", "")
+    monkeypatch.setenv("OBJECT_STORAGE_BUCKET", "")
+    monkeypatch.setenv("OBJECT_STORAGE_ACCESS_KEY", "")
+    monkeypatch.setenv("OBJECT_STORAGE_SECRET_KEY", "")
+    monkeypatch.setenv("LEDGER_BACKUP_UPLOAD", "false")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     db = tmp_path / "ledger" / "test.db"

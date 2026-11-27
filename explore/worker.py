@@ -133,23 +133,31 @@ def _run_pipeline_once(job_id: str, settings: Settings, *, pipeline: bool) -> No
             or settings.finalize_on_claim
         ):
             provision_and_go_offline(job_id, settings=settings)
+        verify_passed = True
         if (
             settings.verify_on_claim
             or settings.screenshots_on_claim
             or settings.containment_on_claim
             or settings.finalize_on_claim
         ):
-            verify_readiness(job_id, settings=settings)
-            if getattr(settings, "active_checks", True):
+            verify_result = verify_readiness(job_id, settings=settings)
+            verify_passed = bool(verify_result.passed)
+            # Failed readiness: skip post-verify stages and go straight to
+            # finalize (SCA + destroy + terminal). Avoids WriterFrozenError from
+            # ordinary writers after a premature terminalization (PRODUCT_FIXES §1).
+            if not verify_passed and settings.finalize_on_claim:
+                finalize_job(job_id, settings=settings)
+                return
+            if verify_passed and getattr(settings, "active_checks", True):
                 from activity import review_mcp_tools
 
                 try:
                     review_mcp_tools(job_id, settings=settings)
                 except Exception:  # noqa: BLE001 — review is additive evidence only
                     logger.exception("MCP tool review failed for %s", job_id)
-        if settings.screenshots_on_claim or settings.finalize_on_claim:
+        if verify_passed and (settings.screenshots_on_claim or settings.finalize_on_claim):
             maybe_capture_after_verify(job_id, settings=settings)
-        if settings.containment_on_claim or settings.finalize_on_claim:
+        if verify_passed and (settings.containment_on_claim or settings.finalize_on_claim):
             run_containment_probes(job_id, settings=settings)
         if settings.finalize_on_claim:
             finalize_job(job_id, settings=settings)
@@ -175,11 +183,16 @@ def _fail_claimed_job(job_id: str, exc: Exception, *, ledger: Ledger, settings: 
     # A cancel-frozen job is finalized by the cancel path, not here (D61).
     # setup_failed fixtures may already have verification while still
     # non-terminal; reclaim via finalize when enabled (D37, D53).
-    if (
-        job is not None
-        and job.status not in {"failed", "cancelled", "completed"}
-        and job.cancel_requested_at is None
-    ):
+    # Also reclaim when already terminal but sandbox still live (defense in depth).
+    if job is None or job.cancel_requested_at is not None:
+        return
+
+    needs_reclaim = (
+        job.status in {"failed", "cancelled", "completed"}
+        and bool(job.sandbox_id)
+        and job.destroyed_at is None
+    )
+    if job.status not in {"failed", "cancelled", "completed"}:
         ledger.append_event(
             job_id,
             typ="error",
@@ -218,3 +231,10 @@ def _fail_claimed_job(job_id: str, exc: Exception, *, ledger: Ledger, settings: 
             release_admission_slot(was_running=True, settings=settings)
         except Exception:  # noqa: BLE001
             logger.exception("admission release failed for %s", job_id)
+        return
+
+    if needs_reclaim and settings.finalize_on_claim:
+        try:
+            finalize_job(job_id, settings=settings)
+        except Exception:  # noqa: BLE001
+            logger.exception("reclaim finalize failed for %s", job_id)
