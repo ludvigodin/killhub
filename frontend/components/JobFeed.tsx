@@ -89,10 +89,22 @@ export function JobFeed() {
           Pull. Penetrate. Destroy.
         </h1>
         <p className="mx-auto mb-8 max-w-xl text-base leading-relaxed text-(--muted)">
-          Hot repos in your area are looking for a one-run stand. Drop a public
-          Git URL. We bring the sandbox and clean up afterward.
+          Try an unfamiliar public repository in a disposable sandbox. See
+          whether the app runs, what it does during setup, and which risks
+          deserve a closer look.
         </p>
         <BatchUrlForm onCreated={onCreated} />
+        <div className="mt-5 flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm">
+          <a className="underline underline-offset-4" href="/killhub-demo.mp4">
+            Watch the 27-second demo
+          </a>
+          <Link
+            className="underline underline-offset-4"
+            href="/jobs/542860c6-396b-4bf9-84bf-d3e8d9d89fb8"
+          >
+            Open a completed report
+          </Link>
+        </div>
       </header>
 
       <section aria-label="Job feed" className="flex flex-col gap-3">

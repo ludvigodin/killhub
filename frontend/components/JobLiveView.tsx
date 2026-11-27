@@ -10,7 +10,6 @@ import {
   listScreenshots,
   type ScreenshotMeta,
 } from "@/lib/api";
-import { snapshotSafety } from "@/lib/findings";
 import { ownerRepoFromGithubUrl, repoPathFromGithubUrl } from "@/lib/github";
 import { formatQueueLine, isInQueue } from "@/lib/queue";
 import { resolveScreenshotSrc } from "@/lib/screenshots";
@@ -29,7 +28,6 @@ import {
   ProgressLog,
   type ProgressLogEntry,
 } from "./ProgressLog";
-import { ResultStamp } from "./ResultStamp";
 import { type ScreenshotItem, ScreenshotTimeline } from "./ScreenshotTimeline";
 import { SectionHeader } from "./SectionHeader";
 import {
@@ -511,7 +509,6 @@ export function JobLiveView({
     snapshot.receipt.dossier.code.trim().length > 0
       ? snapshot.receipt.dossier.code.trim()
       : null;
-  const safety = snapshot ? snapshotSafety(snapshot) : null;
   const errorItems: { message: string; code?: string }[] = [];
   if (jobError) {
     errorItems.push({ message: jobError, code: dossierCode || "job_error" });
@@ -562,6 +559,8 @@ export function JobLiveView({
 
   const showFindings = Boolean(snapshot && (snapshot.vuln_report || terminal));
   const navItems: SectionNavItem[] = [];
+  if (terminal && snapshot)
+    navItems.push({ id: "section-findings", label: "Run summary" });
   if (errorItems.length > 0) {
     navItems.push({ id: "section-errors", label: "Errors" });
   }
@@ -577,7 +576,7 @@ export function JobLiveView({
   if (containment) {
     navItems.push({ id: "section-containment", label: "Containment" });
   }
-  if (showFindings) {
+  if (showFindings && !terminal) {
     navItems.push({ id: "section-findings", label: "Findings" });
   }
   navItems.push({ id: "section-activity", label: "Activity" });
@@ -592,6 +591,7 @@ export function JobLiveView({
 
   const sections = (
     <div className="flex flex-col gap-8">
+      {terminal && snapshot && <FindingsSummary snapshot={snapshot} finished />}
       {errorItems.length > 0 ? (
         <section
           id="section-errors"
@@ -626,11 +626,7 @@ export function JobLiveView({
               title="Job status"
               meta={
                 <div className="flex flex-wrap items-center justify-end gap-3">
-                  {safety ? (
-                    <ResultStamp safety={safety} />
-                  ) : (
-                    <StatusBadge status={snapshot.status} />
-                  )}
+                  <StatusBadge status={snapshot.status} />
                   {cancelling ? (
                     <span className="type-mono inline-flex items-center gap-1.5 tracking-wide text-(--warn)">
                       <span className="job-live-dot" aria-hidden />
@@ -714,7 +710,7 @@ export function JobLiveView({
 
       {containment ? <ContainmentPanel containment={containment} /> : null}
 
-      {showFindings && snapshot ? (
+      {showFindings && !terminal && snapshot ? (
         <FindingsSummary snapshot={snapshot} />
       ) : null}
 
