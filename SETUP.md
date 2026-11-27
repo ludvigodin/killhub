@@ -368,9 +368,20 @@ After=network.target
 
 [Service]
 Type=simple
+User=killhub-worker
+Group=killhub-worker
+SupplementaryGroups=kvm
+Environment=HOME=/var/lib/killhub-worker
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/killhub-worker /var/lib/killhub/ledger /var/lib/killhub/artifacts /var/lib/killhub/screenshots /var/lib/killhub/profiles /var/lib/killhub/canaries
+UnsetEnvironment=VULTR_API_KEY
 WorkingDirectory=/opt/killhub/explore
 EnvironmentFile=/etc/killhub/killhub.env
-ExecStart=/opt/killhub/explore/.venv/bin/python -m main
+ExecStart=/opt/killhub/explore/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8100
 Restart=on-failure
 RestartSec=5
 
@@ -387,6 +398,10 @@ After=network.target killhub-explore.service
 
 [Service]
 Type=simple
+User=killhub
+Group=killhub
+NoNewPrivileges=yes
+PrivateTmp=yes
 WorkingDirectory=/opt/killhub/frontend
 EnvironmentFile=/etc/killhub/frontend.env
 Environment=NODE_ENV=production
@@ -401,6 +416,8 @@ WantedBy=multi-user.target
 ```
 
 `frontend.env` needs at least `INTERNAL_API_TOKEN` and `EXPLORE_BASE_URL=http://127.0.0.1:8100`. `killhub.env` is the explore/root catalog (inference, msb, pipeline flags, ledger paths). Mode `600`, root-owned.
+
+Create a dedicated system account with a private home at `/var/lib/killhub-worker` and supplementary group `kvm`. Install the trusted Microsandbox binary and matching library in a root-owned directory readable by this account. Set `MSB_BIN` to that executable. Give the worker ownership of the five writable application directories above with mode `0700`. Configure absolute storage paths in the worker environment. Run the host reaper under the same identity, home, and Microsandbox installation so it sees the worker's inventory. During migration, drain existing jobs and confirm the old runtime inventory is empty. Restrict legacy environment files, backup copies, and ledger directories as well as the active files.
 
 Build frontend once before `pnpm start`:
 
