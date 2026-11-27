@@ -20,6 +20,7 @@ import copy
 import json
 import logging
 import posixpath
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -242,6 +243,38 @@ def _clean_command(
     out["timeout_seconds"] = _int_in(
         spec.get("timeout_seconds"), lo=1, hi=MAX_TIMEOUT_SECONDS, default=120
     )
+    return out
+
+
+_IGNORE_SCRIPTS_RE = re.compile(r"\s--ignore-scripts(?:=true)?(?=\s|$|;|&|\|)")
+_IGNORE_SCRIPTS_ENV = {"NPM_CONFIG_IGNORE_SCRIPTS", "npm_config_ignore_scripts"}
+
+
+def _run_install_scripts(commands: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Install steps must run the repo's lifecycle scripts.
+
+    Running a repo's install scripts inside the disposable, network-phased
+    sandbox is how Killhub observes install-time behaviour (active checks:
+    canary exfiltration, persistence writes). A planner that adds
+    ``--ignore-scripts`` would hide a malicious ``postinstall`` and report the
+    repo as clean, so the flag (and its env-var form) is removed here.
+    """
+    out: list[dict[str, Any]] = []
+    for cmd in commands:
+        cmd = dict(cmd)
+        if "argv" in cmd:
+            cmd["argv"] = [
+                a for a in cmd["argv"] if a not in {"--ignore-scripts", "--ignore-scripts=true"}
+            ]
+        if "shell" in cmd and not cmd.get("killhub_tooling"):
+            cmd["shell"] = _IGNORE_SCRIPTS_RE.sub("", cmd["shell"])
+        if "env" in cmd:
+            env = {k: v for k, v in cmd["env"].items() if k not in _IGNORE_SCRIPTS_ENV}
+            if env:
+                cmd["env"] = env
+            else:
+                cmd.pop("env")
+        out.append(cmd)
     return out
 
 
@@ -524,13 +557,15 @@ def sanitize_profile(
             uv_installer=UV_INSTALLER,
         ),
         "packages": _clean_packages(raw.get("packages")),
-        "install_commands": _clean_commands(
-            raw.get("install_commands"),
-            ctx="install_commands",
-            limit=MAX_INSTALL_COMMANDS,
-            workdir=workdir,
-            forbidden=forbidden,
-            uv_installer=UV_INSTALLER,
+        "install_commands": _run_install_scripts(
+            _clean_commands(
+                raw.get("install_commands"),
+                ctx="install_commands",
+                limit=MAX_INSTALL_COMMANDS,
+                workdir=workdir,
+                forbidden=forbidden,
+                uv_installer=UV_INSTALLER,
+            )
         ),
         "run_commands": _clean_commands(
             raw.get("run_commands"),

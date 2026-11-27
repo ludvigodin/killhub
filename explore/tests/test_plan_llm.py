@@ -862,3 +862,26 @@ def test_verify_without_inference_keeps_plain_retry(monkeypatch: pytest.MonkeyPa
     assert len(launched) >= 2  # plain retry of the same plan
     assert not any("3000" in cmd for cmd in launched)
     assert len(get_ledger().list_profile_revisions(job_id)) == 1
+
+
+def test_sanitize_keeps_install_lifecycle_scripts_running() -> None:
+    """A planner must not hide a malicious postinstall with --ignore-scripts.
+
+    Seen live: the LLM planned `npm install --ignore-scripts` for the leaky-install
+    fixture, so its postinstall never ran and the repo was reported clean.
+    """
+    raw = copy.deepcopy(GO_PROFILE)
+    raw["install_commands"] = [
+        {"argv": ["npm", "install", "--ignore-scripts", "--no-audit"]},
+        {"shell": "yarn install --ignore-scripts=true && echo ok"},
+        {"argv": ["pnpm", "install"], "env": {"NPM_CONFIG_IGNORE_SCRIPTS": "true", "CI": "1"}},
+        {"shell": "npm ci --ignore-scripts"},
+    ]
+    profile = sanitize_profile(raw, facts=_facts(), settings=get_settings())
+    cmds = profile["install_commands"]
+    assert cmds[0]["argv"] == ["npm", "install", "--no-audit"]
+    assert cmds[1]["shell"] == "yarn install && echo ok"
+    assert cmds[2]["env"] == {"CI": "1"}
+    assert cmds[3]["shell"] == "npm ci"
+    assert "ignore-scripts" not in json.dumps(cmds).lower()
+    validate_profile(profile, phase="runtime")
