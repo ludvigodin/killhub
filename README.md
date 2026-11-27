@@ -223,12 +223,14 @@ Operators, security-minded engineers, and internal teams who need to quickly and
 
 **Use the product:** [https://killhub.pro](https://killhub.pro)
 
+**Run / deploy on Vultr:** [SETUP.md](SETUP.md) — local Plane 1, VX1 Microsandbox, inference keys, reverse proxy, and verification.
+
 **Hack on the repo:**
 
 1. Read [PRODUCT.md](PRODUCT.md) — *what* and *why*
 2. Read [ARCHITECTURE.md](ARCHITECTURE.md) — planes, trust zones, lifecycle
 3. Read [AGENTS.md](AGENTS.md) — agent rules, quality gate, Vultr/`msb` tooling
-4. Copy [`.env.example`](.env.example) → `.env` (never commit secrets)
+4. Follow [SETUP.md](SETUP.md) — copy [`.env.example`](.env.example) → `.env` (never commit secrets)
 
 ---
 
@@ -236,6 +238,7 @@ Operators, security-minded engineers, and internal teams who need to quickly and
 
 | Doc | Purpose |
 |-----|---------|
+| [SETUP.md](SETUP.md) | Run / deploy on Vultr (local + production-style) |
 | [PRODUCT.md](PRODUCT.md) | Product intent |
 | [AGENTS.md](AGENTS.md) | Rules for AI agents working in this repo |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Two planes, trust zones, data flow |
