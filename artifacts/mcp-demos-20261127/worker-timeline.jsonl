@@ -1,0 +1,8 @@
+{"seconds": 0.054, "utc": "2026-11-27T14:12:06Z", "event": "Supervisor armed", "vm": "qa-mcp-141043", "deadline_seconds": 5, "host_sentinel_sha256": "b1e50f0c4a262059d7dd39cc1167dd7f460f24331bcb07035b306f587b51be51"}
+{"seconds": 0.055, "utc": "2026-11-27T14:12:06Z", "event": "MCP tool call dispatched", "tool": "wait_for_release"}
+{"seconds": 0.367, "utc": "2026-11-27T14:12:06Z", "event": "Guest confirmed entry into tool handler"}
+{"seconds": 5.056, "utc": "2026-11-27T14:12:11Z", "event": "Independent execution deadline exceeded", "still_running": true}
+{"seconds": 5.154, "utc": "2026-11-27T14:12:11Z", "event": "Supervisor removed disposable VM", "worker_output": "\u2713 Removed             qa-mcp-141043"}
+{"seconds": 5.24, "utc": "2026-11-27T14:12:11Z", "event": "Worker verified VM absent", "status": "error: sandbox not found: qa-mcp-141043", "listed": false}
+{"seconds": 5.289, "utc": "2026-11-27T14:12:11Z", "event": "Host sentinel and public health verified", "host_sentinel_sha256": "b1e50f0c4a262059d7dd39cc1167dd7f460f24331bcb07035b306f587b51be51", "health": {"ok": true, "frontend": true, "explore": {"ok": true, "status": 200}}}
+{"seconds": 5.577, "utc": "2026-11-27T14:12:12Z", "event": "Public application accepted follow-up task", "http_status": 201, "job_id": "91536425-ade8-48da-8346-35a0c0069544"}
