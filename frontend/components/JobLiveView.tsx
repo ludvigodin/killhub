@@ -656,7 +656,7 @@ export function JobLiveView({
                   snapshot.current_step ||
                   (terminal ? "Finished." : "Waiting for next step…")}
               </p>
-              {stepsCompleted.length > 0 ? (
+              {!terminal && stepsCompleted.length > 0 ? (
                 <p className="type-mono text-(--muted)">
                   steps {stepsCompleted.join(" → ")}
                 </p>
@@ -680,11 +680,10 @@ export function JobLiveView({
                   ) : null}
                 </p>
               ) : null}
-              <ProgressBar
-                progress={snapshot.progress}
-                active={!terminal && !stalled}
-              />
-              <p className="type-mono text-(--muted)">
+              {!terminal ? (
+                <ProgressBar progress={snapshot.progress} active={!stalled} />
+              ) : null}
+              <p className="type-mono text-(--muted)" hidden={terminal}>
                 cursor {snapshot.event_cursor ?? "-"}
                 {snapshot.inference_model
                   ? ` · model ${snapshot.inference_model}`
