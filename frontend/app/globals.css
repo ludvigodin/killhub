@@ -126,9 +126,17 @@ html::before {
     heart-pulse 2.6s ease-in-out 1.4s infinite;
 }
 
-body > * {
-  position: relative;
-  z-index: 1;
+/*
+ * Lift page content above html::before (heart-pulse wash).
+ * Keep this in @layer base so Tailwind utilities (`fixed`, `z-50`) still
+ * win on createPortal overlays. Unlayered `position: relative` was trapping
+ * HackerVision / ConnectMcp in document flow below the page.
+ */
+@layer base {
+  body > * {
+    position: relative;
+    z-index: 1;
+  }
 }
 
 @keyframes heart-pulse-in {
