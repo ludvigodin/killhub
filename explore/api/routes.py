@@ -8,6 +8,7 @@ from pathlib import Path
 from time import monotonic
 from typing import Any, AsyncIterator, Dict, List, Optional, Union
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
@@ -19,6 +20,7 @@ from jobs import get_ledger
 from ledger import Ledger
 from ledger.store import validate_github_url
 from novnc_bridge import console_metadata
+from package_metadata import PackageMetadataError, resolve_package_metadata
 from service import (
     AdmissionError,
     cancel_job,
@@ -49,6 +51,16 @@ def _error(status_code: int, message: str, code: str) -> HTTPException:
 @router.get("/fixtures")
 def get_fixture_catalog() -> dict[str, Any]:
     return intake_catalog(restricted=get_settings().public_demo_fixtures_only)
+
+
+@router.get("/registry/resolve")
+def get_registry_release(locator: str = Query(min_length=1, max_length=320)) -> dict:
+    """Resolve release metadata without admitting a job or fetching an artifact."""
+    try:
+        with httpx.Client(timeout=4, trust_env=False) as client:
+            return resolve_package_metadata(locator, client=client)
+    except PackageMetadataError as exc:
+        raise _error(exc.status, str(exc), exc.code) from exc
 
 
 @router.post("/jobs", status_code=status.HTTP_201_CREATED)
