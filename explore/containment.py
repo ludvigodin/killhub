@@ -27,6 +27,7 @@ from harness import (
 )
 from jobs import get_ledger
 from ledger.store import utc_now
+from verdict import containment_reports_bypass
 
 logger = logging.getLogger("killhub.containment")
 
@@ -939,6 +940,8 @@ def run_containment_probes(
         typ="containment",
         message=f"containment claim={claim}",
         payload=payload,
+        # A replacement or teardown makes this VM's observation stale.
+        expected_sandbox=(job.current_sandbox_generation, environment_id),
     )
     _log(
         job_id,
@@ -949,50 +952,12 @@ def run_containment_probes(
         dimensions={k: v.get("classification") or v.get("ok") for k, v in dimensions.items()},
     )
 
-    # Persist on receipt (outlives sandbox) — does not terminal-complete the job.
-    existing = None
-    try:
-        existing = ledger.get_receipt(job_id)
-    except Exception:  # noqa: BLE001
-        existing = None
-    ledger.upsert_receipt(
-        job_id,
-        verification=(existing or {}).get("verification") or job.verification,
-        containment=payload,
-        lifecycle=(existing or {}).get("lifecycle"),
-        dossier={
-            **((existing or {}).get("dossier") or {}),
-            "containment_at": payload["at"],
-        },
-    )
+    # The worker normally finalizes next. Containment-only runs still require
+    # confirmed cleanup before a bypass can end the job (D57, D66).
+    if containment_reports_bypass(payload) and not cfg.finalize_on_claim:
+        from finalize import finalize_job
 
-    # Stay in verifying/scanning — never completed (D37). Hard bypass may fail job (D66).
-    bypass = any(
-        dimensions[d].get("classification") == "policy_bypass"
-        for d in ("host_access_denied", "sibling_access_denied")
-        if d in dimensions
-    )
-    if bypass and job.status not in {"failed", "cancelled", "completed"}:
-        # Receipt above already holds the containment matrix; finalize atomically (D61).
-        ledger.finalize_job(
-            job_id,
-            status="failed",
-            # The verdict carries the observed policy bypass without changing readiness.
-            include_verdict=True,
-            receipt={},
-            event_message="failed",
-            event_payload={"reason": "containment_bypass"},
-            current_step="containment policy bypass",
-            progress=100,
-            error="containment policy_bypass",
-        )
-    elif job.status not in {"failed", "cancelled", "completed"}:
-        ledger.update_job_fields(
-            job_id,
-            status="verifying",
-            current_step=f"containment claim={claim}",
-            progress=95,
-        )
+        finalize_job(job_id, settings=cfg)
 
     return ContainmentResult(
         job_id=job_id,

@@ -9,9 +9,9 @@ from typing import Any
 from config import Settings, get_settings
 from harness import DestroyResult, destroy_job_environment
 from jobs import get_ledger
-from ledger.store import utc_now
-from models import CleanupState
-from verdict import containment_reports_bypass, recorded_policy_bypass
+from ledger.store import Ledger, utc_now
+from models import CleanupState, Job
+from verdict import policy_bypass_reason, recorded_policy_bypass
 from vulnscan import VulnScanError, run_vuln_scan
 
 logger = logging.getLogger("killhub.finalize")
@@ -48,6 +48,18 @@ def _containment_claim(job_id: str, settings: Settings) -> dict[str, Any] | None
     return None
 
 
+def _finalized_result(job: Job, ledger: Ledger) -> FinalizeResult:
+    """Return the winning finalizer's evidence without changing it."""
+    return FinalizeResult(
+        job_id=job.job_id,
+        terminal_status=job.status,
+        destroyed=job.destroyed_at is not None or not job.sandbox_id,
+        destroy_failed=job.cleanup.status == "destroy_failed",
+        receipt=ledger.get_receipt(job.job_id),
+        vuln_status=(ledger.get_vuln_report(job.job_id) or {}).get("status"),
+    )
+
+
 def evaluate_gates(
     job_id: str,
     *,
@@ -78,12 +90,8 @@ def evaluate_gates(
     bypass = recorded_policy_bypass(ledger.get_receipt(job_id) or {})
     if bypass is None:
         for event in ledger.list_events(job_id):
-            payload = event.payload or {}
-            if event.type == "finding" and payload.get("classification") == "policy_bypass":
-                bypass = "policy_bypass"
-                break
-            if event.type == "containment" and containment_reports_bypass(payload):
-                bypass = "containment_policy_bypass"
+            bypass = policy_bypass_reason(event.type, event.payload or {})
+            if bypass:
                 break
 
     if bypass is not None:
@@ -99,7 +107,7 @@ def evaluate_gates(
             "terminal": "failed",
             "reasons": ["readiness_not_passed"],
             "hard_fail": False,
-            "readiness_passed": False,
+            "readiness_passed": readiness_passed,
         }
 
     # SCA / MCP findings do not block completed (D11, D35, D66).
@@ -133,19 +141,13 @@ def finalize_job(
     if job.status in TERMINAL:
         # Already terminal with confirmed destroy — nothing to do.
         if job.destroyed_at is not None or not job.sandbox_id:
-            return FinalizeResult(
-                job_id=job_id,
-                terminal_status=job.status,
-                destroyed=job.destroyed_at is not None or not job.sandbox_id,
-                destroy_failed=(job.cleanup.status == "destroy_failed"),
-                receipt=ledger.get_receipt(job_id),
-                vuln_status=(ledger.get_vuln_report(job_id) or {}).get("status"),
-            )
+            return _finalized_result(job, ledger)
         # Terminal but sandbox still live (e.g. discover flipped failed before
         # finalize) — reopen to finalizing so reclaim can complete (D37).
         ledger.update_job_fields(
             job_id,
             finalizer=True,
+            expected_job=job,
             status="finalizing",
             current_step="reclaim after terminal without destroy",
         )
@@ -154,6 +156,7 @@ def finalize_job(
 
     # Preserve readiness snapshot before any finalizer writes.
     readiness_before = dict(job.readiness) if job.readiness else None
+    starting_generation = job.current_sandbox_generation
 
     vuln_status: str | None = None
     scan_error: str | None = None
@@ -191,21 +194,16 @@ def finalize_job(
             )
 
     gates = evaluate_gates(job_id, settings=cfg)
-    terminal = str(gates["terminal"])
-
     job = ledger.get_job(job_id)
     assert job is not None
-    # Never clear readiness (D11 / D66).
-    if readiness_before and job.readiness != readiness_before:
-        ledger.update_job_fields(
-            job_id,
-            finalizer=True,
-            readiness=readiness_before,
-        )
-
+    if job.status in TERMINAL:
+        return _finalized_result(job, ledger)
+    if job.current_sandbox_generation != starting_generation:
+        raise FinalizeError("sandbox changed while scanning", code="stale_finalizer")
     ledger.update_job_fields(
         job_id,
         finalizer=True,
+        expected_job=job,
         status="finalizing",
         current_step="finalizing receipt + cleanup",
         progress=max(job.progress, 98),
@@ -243,17 +241,25 @@ def finalize_job(
             finalizer=True,
         )
 
-    destroyed_at = utc_now() if destroy_result.confirmed else None
-    cleanup_status = "destroyed" if destroy_result.confirmed else "destroy_failed"
-
     # Re-read after destroy (generation fields may have updated).
     job = ledger.get_job(job_id)
     assert job is not None
-    # Restore readiness if destroy path somehow cleared it.
-    if readiness_before and not job.readiness:
-        ledger.update_job_fields(job_id, finalizer=True, readiness=readiness_before)
-        job = ledger.get_job(job_id)
-        assert job is not None
+    if job.status in TERMINAL:
+        return _finalized_result(job, ledger)
+    if job.current_sandbox_generation != starting_generation:
+        raise FinalizeError("sandbox changed while finalizing", code="stale_finalizer")
+
+    latest_gates = evaluate_gates(job_id, settings=cfg)
+    # Preserve observed legacy failures even if teardown events pruned the evidence.
+    if (
+        not gates["hard_fail"]
+        or latest_gates["hard_fail"]
+        or latest_gates["terminal"] == "cancelled"
+    ):
+        gates = latest_gates
+    terminal = str(gates["terminal"])
+    destroyed_at = (job.destroyed_at or utc_now()) if destroy_result.confirmed else None
+    cleanup_status = "destroyed" if destroy_result.confirmed else "destroy_failed"
 
     vuln_report = ledger.get_vuln_report(job_id)
     containment = _containment_claim(job_id, cfg)
@@ -277,7 +283,7 @@ def finalize_job(
         for r in ledger.list_profile_revisions(job_id)
     ]
 
-    # Preserve durable observations and metadata written by earlier phases.
+    # Carry forward any earlier phase's dossier metadata alongside the final gates.
     prior_receipt = ledger.get_receipt(job_id) or {}
     dossier = {
         **(prior_receipt.get("dossier") or {}),
@@ -299,6 +305,7 @@ def finalize_job(
         job_id,
         status=terminal,  # type: ignore[arg-type]
         include_verdict=True,
+        expected_job=job,
         receipt={
             "verification": job.verification,
             "containment": containment,

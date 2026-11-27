@@ -515,7 +515,14 @@ class Ledger:
         values.append(job_id)
         self._conn.execute(f"UPDATE jobs SET {', '.join(sets)} WHERE job_id = ?", values)
 
-    def update_job_fields(self, job_id: str, *, finalizer: bool = False, **fields: Any) -> Job:
+    def update_job_fields(
+        self,
+        job_id: str,
+        *,
+        finalizer: bool = False,
+        expected_job: Job | None = None,
+        **fields: Any,
+    ) -> Job:
         """Patch allowlisted job columns. Ordinary writers freeze after cancel (D61).
 
         A terminal ``status`` is refused until the job's receipt exists (D61);
@@ -524,9 +531,16 @@ class Ledger:
         self._check_job_fields(fields)
         self._conn.begin()
         try:
-            job = self.get_job(job_id)
+            lock = " FOR UPDATE" if expected_job is not None and self.engine == "postgres" else ""
+            row = self._conn.execute(
+                "SELECT * FROM jobs WHERE job_id = ?" + lock, (job_id,)
+            ).fetchone()
+            job = self._row_to_job(row) if row is not None else None
             if job is None:
                 raise KeyError(f"unknown job_id: {job_id}")
+            if expected_job is not None and job != expected_job:
+                # A finalizer must not reopen a job that changed during its earlier work.
+                raise self.WriterFrozenError("job changed before fields were updated")
             if not finalizer:
                 self._assert_ordinary_writable(job)
             if "status" in fields:
@@ -598,20 +612,68 @@ class Ledger:
         message: str,
         payload: dict[str, Any] | None = None,
         finalizer: bool = False,
+        expected_sandbox: tuple[int | None, str | None] | None = None,
     ) -> JobEvent:
+        """Commit replay and durable containment evidence in the same transaction."""
+        from verdict import policy_bypass_reason, recorded_policy_bypass
+
+        evidence = payload or {}
+        bypass = policy_bypass_reason(typ, evidence)
+        matrix = typ == "containment" and "claim" in evidence
         self._conn.begin()
         try:
-            job = self.get_job(job_id)
-            if job is None:
+            # Serialize evidence with finalization on PostgreSQL; SQLite begins IMMEDIATE.
+            lock = " FOR UPDATE" if self.engine == "postgres" else ""
+            row = self._conn.execute(
+                "SELECT * FROM jobs WHERE job_id = ?" + lock, (job_id,)
+            ).fetchone()
+            if row is None:
                 raise KeyError(f"unknown job_id: {job_id}")
+            job = self._row_to_job(row)
             if not finalizer:
                 self._assert_ordinary_writable(job)
+            if expected_sandbox is not None and expected_sandbox != (
+                job.current_sandbox_generation,
+                job.sandbox_id,
+            ):
+                raise self.WriterFrozenError("sandbox changed before evidence was recorded")
+            if (matrix or bypass) and job.status in TERMINAL_STATUSES:
+                raise self.WriterFrozenError("job ended before evidence was recorded")
             event = self._insert_event_unlocked(
                 job_id,
                 typ=typ,
                 message=message,
-                payload=payload or {},
+                payload=evidence,
             )
+            if matrix or bypass:
+                prior = self.get_receipt(job_id) or {}
+                dossier = prior.get("dossier") or {}
+                observation = {
+                    "event_id": event.event_id,
+                    "generation": job.current_sandbox_generation,
+                }
+                if bypass:
+                    # A later clean check must never clear an observed boundary violation.
+                    dossier.setdefault("policy_bypass", {"reason": bypass, **observation})
+                if matrix:
+                    if "policy_bypass" not in dossier and (legacy := recorded_policy_bypass(prior)):
+                        dossier["policy_bypass"] = {"reason": legacy}
+                    dossier["containment_at"] = evidence.get("at") or event.timestamp
+                    dossier["containment_observation"] = observation
+                self._conn.execute(
+                    """
+                    INSERT INTO job_receipts (job_id, verification, containment, dossier)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(job_id) DO UPDATE SET
+                        containment = excluded.containment, dossier = excluded.dossier
+                    """,
+                    (
+                        job_id,
+                        _dumps(job.verification),
+                        _dumps(evidence if matrix else prior.get("containment")),
+                        _dumps(dossier),
+                    ),
+                )
             self._conn.commit()
         except Exception:
             self._conn.rollback()
@@ -1190,6 +1252,10 @@ class Ledger:
             if expected_job is not None and job != expected_job:
                 # A stale cleanup writer must not overwrite a competing terminal receipt.
                 raise Ledger.WriterFrozenError("job changed before finalization")
+            if job.status in TERMINAL_STATUSES:
+                # A retry or a competing watchdog must leave the winning receipt intact.
+                self._conn.commit()
+                return job
             self._finalize_unlocked(
                 job,
                 status,
@@ -1224,6 +1290,12 @@ class Ledger:
             key: receipt[key] if key in receipt else existing.get(key)
             for key in ("verification", "containment", "lifecycle", "dossier")
         }
+        # Terminal writers own their dossier, while these observations belong to
+        # the ledger transaction that recorded them.
+        prior_dossier = existing.get("dossier") or {}
+        for key in ("policy_bypass", "containment_at", "containment_observation"):
+            if key in prior_dossier:
+                merged["dossier"] = {**(merged["dossier"] or {}), key: prior_dossier[key]}
         if include_verdict:
             from verdict import build_verdict
 
