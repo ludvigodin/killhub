@@ -483,6 +483,7 @@ def collect_and_analyze(
             payload={
                 "source": "activity",
                 "code": "install_network_tools",
+                "repository_steps_only": True,
                 "severity": "low",
                 "tools": net_tools,
             },

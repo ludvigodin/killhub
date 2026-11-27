@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from active_report import ACTIVE_SOURCES, active_finding
+from active_report import ACTIVE_SOURCES, active_finding, with_active_summary
 from config import Settings, get_settings
 from errors import HarnessError
 from fixtures import match_fixture
@@ -771,7 +771,7 @@ def run_vuln_scan(
         logger.info("vuln_review extras skipped: %s", exc.__class__.__name__)
 
     status = "partial" if copy_incomplete and sca_status == "ok" else sca_status
-    summary = draft or cite_checked_review(all_findings)
+    summary = with_active_summary(draft or cite_checked_review(all_findings), all_findings)
     if not lock_host:
         summary = f"{summary} No dependency files were available for scanning."
     elif status == "failed":
