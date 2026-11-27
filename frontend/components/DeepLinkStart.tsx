@@ -91,22 +91,21 @@ export function DeepLinkStart({ owner, repo }: DeepLinkStartProps) {
   }, [owner, repo, router]);
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col px-6 py-12 sm:py-16">
+    <div className="mx-auto flex w-full max-w-6xl flex-col px-4 py-12 sm:px-6 sm:py-16">
       <Link
         href="/"
         className="mb-8 text-sm text-(--muted) no-underline hover:text-(--ink)"
       >
         ← Killhub
       </Link>
-      <h1
-        className="mb-2 text-3xl font-semibold tracking-tight sm:text-4xl"
-        style={{ fontFamily: "var(--font-display), ui-sans-serif, sans-serif" }}
-      >
-        {label}
-      </h1>
+      <h1 className="type-page-title mb-2">{label}</h1>
       {error ? (
         <>
-          <ErrorBanner message={error.message} code={error.code} />
+          <ErrorBanner
+            className="mt-4"
+            message={error.message}
+            code={error.code}
+          />
           {hint ? <p className="mt-3 text-sm text-(--muted)">{hint}</p> : null}
           <p className="mt-6 text-sm text-(--muted)">
             <Link

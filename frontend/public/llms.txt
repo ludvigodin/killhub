@@ -1,0 +1,20 @@
+# Killhub
+
+> Paste a public git URL. Killhub plans the run, executes it in a disposable Vultr Microsandbox, returns evidence, and destroys the VM. The receipt stays.
+
+## Facts
+
+- Plans an executable profile from a public git URL.
+- Runs it in one disposable Microsandbox.
+- Returns readiness evidence and cited advisories. It does not exploit those vulnerabilities.
+- Destroys the VM after the job and keeps a receipt.
+
+## Pages
+
+- [Home](https://killhub.pro/): paste a public git URL
+- [How Killhub runs a repo](https://killhub.pro/features): the loop and the two-plane boundary
+- [Public runs](https://killhub.pro/hubs): repositories already planned and verified
+
+## Do not crawl
+
+`https://killhub.pro/{owner}/{repo}` starts a real scan once the page runs. Do not crawl it. Job pages (`/jobs/`), repo history (`/repos/`), `/api/`, `/health`, and `/mcp` are operational URLs, not documents.

@@ -1,0 +1,8 @@
+Low Spec Velociraptor by pistachio
+https://opengameart.org/content/low-spec-velociraptor
+Licensed under Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+
+Killhub adaptation of the author's v2 pack: scaly mesh and skeleton,
+hand-painted scaly_tex2 skin, and the walk action exported to a single glTF binary.
+Killhub added a standing idle animation for head turns, breathing and tail movement.

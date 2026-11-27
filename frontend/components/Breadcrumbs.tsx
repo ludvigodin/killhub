@@ -31,7 +31,11 @@ export function Breadcrumbs({ items }: BreadcrumbsProps) {
               ) : null}
               {last || !item.href ? (
                 <span
-                  className={last ? "font-mono text-(--ink)" : "text-(--muted)"}
+                  className={
+                    last
+                      ? "max-w-44 truncate font-mono text-(--ink) sm:max-w-none"
+                      : "max-w-40 truncate text-(--muted) sm:max-w-64"
+                  }
                   aria-current={last ? "page" : undefined}
                   title={item.title ?? item.label}
                 >
@@ -40,7 +44,7 @@ export function Breadcrumbs({ items }: BreadcrumbsProps) {
               ) : (
                 <Link
                   href={item.href}
-                  className="text-(--muted) no-underline transition hover:text-(--ink)"
+                  className="max-w-40 truncate text-(--muted) no-underline transition hover:text-(--ink) sm:max-w-64"
                   title={item.title ?? item.label}
                 >
                   {item.label}

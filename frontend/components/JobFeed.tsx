@@ -73,33 +73,31 @@ export function JobFeed() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col px-6 pb-12">
+    <div className="mx-auto flex w-full max-w-6xl flex-col px-4 pb-12 sm:px-6">
       <SiteNav />
 
-      <header className="feed-hero mx-auto w-full max-w-3xl pb-12 pt-6 text-center sm:pt-10">
-        <div className="mb-6 flex justify-center">
-          <KillhubLogo size={64} />
+      <header className="feed-hero mx-auto w-full max-w-3xl pb-10 pt-4 text-center sm:pb-12 sm:pt-10">
+        <div className="mb-5 flex justify-center sm:mb-6">
+          <span className="sm:hidden">
+            <KillhubLogo size={52} />
+          </span>
+          <span className="hidden sm:inline">
+            <KillhubLogo size={64} />
+          </span>
         </div>
-        <h1 className="mx-auto mb-3 max-w-2xl text-xl font-medium tracking-tight text-(--ink) sm:text-2xl">
-          Plan → sandboxed execution → verifiable output → destroy
+        <h1 className="type-display mx-auto mb-3 max-w-2xl text-2xl font-semibold tracking-tight text-(--ink) sm:text-3xl">
+          Pull. Penetrate. Destroy.
         </h1>
-        <p className="mx-auto mb-8 max-w-xl text-base leading-relaxed text-(--muted) sm:text-lg">
-          Paste a public git URL. The agent plans, runs real work in a
-          Microsandbox, returns evidence - then destroys the VM.
+        <p className="mx-auto mb-8 max-w-xl text-base leading-relaxed text-(--muted)">
+          Hot repos in your area are looking for a one-run stand. Drop a public
+          Git URL. We bring the sandbox and clean up afterward.
         </p>
         <BatchUrlForm onCreated={onCreated} />
       </header>
 
       <section aria-label="Job feed" className="flex flex-col gap-3">
         <div className="flex items-baseline justify-between gap-3">
-          <h2
-            className="text-lg font-semibold tracking-tight"
-            style={{
-              fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-            }}
-          >
-            Recent
-          </h2>
+          <h2 className="type-section-title">Recent</h2>
           <p className="text-sm text-(--muted)">
             {loading
               ? "Loading…"
@@ -113,14 +111,7 @@ export function JobFeed() {
 
         {!loading && repos.length === 0 ? (
           <div className="rounded-lg border border-dashed border-(--line) bg-(--paper-deep)/50 px-6 py-16 text-center">
-            <p
-              className="mb-2 text-xl font-semibold tracking-tight"
-              style={{
-                fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-              }}
-            >
-              No runs yet
-            </p>
+            <p className="type-section-title mb-2">No runs yet</p>
             <p className="mx-auto max-w-md text-(--muted)">
               Paste a public git URL above - or connect MCP - and watch each job
               plan, execute in a sandbox, prove output, then destroy.

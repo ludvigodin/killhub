@@ -36,7 +36,7 @@ async def worker_loop(settings: Settings | None = None) -> None:
             claimed = await asyncio.to_thread(claim_pending_job, settings=cfg)
             if claimed is not None:
                 logger.info("claimed job %s", claimed.job_id)
-                # claim_pending_job fails misconfigured workers (D81); remaining
+                # claim_pending_job fails misconfigured workers (D83); remaining
                 # claims always have at least one pipeline / bootstrap flag.
                 await asyncio.to_thread(_run_claimed_job, claimed.job_id, cfg)
         except asyncio.CancelledError:
@@ -71,7 +71,7 @@ def _run_claimed_job(job_id: str, settings: Settings) -> None:
     heals = 0
     max_heals = max(int(settings.max_sandbox_heals or 0), 0)
     with JobHeartbeat(job_id, settings=settings):
-        # Clear claim placeholder so the UI never sticks on a stub step (D81).
+        # Clear claim placeholder so the UI never sticks on a stub step (D83).
         try:
             ledger.update_job_fields(
                 job_id,
@@ -141,6 +141,13 @@ def _run_pipeline_once(job_id: str, settings: Settings, *, pipeline: bool) -> No
             or settings.finalize_on_claim
         ):
             verify_readiness(job_id, settings=settings)
+            if getattr(settings, "active_checks", True):
+                from activity import review_mcp_tools
+
+                try:
+                    review_mcp_tools(job_id, settings=settings)
+                except Exception:  # noqa: BLE001 — review is additive evidence only
+                    logger.exception("MCP tool review failed for %s", job_id)
         if settings.screenshots_on_claim or settings.finalize_on_claim:
             maybe_capture_after_verify(job_id, settings=settings)
         if settings.containment_on_claim or settings.finalize_on_claim:

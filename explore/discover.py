@@ -273,7 +273,7 @@ find . -maxdepth 3 \\( -name node_modules -o -name .git \\) -prune -o -type f -p
 echo '---PACKAGE_JSON---'
 if [ -f package.json ]; then cat package.json; fi
 echo '---PYPROJECT---'
-if [ -f pyproject.toml ]; then head -n 80 pyproject.toml; fi
+if [ -f pyproject.toml ]; then head -n 200 pyproject.toml; fi
 echo '---REQUIREMENTS---'
 if [ -f requirements.txt ]; then head -n 40 requirements.txt; fi
 echo '---README---'
@@ -302,6 +302,122 @@ if [ -f src/filesystem/package.json ]; then cat src/filesystem/package.json; fi
         ),
         "mentions_express": bool(re.search(r'"express"', text)),
         "mentions_mcp": ("modelcontextprotocol" in text.lower() or '"mcp"' in text.lower()),
+        "python_mcp": python_mcp_signal(text),
+    }
+
+
+_PY_MCP_DEP = re.compile(r"""["']\s*(fastmcp|mcp)\s*(\[[^\]]*\])?\s*([<>=~!]=?[^"']*)?["']""", re.I)
+_REQ_MCP = re.compile(r"^\s*(fastmcp|mcp)\s*(\[[^\]]*\])?\s*([<>=~!].*)?$", re.I | re.M)
+_MODULE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_SCRIPT_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$")
+
+
+def _inspect_section(text: str, name: str) -> str:
+    marker = f"---{name}---"
+    if marker not in text:
+        return ""
+    rest = text.split(marker, 1)[1]
+    nxt = re.search(r"^---[A-Z_]+---$", rest, re.M)
+    return rest[: nxt.start()] if nxt else rest
+
+
+def python_mcp_signal(text: str) -> dict[str, Any] | None:
+    """Detect a Python MCP server (fastmcp / mcp dependency) and how to launch it.
+
+    Launch preference: a ``[project.scripts]`` entry (one with "mcp" in its
+    name, or the only one), else ``python -m <pkg>`` for a package with a
+    ``__main__.py`` at ``src/<pkg>/`` or ``<pkg>/``. No launchable entry → None.
+    """
+    pyproject = _inspect_section(text, "PYPROJECT")
+    reqs = _inspect_section(text, "REQUIREMENTS")
+    tree = _inspect_section(text, "TREE")
+    if not (_PY_MCP_DEP.search(pyproject) or _REQ_MCP.search(reqs)):
+        return None
+    launch: dict[str, str] | None = None
+    block = re.search(r"^\[project\.scripts\]\s*\n((?:[^\[\n].*\n?)*)", pyproject, re.M)
+    names = re.findall(r"^\s*([A-Za-z0-9_.-]+)\s*=", block.group(1), re.M) if block else []
+    names = [n for n in names if _SCRIPT_RE.match(n)]
+    script = next((n for n in names if "mcp" in n.lower()), names[0] if len(names) == 1 else None)
+    if script:
+        launch = {"kind": "script", "name": script}
+    else:
+        modules: list[str] = []
+        for line in tree.splitlines():
+            parts = line.strip().removeprefix("./").split("/")
+            if parts[-1] != "__main__.py":
+                continue
+            if len(parts) == 3 and parts[0] == "src":
+                modules.append(parts[1])
+            elif len(parts) == 2:
+                modules.append(parts[0])
+        modules = sorted(m for m in set(modules) if _MODULE_RE.match(m))
+        module = next((m for m in modules if "mcp" in m.lower()), modules[0] if modules else None)
+        if module:
+            launch = {"kind": "module", "name": module}
+    if launch is None:
+        return None
+    files = {line.strip() for line in tree.splitlines()}
+    return {
+        **launch,
+        "uv_lock": "./uv.lock" in files,
+        "pyproject": bool(pyproject.strip()),
+        "requirements": bool(reqs.strip()),
+    }
+
+
+def _python_mcp_profile(*, base: dict[str, Any], signal: dict[str, Any]) -> dict[str, Any]:
+    """git_mcp profile for a Python MCP server over stdio, installed with uv."""
+    root = GUEST_REPO_ROOT
+    install_uv = (
+        "command -v uv >/dev/null 2>&1 || (curl -LsSf https://astral.sh/uv/install.sh "
+        "| env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh)"
+    )
+    if signal.get("uv_lock"):
+        # Exactly what the repo pinned; uv fetches a matching Python if needed.
+        deps = _cmd(["uv", "sync", "--frozen", "--no-dev"], timeout=900, cwd=root)
+    elif signal.get("pyproject"):
+        deps = {
+            "shell": "uv venv .venv && uv pip install --python .venv/bin/python .",
+            "cwd": root,
+            "timeout_seconds": 900,
+        }
+    else:
+        deps = {
+            "shell": (
+                "uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt"
+            ),
+            "cwd": root,
+            "timeout_seconds": 900,
+        }
+    if signal["kind"] == "script":
+        argv = [f".venv/bin/{signal['name']}"]
+        entry = signal["name"]
+    else:
+        argv = [".venv/bin/python", "-m", signal["name"]]
+        entry = f"python -m {signal['name']}"
+    launch = _cmd(argv, timeout=60, cwd=root)
+    return {
+        # Keep the same pinned source and sandbox policy as other runtime profiles.
+        **base,
+        "intent": "git_mcp",
+        "runtime": "python",
+        "packages": ["ca-certificates", "curl", "python3"],
+        "commands": {
+            "install": [{"shell": install_uv, "cwd": root, "timeout_seconds": 300}, deps],
+            "run": [launch],
+        },
+        "processes": [],
+        "probes": [{"name": "mcp-handshake", "type": "mcp_handshake", "timeout_seconds": 60}],
+        "ports": [],
+        "summary": f"Python MCP server from pinned checkout ({entry}, stdio)",
+        "verification_target": "original_application",
+        "mcp": {
+            "transport": "stdio",
+            "entrypoint": entry,
+            "launch_command": launch,
+            "cwd": root,
+            "readiness": {"type": "mcp_handshake", "transport": "stdio", "timeout_seconds": 60},
+        },
     }
 
 
@@ -330,8 +446,11 @@ def infer_runtime_profile(
         oci_image = str(fixture["oci_image"]).strip() or oci_image
 
     intent = expected
+    python_mcp = inspect.get("python_mcp") if not (fixture or {}).get("mcp") else None
     if intent is None:
-        if inspect.get("has_filesystem_mcp") or (
+        if python_mcp:
+            intent = "git_mcp"
+        elif inspect.get("has_filesystem_mcp") or (
             inspect.get("mentions_mcp") and "servers" in github_url
         ):
             intent = "git_mcp"
@@ -369,6 +488,9 @@ def infer_runtime_profile(
         "network_mode": "install",
         "cgroup_limits": dict(CGROUP_LIMITS),
     }
+
+    if intent == "git_mcp" and python_mcp:
+        return _python_mcp_profile(base=base, signal=python_mcp)
 
     if intent == "git_mcp":
         mcp_meta = (fixture or {}).get("mcp") or {
@@ -425,6 +547,11 @@ def infer_runtime_profile(
             "summary": "MCP filesystem server from pinned checkout (stdio)",
             "verification_target": "original_application",
             "mcp": {
+                **(
+                    {"security_assessment": mcp_meta["security_assessment"]}
+                    if "security_assessment" in mcp_meta
+                    else {}
+                ),
                 "transport": "stdio",
                 "entrypoint": mcp_meta.get("entrypoint") or "src/filesystem",
                 "launch_command": _cmd(

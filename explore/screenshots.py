@@ -78,6 +78,29 @@ def public_screenshot_url(
     return _api_screenshot_url(job_id, screenshot_id)
 
 
+def public_screenshot_rows(
+    rows: list[dict[str, Any]],
+    *,
+    settings: Settings | None = None,
+) -> list[dict[str, Any]]:
+    """Enrich ledger screenshot rows with public `url` (CDN or API path — D76)."""
+    cfg = settings or get_settings()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        job_id = str(item.get("job_id") or "")
+        shot_id = str(item.get("screenshot_id") or "")
+        if job_id and shot_id:
+            item["url"] = public_screenshot_url(
+                job_id,
+                shot_id,
+                storage_path=str(item.get("storage_path") or "") or None,
+                settings=cfg,
+            )
+        out.append(item)
+    return out
+
+
 def _current_runtime_profile(job_id: str, settings: Settings) -> dict[str, Any]:
     ledger = get_ledger(settings)
     revs = ledger.list_profile_revisions(job_id)

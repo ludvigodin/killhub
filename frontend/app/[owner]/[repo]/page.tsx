@@ -1,7 +1,13 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { DeepLinkStart } from "@/components/DeepLinkStart";
 import { githubUrlFromOwnerRepo } from "@/lib/github";
+import { noindexRobots } from "@/lib/seo";
+
+export const metadata: Metadata = {
+  robots: noindexRobots,
+};
 
 async function DeepLinkShell({
   params,
@@ -22,7 +28,7 @@ export default function DeepLinkPage(props: {
     <main className="min-h-screen w-full">
       <Suspense
         fallback={
-          <p className="px-6 py-12 font-mono text-sm text-(--muted)">
+          <p className="px-4 py-12 font-mono text-sm text-(--muted) sm:px-6">
             Starting scan…
           </p>
         }

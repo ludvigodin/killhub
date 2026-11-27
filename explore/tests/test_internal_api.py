@@ -178,9 +178,18 @@ def test_operator_mcp_initialize(client: TestClient, auth_header: dict[str, str]
     body = res.json()
     assert body["result"]["serverInfo"]["name"] == "killhub"
 
+    # Streamable HTTP: no GET stream on this endpoint (D81 handshake fix).
     info = client.get("/internal/mcp", headers=auth_header)
-    assert info.status_code == 200
-    assert info.json()["transport"] == "json-rpc"
+    assert info.status_code == 405
+    assert info.headers.get("allow", "").upper().find("POST") >= 0
+
+    note = client.post(
+        "/internal/mcp",
+        headers=auth_header,
+        json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+    )
+    assert note.status_code == 202
+    assert note.content in (b"", b"null") or note.text in ("", "null")
 
 
 def test_cursor_expired_returns_410(client: TestClient, auth_header: dict[str, str]) -> None:
@@ -310,7 +319,7 @@ def test_claim_without_pipeline_flags_skips(
     from config import get_settings
     from service import claim_pending_job
 
-    # Default claim flags are off — do not claim into a stub (D81).
+    # Default claim flags are off — do not claim into a stub (D83).
     for key in (
         "MSB_AUTO_CREATE",
         "DISCOVER_ON_CLAIM",

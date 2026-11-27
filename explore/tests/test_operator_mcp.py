@@ -8,12 +8,14 @@ import httpx
 import pytest
 
 from operator_mcp_tools import (
+    HTTP_CREATE_AND_WAIT_TIMEOUT,
     MAX_CREATE_JOBS,
     KillhubApiError,
     KillhubJobsClient,
     call_tool,
     handle_jsonrpc,
     load_public_fixtures,
+    mcp_http_mode,
     parse_screenshot_resource_uri,
     read_screenshot_resource,
     resolve_public_fixture,
@@ -159,6 +161,48 @@ def test_create_and_wait() -> None:
     assert state["created"] is True
     assert out["job_id"] == "j9"
     assert out["verification"]["kind"] == "generated_demo"
+
+
+def test_create_and_wait_http_mode_caps_timeout() -> None:
+    waits: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(201, json={"job_id": "j-http"})
+        return httpx.Response(
+            200,
+            json={"job_id": "j-http", "status": "installing", "progress": 1},
+        )
+
+    with KillhubJobsClient("https://killhub.pro", transport=_transport(handler)) as client:
+        token = mcp_http_mode.set(True)
+        try:
+            # Patch wait_job to capture timeout without sleeping.
+            orig = client.wait_job
+
+            def _capture(job_id: str, **kwargs):  # type: ignore[no-untyped-def]
+                waits.append(float(kwargs.get("timeout_seconds") or 0))
+                return {
+                    "job_id": job_id,
+                    "status": "installing",
+                    "progress": 1,
+                }
+
+            client.wait_job = _capture  # type: ignore[method-assign]
+            out = call_tool(
+                client,
+                "create_and_wait",
+                {
+                    "github_url": "https://github.com/org/repo",
+                    "timeout_seconds": 900,
+                    "poll_seconds": 0.01,
+                },
+            )
+            client.wait_job = orig  # type: ignore[method-assign]
+        finally:
+            mcp_http_mode.reset(token)
+    assert waits == [HTTP_CREATE_AND_WAIT_TIMEOUT]
+    assert out["done"] is False
 
 
 def test_create_jobs_cap_and_partial_errors() -> None:

@@ -11,6 +11,8 @@ from errors import HarnessError
 # Logical helper ids → relative paths under HELPERS_ROOT.
 HELPER_CATALOG: dict[str, str] = {
     "env_probe": "env_probe.sh",
+    "activity_trace": "activity_trace.sh",
+    "mcp_fixture_read": "mcp_fixture_read.py",
     "mcp_stdio_verify": "mcp_stdio_verify.py",
     "tooling_probe": "tooling_probe.sh",
     "network_probe": "network_probe.sh",

@@ -7,6 +7,8 @@ import {
   type TimelineStage,
   type TimelineStageState,
 } from "@/lib/jobTimeline";
+import { SectionHeader } from "./SectionHeader";
+import { SECTION_SCROLL_MT } from "./SectionNav";
 
 type LogHint = { type: string; message: string };
 
@@ -82,7 +84,7 @@ function StageNode({
 
   return (
     <li
-      className="job-timeline-stage relative flex min-w-0 flex-1 flex-col items-center gap-2 text-center"
+      className="job-timeline-stage relative flex w-30 shrink-0 snap-center flex-col items-center gap-2 text-center sm:w-auto sm:min-w-0 sm:flex-1"
       style={{ animationDelay: `${index * 55}ms` }}
     >
       {prevState ? (
@@ -108,9 +110,8 @@ function StageNode({
       </span>
       <div className="min-w-0 space-y-0.5 px-0.5">
         <p
-          className="text-xs font-semibold tracking-tight sm:text-sm"
+          className="type-display text-xs font-semibold tracking-tight sm:text-sm"
           style={{
-            fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
             color:
               stage.state === "pending" || stage.state === "skipped"
                 ? "var(--muted)"
@@ -119,11 +120,9 @@ function StageNode({
         >
           {stage.label}
         </p>
-        <p className="font-mono text-[10px] uppercase tracking-wide text-(--muted)">
-          {stateLabel(stage.state)}
-        </p>
+        <p className="type-eyebrow text-(--muted)">{stateLabel(stage.state)}</p>
         {stage.detail ? (
-          <p className="line-clamp-2 text-[11px] leading-snug text-(--muted) sm:text-xs">
+          <p className="line-clamp-2 text-xs leading-snug text-(--muted)">
             {stage.detail}
           </p>
         ) : null}
@@ -137,24 +136,17 @@ export function JobHeroTimeline({ snapshot, logs = [] }: JobHeroTimelineProps) {
 
   return (
     <section
+      id="section-timeline"
       aria-label="Job timeline"
-      className="job-timeline space-y-4 border border-(--line) bg-(--paper-deep)/55 px-3 py-5 sm:px-5"
+      className={`job-timeline ${SECTION_SCROLL_MT}`}
     >
-      <div>
-        <p className="text-xs uppercase tracking-[0.14em] text-(--muted)">
-          Pattern A loop
-        </p>
-        <h2
-          className="mt-1 text-lg font-semibold tracking-tight sm:text-xl"
-          style={{
-            fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-          }}
-        >
-          Plan → execute → prove → destroy
-        </h2>
-      </div>
+      <SectionHeader
+        className="mb-3"
+        eyebrow="Pattern A loop"
+        title="Plan → execute → prove → destroy"
+      />
 
-      <ol className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-0">
+      <ol className="flex gap-4 overflow-x-auto border border-(--line) bg-(--paper-deep)/55 px-3 py-5 [-webkit-overflow-scrolling:touch] sm:flex-row sm:items-start sm:gap-0 sm:overflow-visible sm:px-5 max-sm:snap-x max-sm:snap-mandatory">
         {stages.map((stage, index) => (
           <StageNode
             key={stage.id}

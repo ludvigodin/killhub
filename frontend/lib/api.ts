@@ -101,8 +101,10 @@ export type VulnReportData = {
   summary: string;
   findings: VulnFinding[];
   mcp_assessment: {
+    // The trusted fixture runner includes its check name in newer receipts.
+    check?: string;
     enabled?: boolean;
-    status?: "ok" | "partial" | "skipped" | "failed";
+    status?: "passed" | "ok" | "partial" | "skipped" | "failed";
     transport?: "stdio" | "streamable_http" | null;
     helper?: "present" | "missing";
     finding_id?: string;
@@ -281,6 +283,7 @@ export type ScreenshotMeta = {
   caption?: string;
   storage_path?: string;
   created_at?: string;
+  /** Absolute CDN URL when Object Storage + CDN configured (D76); else API path. */
   url?: string;
 };
 

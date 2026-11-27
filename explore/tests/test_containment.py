@@ -205,6 +205,10 @@ def test_run_containment_matrix_proven_with_scorable_denies(
     # Sibling local positive control via exec_command already returns 0 for wget/curl.
 
     result = run_containment_probes(job_id, settings=get_settings(), cli=cli)
+    labels = cli.create.call_args.kwargs["labels"]
+    assert labels["killhub.probe_owner"] == job_id
+    assert labels["killhub.expires_at"] == get_ledger().get_job(job_id).expires_at
+    assert "killhub.job_id" not in labels
     # Guest-network probes stay inconclusive (no Plane-1 positive control) but must
     # not veto a solid CP/management deny matrix (D65 scorable-only scoring).
     assert result.claim == "proven"
