@@ -9,7 +9,7 @@ type ExploreHealth = {
 async function probeExplore(): Promise<ExploreHealth> {
   const base = process.env.EXPLORE_BASE_URL?.replace(/\/$/, "");
   if (!base) {
-    return { ok: true, error: "EXPLORE_BASE_URL unset" };
+    return { ok: false, error: "EXPLORE_BASE_URL unset" };
   }
 
   try {
@@ -17,7 +17,8 @@ async function probeExplore(): Promise<ExploreHealth> {
       cache: "no-store",
       signal: AbortSignal.timeout(3_000),
     });
-    return { ok: response.ok, status: response.status };
+    const body = await response.json();
+    return { ok: response.ok && body?.ok === true, status: response.status };
   } catch (error) {
     const message = error instanceof Error ? error.message : "unreachable";
     return { ok: false, error: message };
@@ -27,8 +28,7 @@ async function probeExplore(): Promise<ExploreHealth> {
 export async function GET() {
   await connection();
   const explore = await probeExplore();
-  const requireExplore = Boolean(process.env.EXPLORE_BASE_URL);
-  const ok = !requireExplore || explore.ok;
+  const ok = explore.ok;
 
   return Response.json(
     {

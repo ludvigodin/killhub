@@ -17,9 +17,9 @@ export type SeverityCounts = Record<SeverityLevel, number> & {
 
 export const SEVERITY_TONE: Record<SeverityLevel, { bg: string; fg: string }> =
   {
-    critical: { bg: "#f8d9d6", fg: "#9b2c2c" },
-    high: { bg: "#f8d9d6", fg: "#9b2c2c" },
-    medium: { bg: "#f3e8d4", fg: "#8a5a1a" },
+    critical: { bg: "var(--danger-soft)", fg: "var(--danger)" },
+    high: { bg: "var(--danger-soft)", fg: "var(--danger)" },
+    medium: { bg: "var(--warn-soft)", fg: "var(--warn)" },
     low: { bg: "var(--paper-deep)", fg: "var(--muted)" },
     info: { bg: "var(--paper-deep)", fg: "var(--muted)" },
   };
@@ -98,7 +98,7 @@ export function securityVerdict(job: JobSnapshot) {
   if (runtimeRisk || bypass || counts.critical || counts.high)
     return {
       label: "High risk",
-      color: "#9b2c2c",
+      color: "var(--danger)",
       reason: runtimeRisk
         ? runtime.summary
         : bypass
@@ -114,16 +114,16 @@ export function securityVerdict(job: JobSnapshot) {
   )
     return {
       label: "Review before use",
-      color: "#805015",
+      color: "var(--warn)",
       reason:
         "The scan flagged issues that need a closer look. See the findings in the receipt.",
       gaps,
     };
   if (gaps.length)
-    return { label: "Safety unknown", color: "#805015", reason: "", gaps };
+    return { label: "Safety unknown", color: "var(--warn)", reason: "", gaps };
   return {
     label: "No risks flagged by these checks",
-    color: "#226442",
+    color: "var(--ok)",
     reason:
       "The dependency scan and sandbox checks raised no warnings for this run. Other risks may still exist.",
     gaps,
@@ -150,8 +150,8 @@ export function reportStatusTone(status: string | undefined): {
   fg: string;
 } {
   const s = (status || "unknown").toLowerCase();
-  if (s === "ok") return { label: s, fg: "#1f6b3a" };
-  if (s === "partial") return { label: s, fg: "#8a5a1a" };
-  if (s === "failed") return { label: s, fg: "#9b2c2c" };
+  if (s === "ok") return { label: s, fg: "var(--ok)" };
+  if (s === "partial") return { label: s, fg: "var(--warn)" };
+  if (s === "failed") return { label: s, fg: "var(--danger)" };
   return { label: status || "unknown", fg: "var(--muted)" };
 }

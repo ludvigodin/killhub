@@ -250,3 +250,42 @@ def test_reaper_prunes_only_confirmed_terminal_checkpoint(monkeypatch):
     actions = reap_terminal_checkpoints(MagicMock(), cli)
     assert actions == [{"job_id": str(ids[0]), "checkpoint": groups[0], "removed": True}]
     cli.snapshot_remove_group.assert_called_once_with(groups[0])
+
+
+def test_restart_recovers_only_absent_generation(tmp_path, monkeypatch):
+    import pytest
+
+    from config import Settings
+    from ledger import Ledger
+    from reaper import recover_interrupted_jobs
+
+    cfg = Settings(LEDGER_URL=f"sqlite:///{tmp_path}/ledger.db")
+    with Ledger.from_url(cfg.ledger_url) as ledger:
+        monkeypatch.setattr("reaper.get_ledger", lambda _: ledger)
+        cli = MagicMock()
+        job = ledger.create_job("https://github.com/example/demo", env_ttl_seconds=120)
+        ledger.append_sandbox_generation(
+            job.job_id,
+            environment_id="kh-test",
+            image="debian",
+            expires_at=job.expires_at,
+            state="running",
+            cpus=1,
+            memory="512M",
+        )
+        ledger.update_job_fields(job.job_id, status="installing", current_step="install phase")
+        cli.run.return_value.stdout = '{"error":"inventory unavailable"}'
+        with pytest.raises(ValueError):
+            recover_interrupted_jobs(cfg, cli)
+        cli.run.return_value.stdout = '[{"name":"kh-test"}]'
+        recover_interrupted_jobs(cfg, cli)
+        assert ledger.get_job(job.job_id).status == "installing"
+        cli.run.return_value.stdout = "[]"
+        recover_interrupted_jobs(cfg, cli)
+        recovered = ledger.get_job(job.job_id)
+        assert recovered.status == "failed"
+        assert recovered.cleanup.status == "destroyed"
+        assert ledger.list_sandbox_generations(job.job_id)[0].destroyed_at == recovered.destroyed_at
+        assert ledger.get_receipt(job.job_id)["dossier"]["code"] == "worker_restart"
+        recover_interrupted_jobs(cfg, cli)
+        assert ledger.get_job(job.job_id).event_cursor == recovered.event_cursor

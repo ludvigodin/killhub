@@ -11,6 +11,7 @@ import socket
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -134,6 +135,23 @@ def _tcp_positive_control(url: str) -> tuple[str | None, str]:
     return f"tcp://{host}:{port}", "connected"
 
 
+def _gateway_control(interface: str) -> tuple[str | None, str]:
+    """Only test the fixed gateway through its operator-designated guest interface."""
+    if not interface:
+        return None, "guest_network_positive_control_unavailable"
+    try:
+        routes = [line.split() for line in Path("/proc/net/route").read_text().splitlines()[1:]]
+        if not routes or any(row[:2] == [interface, "00000000"] for row in routes):
+            return None, "dedicated_guest_interface_required"
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(5)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BINDTODEVICE, interface.encode() + b"\0")
+            sock.connect(("172.16.0.5", 80))
+    except (OSError, AttributeError, ValueError) as exc:
+        return None, type(exc).__name__
+    return "tcp://172.16.0.5:80", "connected_on_guest_interface"
+
+
 def _guest_fetch(
     environment_id: str,
     url: str,
@@ -243,6 +261,16 @@ def probe_timeout_enforcement(
     )
     guest_alive = alive.exit_code == 0 and "alive" in (alive.stdout or "")
     ok = timed_out and guest_alive
+    absorption = {
+        "kind": "infinite_loop",
+        "command": "while true; do :; done",
+        "absorbed": ok,
+        "summary": (
+            "Adversarial busy-loop absorbed by exec timeout; guest still alive"
+            if ok
+            else "Busy-loop was not cleanly absorbed (timeout or guest liveness failed)"
+        ),
+    }
     evidence = {
         "dimension": "timeout_enforcement",
         "ok": ok,
@@ -252,16 +280,25 @@ def probe_timeout_enforcement(
         "detail": detail,
         "probe_session": session,
         "classification": "policy_denied" if ok else "inconclusive",
+        "absorption": absorption,
     }
     _containment_event(
         job_id,
-        f"timeout_enforcement → {'ok' if ok else 'incomplete'}",
+        (
+            "ABSORBED ∞ loop — sandbox timeout killed busy-loop; guest alive"
+            if ok
+            else f"timeout_enforcement → {'ok' if ok else 'incomplete'}"
+        ),
         settings=settings,
         **evidence,
     )
     _log(
         job_id,
-        f"containment timeout_enforcement → {evidence['classification']}",
+        (
+            "containment ABSORBED infinite_loop → guest alive"
+            if ok
+            else f"containment timeout_enforcement → {evidence['classification']}"
+        ),
         settings=settings,
         kind="containment_probe",
         **evidence,
@@ -313,12 +350,31 @@ def probe_host_access_denied(
     probes: list[dict[str, Any]] = []
     any_bypass = False
 
+    gateway_peer, gateway_detail = _gateway_control(cfg.containment_gateway_interface.strip())
     for target in targets:
         url = target["url"]
         if target["name"] in {"host_internal", "host_gateway_ip"}:
             # These addresses belong to the guest virtual network. Dialling
             # them from Plane 1 can reach an unrelated host on its default route.
-            peer, host_detail = None, "guest_network_positive_control_unavailable"
+            peer, host_detail = gateway_peer, gateway_detail
+            if peer and target["name"] == "host_internal":
+                # Require the guest alias to resolve exclusively to the same reference peer.
+                resolved = exec_command(
+                    environment_id,
+                    [
+                        "python3",
+                        "-I",
+                        "-c",
+                        "import socket; print(sorted({r[4][0] for r in socket.getaddrinfo("
+                        "'host.microsandbox.internal', 80, type=socket.SOCK_STREAM)}) "
+                        "== ['172.16.0.5'])",
+                    ],
+                    job_id=job_id,
+                    settings=cfg,
+                    timeout=10,
+                )
+                if resolved.exit_code != 0 or resolved.stdout.strip() != "True":
+                    peer, host_detail = None, "guest_alias_peer_unverified"
         else:
             peer, host_detail = _tcp_positive_control(url)
         host_ok = peer is not None
@@ -387,10 +443,24 @@ def probe_host_access_denied(
             )
 
     install_ok = bool(install_cp and install_cp.get("classification") == "policy_denied")
-    # Proven host deny needs verify-phase policy_denied AND install-phase CP deny
-    # so offline mode cannot masquerade as CP isolation (D65).
+    # Guest-network aliases (host_internal / gateway) cannot get a Plane-1 positive
+    # control without dialling an unrelated host (D65). Record them, but only score
+    # probes that had a live host positive control — otherwise claim stays forever
+    # incomplete even when CP + management denials are solid.
+    scorable = [p for p in probes if p.get("host_ok")]
+    for probe in probes:
+        probe["scorable"] = bool(probe.get("host_ok"))
+    cp_probe = next((p for p in probes if p["name"] == "control_plane"), None)
+    # Proven host deny needs verify-phase policy_denied on every scorable probe
+    # AND install-phase CP deny so offline mode cannot masquerade as isolation.
     proven = (
-        bool(cp_url) and install_ok and all(p["classification"] == "policy_denied" for p in probes)
+        bool(cp_url)
+        and install_ok
+        and cp_probe is not None
+        and cp_probe["classification"] == "policy_denied"
+        and bool(scorable)
+        and all(p["classification"] == "policy_denied" for p in scorable)
+        and not any_bypass
     )
     if any_bypass:
         classification = "policy_bypass"
@@ -404,6 +474,7 @@ def probe_host_access_denied(
         "ok": proven,
         "classification": classification,
         "probes": probes,
+        "scorable_count": len(scorable),
         "install_cp_probe": install_cp,
         "probe_session": session,
     }
@@ -452,7 +523,7 @@ def probe_sibling_access_denied(
     try:
         plan = apply_killhub_net_policy(
             EnvironmentPlan(
-                image=(cfg.msb_default_image or "debian").strip() or "debian",
+                image=(cfg.containment_sibling_image or cfg.msb_default_image or "debian").strip(),
                 cpus=1,
                 memory="512M",
             ),
@@ -483,8 +554,8 @@ def probe_sibling_access_denied(
                 "(command -v wget >/dev/null 2>&1 || command -v curl >/dev/null 2>&1); then "
                 "echo tools_ok; exit 0; fi; "
                 "if command -v apt-get >/dev/null 2>&1; then "
-                "apt-get update -qq && "
-                "apt-get install -y -qq python3 wget curl ca-certificates; "
+                "apt-get -o Acquire::Retries=2 update -qq && "
+                "apt-get -o Acquire::Retries=2 install -y -qq python3 wget ca-certificates; "
                 "elif command -v apk >/dev/null 2>&1; then "
                 "apk add --no-cache python3 wget curl ca-certificates; "
                 "else echo tooling_missing; exit 3; fi",
@@ -824,10 +895,8 @@ def run_containment_probes(
         settings=cfg,
         during="after_network_probes",
     )
-    # Keep the stricter of the two liveness checks.
-    if host_live_final.get("ok"):
-        dimensions["host_liveness"] = host_live_final
-    else:
+    # Both observations must pass. Preserve the first failure in the receipt.
+    if host_live.get("ok"):
         dimensions["host_liveness"] = host_live_final
 
     canary = scan_canaries(

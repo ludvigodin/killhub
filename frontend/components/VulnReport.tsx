@@ -105,7 +105,10 @@ export function VulnReport({ report, verdictFindings }: VulnReportProps) {
   ];
 
   return (
-    <section aria-label="Vulnerability report" className="space-y-4">
+    <section
+      aria-label="Vulnerability report"
+      className="min-w-0 space-y-4 wrap-anywhere"
+    >
       <div>
         <p className="mb-1 text-sm uppercase tracking-wide text-(--muted)">
           Vulnerability report
@@ -153,7 +156,7 @@ export function VulnReport({ report, verdictFindings }: VulnReportProps) {
       ) : null}
 
       {report?.summary ? (
-        <p className="border border-(--line) bg-white/50 px-3 py-2 text-sm leading-relaxed">
+        <p className="border border-(--line) bg-(--paper-deep)/50 px-3 py-2 text-sm leading-relaxed">
           {report.summary ===
           "No scan findings. Clean bill for this job's scanned surfaces."
             ? "No findings recorded. This historical summary does not establish scan coverage."
@@ -162,7 +165,7 @@ export function VulnReport({ report, verdictFindings }: VulnReportProps) {
       ) : null}
 
       {report?.mcp_assessment ? (
-        <div className="border border-(--line) bg-white/50 px-3 py-2 text-sm">
+        <div className="border border-(--line) bg-(--paper-deep)/50 px-3 py-2 text-sm">
           <p className="text-xs uppercase tracking-wide text-(--muted)">
             MCP assessment (agent-planned)
           </p>

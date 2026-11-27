@@ -190,26 +190,28 @@ def test_create_jobs_cap_and_partial_errors() -> None:
             )
 
 
-def test_fixtures_catalog_and_run() -> None:
-    fixtures = load_public_fixtures()
-    ids = {f["id"] for f in fixtures}
-    assert ids == {"webapp_success", "git_mcp_filesystem", "setup_failed"}
-    fx = resolve_public_fixture("git_mcp_filesystem")
-    assert "modelcontextprotocol/servers" in fx["github_url"]
+@pytest.mark.parametrize("restricted", [False, True])
+def test_fixtures_catalog_and_run(restricted: bool) -> None:
+    from fixtures import intake_catalog
+
+    catalog = intake_catalog(restricted=restricted)
+    fixture = catalog["fixtures"][0]
 
     def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content.decode())
-        assert body["github_url"] == fx["github_url"]
+        if request.url.path == "/api/fixtures":
+            return httpx.Response(200, json=catalog)
+        assert json.loads(request.content)["github_url"] == fixture["github_url"]
         return httpx.Response(201, json={"job_id": "fix-1"})
 
     with KillhubJobsClient("https://killhub.pro", transport=_transport(handler)) as client:
-        out = call_tool(client, "run_fixture", {"name": "git_mcp_filesystem"})
-        assert out["job_id"] == "fix-1"
-        catalog = call_tool(client, "list_fixtures", {})
-        assert len(catalog["fixtures"]) == 3
-
-    with pytest.raises(KillhubApiError, match="non-public"):
-        resolve_public_fixture("webapp_image_replace")
+        assert load_public_fixtures(client) == catalog["fixtures"]
+        assert call_tool(client, "list_fixtures", {}) == catalog
+        assert call_tool(client, "run_fixture", {"name": fixture["id"]})["job_id"] == "fix-1"
+        with pytest.raises(KillhubApiError, match="non-public"):
+            resolve_public_fixture("webapp_image_replace", client)
+        if restricted:
+            with pytest.raises(KillhubApiError, match="non-public"):
+                resolve_public_fixture("webapp_success", client)
 
 
 def test_tail_events_and_screenshots() -> None:

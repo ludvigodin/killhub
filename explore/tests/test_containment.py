@@ -107,8 +107,11 @@ def test_timeout_enforcement_records_kill(monkeypatch: pytest.MonkeyPatch) -> No
     assert evidence["ok"] is True
     assert evidence["timed_out"] is True
     assert evidence["classification"] == "policy_denied"
+    assert evidence["absorption"]["absorbed"] is True
+    assert evidence["absorption"]["kind"] == "infinite_loop"
     events = get_ledger().list_events(job_id)
     assert any(e.type == "containment" for e in events)
+    assert any("ABSORBED" in (e.message or "") for e in events)
 
 
 def test_canary_scan_flags_unexpected_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -141,7 +144,7 @@ def test_canary_scan_flags_unexpected_path(monkeypatch: pytest.MonkeyPatch) -> N
             assert secret not in blob
 
 
-def test_run_containment_matrix_incomplete_without_live_msb(
+def test_run_containment_matrix_proven_with_scorable_denies(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     job_id = _seed_job()
@@ -202,13 +205,18 @@ def test_run_containment_matrix_incomplete_without_live_msb(
     # Sibling local positive control via exec_command already returns 0 for wget/curl.
 
     result = run_containment_probes(job_id, settings=get_settings(), cli=cli)
-    assert result.claim == "incomplete"
+    # Guest-network probes stay inconclusive (no Plane-1 positive control) but must
+    # not veto a solid CP/management deny matrix (D65 scorable-only scoring).
+    assert result.claim == "proven"
     probes = result.dimensions["host_access_denied"]["probes"]
     guest_only = [p for p in probes if p["name"] in {"host_internal", "host_gateway_ip"}]
     assert len(guest_only) == 2
     assert all(
         p["classification"] == "inconclusive" and p["checked_peer"] is None for p in guest_only
     )
+    assert all(p.get("scorable") is False for p in guest_only)
+    assert result.dimensions["host_access_denied"]["ok"] is True
+    assert result.dimensions["timeout_enforcement"]["absorption"]["absorbed"] is True
     assert set(result.dimensions) == {
         "timeout_enforcement",
         "host_access_denied",
@@ -225,9 +233,11 @@ def test_run_containment_matrix_incomplete_without_live_msb(
     assert receipt["containment"]["claim"] == result.claim
     events = get_ledger().list_events(job_id)
     assert any(e.type == "containment" for e in events)
+    assert any("ABSORBED" in (e.message or "") for e in events)
 
 
-def test_missing_exact_host_control_prevents_proof(monkeypatch):
+def test_guest_network_probes_do_not_block_host_deny_proof(monkeypatch):
+    """host_internal / gateway stay inconclusive; scorable CP denials still prove."""
     job_id = _seed_job()
     monkeypatch.setattr(
         "containment._tcp_positive_control",
@@ -240,6 +250,40 @@ def test_missing_exact_host_control_prevents_proof(monkeypatch):
         settings=get_settings(),
         install_cp={"classification": "policy_denied"},
     )
+    assert result["classification"] == "policy_denied"
+    assert result["ok"] is True
+    assert any(p["classification"] == "policy_denied" for p in result["probes"])
+    assert any(
+        p["name"] in {"host_internal", "host_gateway_ip"} and p["classification"] == "inconclusive"
+        for p in result["probes"]
+    )
+
+
+def test_missing_control_plane_positive_control_prevents_proof(monkeypatch):
+    job_id = _seed_job()
+    monkeypatch.setattr(
+        "containment._tcp_positive_control",
+        lambda url: (None, "unreachable"),
+    )
+    monkeypatch.setattr("containment._guest_fetch", lambda *a, **k: ("denied", 0, "unreachable"))
+    result = probe_host_access_denied(
+        "env-contain",
+        job_id=job_id,
+        settings=get_settings(),
+        install_cp={"classification": "policy_denied"},
+    )
     assert result["classification"] == "inconclusive"
     assert not result["ok"]
     assert any(p["classification"] == "policy_denied" for p in result["probes"])
+
+
+def test_gateway_control_never_dials_default_interface(monkeypatch):
+    from containment import _gateway_control
+
+    monkeypatch.setattr(
+        "containment.Path.read_text", lambda path: "Iface Destination\neth0 00000000"
+    )
+    with_socket = MagicMock()
+    monkeypatch.setattr("containment.socket.socket", with_socket)
+    assert _gateway_control("eth0") == (None, "dedicated_guest_interface_required")
+    with_socket.assert_not_called()

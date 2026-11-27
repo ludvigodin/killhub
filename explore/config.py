@@ -80,6 +80,8 @@ class Settings(BaseSettings):
         default="",
         alias="CONTROL_PLANE_DENY_HOSTS",
     )
+    containment_gateway_interface: str = Field(default="", alias="CONTAINMENT_GATEWAY_INTERFACE")
+    containment_sibling_image: str = Field(default="", alias="CONTAINMENT_SIBLING_IMAGE")
     management_probe_address: str = Field(default="", alias="MANAGEMENT_PROBE_ADDRESS")
     msb_ready_timeout_seconds: int = Field(
         default=120,

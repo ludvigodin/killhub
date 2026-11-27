@@ -21,12 +21,12 @@ export const metadata: Metadata = {
     template: "%s · Killhub",
   },
   description:
-    "Drop public git URLs into the Killhub feed. Verified sandboxes and receipts that outlive the VM.",
+    "Plan → sandboxed execution → verifiable output → destroy. Paste a public git URL; Killhub runs real work in a Vultr Microsandbox and returns evidence.",
   applicationName: "Killhub",
   openGraph: {
     title: "Killhub",
     description:
-      "Drop public git URLs into the Killhub feed. Verified sandboxes and receipts that outlive the VM.",
+      "Plan → sandboxed execution → verifiable output → destroy. Paste a public git URL; Killhub runs real work in a Vultr Microsandbox and returns evidence.",
     url: "https://killhub.pro",
     siteName: "Killhub",
     type: "website",
@@ -35,7 +35,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Killhub",
     description:
-      "Drop public git URLs into the Killhub feed. Verified sandboxes and receipts that outlive the VM.",
+      "Plan → sandboxed execution → verifiable output → destroy. Paste a public git URL; Killhub runs real work in a Vultr Microsandbox and returns evidence.",
   },
   alternates: {
     canonical: "/",

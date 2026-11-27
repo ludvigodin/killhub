@@ -15,20 +15,11 @@ function prettyJson(value: unknown): string {
   }
 }
 
-function containmentClaimLabel(
-  containment: Record<string, unknown> | null | undefined,
-): string | null {
-  if (!containment || !("claim" in containment)) return null;
-  return String(containment.claim);
-}
-
 export function JobReport({ snapshot }: JobReportProps) {
   const receipt = snapshot.receipt;
   // Gate evidence is optional for jobs that exit before normal finalization.
   const gates = receipt?.dossier?.gates;
-  const containment = receipt?.containment;
   const lifecycle = receipt?.lifecycle;
-  const claim = containmentClaimLabel(containment);
   // Older workers store the verdict inside the receipt dossier.
   const verdict =
     snapshot.detonation_verdict ??
@@ -95,38 +86,12 @@ export function JobReport({ snapshot }: JobReportProps) {
         verdictFindings={verdict?.findings}
       />
 
-      <details className="space-y-2">
-        <summary className="cursor-pointer text-sm font-medium">
-          Containment probe details
-        </summary>
-        {containment ? (
-          <div className="space-y-2 text-sm">
-            {claim ? (
-              <p>
-                Claim: <span className="font-medium">{claim}</span>
-              </p>
-            ) : (
-              <p className="text-(--muted)">
-                Matrix recorded (see JSON below).
-              </p>
-            )}
-            <pre className="max-h-48 overflow-auto border border-(--line) bg-white/50 p-3 font-mono text-xs">
-              {prettyJson(containment)}
-            </pre>
-          </div>
-        ) : (
-          <p className="text-sm text-(--muted)">
-            No containment matrix on this receipt.
-          </p>
-        )}
-      </details>
-
       <section aria-label="Lifecycle evidence">
         <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
           Lifecycle
         </p>
         {lifecycle ? (
-          <pre className="max-h-48 overflow-auto border border-(--line) bg-white/50 p-3 font-mono text-xs">
+          <pre className="max-h-48 overflow-auto border border-(--line) bg-(--paper-deep)/50 p-3 font-mono text-xs">
             {prettyJson(lifecycle)}
           </pre>
         ) : (

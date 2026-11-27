@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { RepoHistory } from "@/components/RepoHistory";
+import { SiteNav } from "@/components/SiteNav";
 import { githubUrlFromRepoSlug, ownerRepoFromGithubUrl } from "@/lib/github";
 
 async function RepoShell({ params }: { params: Promise<{ slug: string[] }> }) {
@@ -24,7 +24,7 @@ async function RepoShell({ params }: { params: Promise<{ slug: string[] }> }) {
           {title}
         </h1>
         <p className="mb-3 text-sm text-(--muted)">
-          All Killhub runs for this repository, newest first.
+          Latest run in full, with earlier runs listed below.
         </p>
         <a
           href={githubUrl}
@@ -44,17 +44,17 @@ export default function RepoPage(props: {
   params: Promise<{ slug: string[] }>;
 }) {
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6 py-12 sm:py-16">
-      <Link href="/" className="mb-8 text-sm text-(--muted)">
-        ← Killhub
-      </Link>
-      <Suspense
-        fallback={
-          <p className="font-mono text-sm text-(--muted)">Loading repo…</p>
-        }
-      >
-        <RepoShell params={props.params} />
-      </Suspense>
+    <main className="min-h-screen w-full">
+      <div className="mx-auto flex w-full max-w-5xl flex-col px-6 pb-12">
+        <SiteNav />
+        <Suspense
+          fallback={
+            <p className="font-mono text-sm text-(--muted)">Loading repo…</p>
+          }
+        >
+          <RepoShell params={props.params} />
+        </Suspense>
+      </div>
     </main>
   );
 }
