@@ -1079,7 +1079,7 @@ class Ledger:
         )
         self._write_job_fields_unlocked(job_id, {**fields, "status": status})
 
-    def finalize_missing_generation(self, observed: Job) -> bool:
+    def finalize_missing_generation(self, observed: Job, *, reason: str | None = None) -> bool:
         """Atomically close only the same interrupted run observed before inventory."""
         self._conn.begin()
         try:
@@ -1089,7 +1089,7 @@ class Ledger:
                 return False
             now = utc_now()
             status = "cancelled" if job.cancel_requested_at else "failed"
-            reason = "Worker restarted and the recorded sandbox is absent from inventory."
+            reason = reason or "Worker restarted and the recorded sandbox is absent from inventory."
             lifecycle = {
                 "confirmed": True,
                 "environment_id": job.sandbox_id,
@@ -1129,6 +1129,45 @@ class Ledger:
                         status="destroyed", attempts=job.cleanup.attempts, updated_at=now
                     ),
                 },
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
+        return True
+
+    def finalize_interrupted_before_sandbox(self, observed: Job) -> bool:
+        """Close an interrupted run that never created a sandbox (D82).
+
+        Same observed-row guard as ``finalize_missing_generation``; no
+        lifecycle ``destroyed`` claim because no VM ever existed (D57).
+        """
+        self._conn.begin()
+        try:
+            job = self.get_job(observed.job_id)
+            if job is None or job != observed or job.status in TERMINAL_STATUSES or job.sandbox_id:
+                self._conn.rollback()
+                return False
+            status = "cancelled" if job.cancel_requested_at else "failed"
+            reason = "Worker restarted before this run created a sandbox."
+            self._finalize_unlocked(
+                job.job_id,
+                status,
+                {
+                    "verification": job.verification
+                    or {
+                        "kind": "setup_failed",
+                        "original_failure": {"step": "worker_restart", "summary": reason},
+                    },
+                    "dossier": {
+                        "outcome": status,
+                        "code": "worker_restart",
+                        "interrupted_step": job.current_step,
+                    },
+                },
+                reason,
+                {"reason": "worker_restart"},
+                {"current_step": status, "error": reason, "progress": 100},
             )
             self._conn.commit()
         except Exception:
