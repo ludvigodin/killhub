@@ -1,9 +1,9 @@
-# ARCHITECTURE.md — How the platform is structured
+# ARCHITECTURE.md - How the platform is structured
 
 Killhub is a **two-plane** system ([DECISIONS.md](DECISIONS.md) D27–D28):
 
-1. **Control plane** — Next.js (UI + Jobs API/SSE) plus same-host agent/harness workers (`explore/`)
-2. **Disposable Microsandbox** — one microVM per job on Vultr VX1 for **both** explore and test (not two VMs)
+1. **Control plane** - Next.js (UI + Jobs API/SSE) plus same-host agent/harness workers (`explore/`)
+2. **Disposable Microsandbox** - one microVM per job on Vultr VX1 for **both** explore and test (not two VMs)
 
 | Doc | Purpose |
 |-----|---------|
@@ -21,14 +21,14 @@ Code trees: `frontend/` (Plane 1 UI + `/api`) · `explore/` (ledger + agent + ha
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  PLANE 1 — Control plane (Next.js + explore/ workers)                   │
-│  UI · Jobs API/SSE · Environment Agent · harness · vuln review          │
+│  PLANE 1 - Control plane (Next.js + explore/ workers)                   │
+│  UI · Jobs API/SSE · Operator MCP · Environment Agent · harness         │
 │  Secrets stay here (server-side only)                                   │
 └───────────────────────────────┬─────────────────────────────────────────┘
                                 │ msb create / exec / copy / destroy
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  PLANE 2 — Disposable Microsandbox (per job on Vultr VX1)               │
+│  PLANE 2 - Disposable Microsandbox (per job on Vultr VX1)               │
 │  Same VM for explore + test: clone · install · launch · readiness       │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -36,11 +36,11 @@ Code trees: `frontend/` (Plane 1 UI + `/api`) · `explore/` (ledger + agent + ha
 ```mermaid
 flowchart TB
   subgraph plane1 ["Plane 1 · Control plane"]
-    Input["Input window"]
+    Input["Feed · deep link · Operator MCP"]
     Jobs["Jobs API + SSE"]
     Loop["Environment Agent Plan Loop"]
     Harness["Harness"]
-    Status["Status · progress · report"]
+    Status["Status · progress · report · HackerVision"]
   end
 
   subgraph plane2 ["Plane 2 · Disposable Microsandbox"]
@@ -59,8 +59,8 @@ flowchart TB
 
 | Plane | What it is | Owns |
 |-------|------------|------|
-| **1. Control plane** | Next.js + `explore/` workers on the same durable host | UI; **Jobs API/SSE**; plan loop; profile; harness; optional screenshots; vuln review; inference keys |
-| **2. Disposable Microsandbox** | One Microsandbox microVM per job | Untrusted clone/install/run; readiness target; scan target; optional MCP Inspector/SDK assessment (D35); containment probes |
+| **1. Control plane** | Next.js + `explore/` workers on the same durable host | UI (feed, deep links, HackerVision); **Jobs API/SSE**; Operator MCP (D81); plan loop; profile; harness; optional screenshots; vuln review + active checks; inference keys |
+| **2. Disposable Microsandbox** | One Microsandbox microVM per job | Untrusted clone/install/run; readiness target; scan target; optional MCP Inspector/SDK assessment (D35); containment / activity probes |
 
 There is **no** separate Explore VM vs Test VM.
 
@@ -112,35 +112,46 @@ flowchart LR
 | Control plane → sandbox | Harness `msb` create/exec/copy/destroy only | D23, D38 |
 | Sandbox → control plane / management | Never | D39 network policy + `network_probe` |
 | Sandbox → registries / git | Install/provision phase only | D43 phases + D39 allow/deny |
-| Sandbox → internet during verify/containment | No — **deny-all remaining egress** (loopback only) | D43 (not “registries-denied” alone) |
+| Sandbox → internet during verify/containment | No - **deny-all remaining egress** (loopback only) | D43 (not "registries-denied" alone) |
 | Real Killhub secrets → sandbox | Never | D19; canaries instead (D44) |
-| Agent / harness → arbitrary host paths | Never — copy helpers/artifacts only | D60 |
+| Agent / harness → arbitrary host paths | Never - copy helpers/artifacts only | D60 |
 | Agent narrative → readiness / terminal gates | Never overrides evidence | D47, D66, D37 |
 | `vuln_review` claim without finding cite | Dropped / non-authoritative | D48 |
 | Advisory / SCA registry fetch | Plane 1 (or prefetched DB); not guest after offline | D43, D63 |
 
 ---
 
-## Plane 1 — Control plane
+## Plane 1 - Control plane
 
 **Role:** User surface and durable orchestration. Next.js owns the **public** Jobs API and SSE edge ([DECISIONS.md](DECISIONS.md) D28) and **proxies** to the Python `explore/` sidecar, which **owns the durable ledger and workers** (D52). Still Plane 1, not a disposable VM.
+
+### Intake paths
+
+Jobs enter Plane 1 three ways; all hit the same public Jobs API and admission (D40):
+
+| Path | How | Decision |
+|------|-----|----------|
+| **Home feed** | Paste one or many allowlisted public git URLs (D78) | D69 / D79 |
+| **GitHub deep link** | UI route `/{owner}/{repo}` on the demo host client-side `POST`s then redirects to `/jobs/{id}` (no server GET create) | D82 |
+| **Operator MCP** | Stdio (`explore/operator_mcp.py`) or public `POST /mcp`; tools call `/api/*` only (never a harness/token backdoor) | D81 |
 
 ### Windows
 
 | Window | Contents |
 |--------|----------|
-| **Input** | Public git URL (allowlisted hosts — D78) + start |
-| **Status** | Live `status`, `progress`, `current_step`, execution log, optional screenshot timeline |
-| **Report** | **Intake dossier / receipt** (D49): profile, readiness proof, SCA (+ optional MCP assessment), canary/containment/network evidence, sandbox lifecycle, gated outcome |
+| **Input** | Feed paste (D78), GitHub short path (D82), or Operator MCP create tools (D81) |
+| **Status** | Live `status`, `progress`, `current_step`, execution log, optional screenshot timeline; on-demand **HackerVision** SSE replay (D84) |
+| **Report** | **Intake dossier / receipt** (D49): profile, readiness proof, SCA (+ optional MCP assessment), **active checks** (install activity / canary exfil / persistence / MCP tool review), canary/containment/network evidence, sandbox lifecycle, gated outcome |
 
 ### Responsibilities
 
-- Serve `POST/GET/DELETE /api/jobs…` and SSE from Plane 1
+- Serve public `/api/jobs*`, `/api/repos`, `/mcp`, `/health`, and SSE from Plane 1
 - Run Plane-1 **pre-flight** before bootstrap create when applicable (D45)
-- Run Environment Agent Plan Loop + harness (workers)
+- Run Environment Agent Plan Loop + harness (workers); **lost-sandbox self-heal** when the microVM vanishes mid-pipeline (D80)
 - Apply **deterministic outcome gates**; agents advise/explain only (D47)
+- Terminalize stalled / wall-clock / expired jobs via the Plane-1 reaper (D83)
 - Never put control-plane secrets in browser bundles
-- Never execute untrusted repo install/run on the control-plane host — only via harness into Plane 2
+- Never execute untrusted repo install/run on the control-plane host - only via harness into Plane 2
 - Persist the job **receipt** in the durable ledger so it outlives the sandbox (D41, D49)
 
 ### Job snapshot (always available to the UI)
@@ -165,15 +176,15 @@ flowchart LR
 
 Normative contract for how Killhub brings a repo up. Agents and gates follow this loop; see [AGENTS.md](AGENTS.md) §3.
 
-**Implementation note (code today):** The live path is an **imperative pipeline** in [`explore/worker.py`](explore/worker.py) (`_run_pipeline_once`), not a free-form OpenCode chat session. Discover uses **heuristics** ([`explore/discover.py`](explore/discover.py) `infer_runtime_profile`) plus pinned fixtures ([`explore/fixtures/m7.json`](explore/fixtures/m7.json)); trusted prompts under [`explore/prompts/`](explore/prompts/) describe intended agent behavior. **LLM calls** (Vultr Inference — D25) are used selectively today — notably cite-checked `vuln_review` and optional vision/RAG extras ([`explore/inference_extras.py`](explore/inference_extras.py)) — not for every discover step. Stages still match the table below; gates own success (D47, D66). Module map: [docs/CODEMAP.md](docs/CODEMAP.md).
+**Implementation note (code today):** The live path is an **imperative pipeline** in [`explore/worker.py`](explore/worker.py) (`_run_pipeline_once`), not a free-form OpenCode chat session. Discover uses **heuristics** ([`explore/discover.py`](explore/discover.py) `infer_runtime_profile`) plus pinned fixtures ([`explore/fixtures/m7.json`](explore/fixtures/m7.json)); trusted prompts under [`explore/prompts/`](explore/prompts/) describe intended agent behavior. **LLM calls** (Vultr Inference - D25) are used selectively today - notably cite-checked `vuln_review` and optional vision/RAG extras ([`explore/inference_extras.py`](explore/inference_extras.py)) - not for every discover step. Stages still match the table below; gates own success (D47, D66). Module map: [docs/CODEMAP.md](docs/CODEMAP.md).
 
 ```
-IN:  Git repo URL
+IN:  Git repo URL (feed · deep link · Operator MCP)
        │
        ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  Environment Agent Plan Loop                                │
-│  −1. Pre-flight (URL · admission · cheap risk) — D45        │
+│  -1. Pre-flight (URL · admission · cheap risk) - D45        │
 │  0. Create bootstrap sandbox (trusted profile, D36)         │
 │     + plant canaries (D44) + net policy (D39)               │
 │  1. Inspect repo and docs (via sandbox clone/copy/exec)     │
@@ -183,26 +194,26 @@ IN:  Git repo URL
 │  4. Provision deps + preinstall assessment tooling (D43/63) │
 │  5. Deny-all remaining egress → launch + verify readiness   │
 │     (loop on failure → re-inspect / patch profile / retry)  │
-│  6. Scan (Plane-1 SCA) / canary+containment / review (D48)  │
+│  6. Scan / active checks / canary+containment / review      │
 │  7. Receipt → confirm destroy → completed|failed|cancelled  │
 └─────────────────────────────────────────────────────────────┘
        │
        ▼
-OUT: profile revision + readiness + receipt (vulns · probes · generations)
+OUT: profile revision + readiness + receipt (vulns · active checks · probes · generations)
 ```
 
 | Step | What the agent / harness does |
 |------|---------------------|
-| **−1. Pre-flight** | URL + admission + cheap risk checks; hard-fail without creating a sandbox when possible (D45) |
+| **-1. Pre-flight** | URL + admission + cheap risk checks; hard-fail without creating a sandbox when possible (D45) |
 | **0. Bootstrap** | Harness creates Plane 2 from Killhub-owned bootstrap profile (`MSB_DEFAULT_IMAGE`); plant canaries; apply net policy (D36, D44, D39); record sandbox **generation** (D64) |
 | **1. Inspect** | Read tree, README, manifests, lockfiles, scripts inside/via Plane 2; resolve and persist **`resolved_commit`** (D62); **decide** `git_mcp` \| `webapp` \| `demo` (D34); for MCP, whether to plan `mcp.security_assessment` (D35) |
-| **2. Infer** | Runtimes, services, ports, MCP entrypoints — or invent a minimal demo plan for oddball repos |
+| **2. Infer** | Runtimes, services, ports, MCP entrypoints - or invent a minimal demo plan for oddball repos |
 | **3. Validate** | Complete **runtime** profile against **versioned schema** (D51) with required `source.commit`; append profile **revision** (D64). If `oci_image` differs → **replace** sandbox (inherit `expires_at`; re-clone at resolved commit); never two concurrent VMs (D27/D36) |
-| **4. Provision** | Attempt services + install from runtime profile (**no allowlist** — flag failures, D29); registries/git egress allowed; **preinstall** Playwright/assessment/verify helpers (D43, D63) |
+| **4. Provision** | Attempt services + install from runtime profile (**no allowlist** - flag failures, D29); registries/git egress allowed; **preinstall** Playwright/assessment/verify helpers (D43, D63) |
 | **5. Launch + readiness** | Enter **deny-all remaining egress** phase (D43); supervise processes; for `original_application` launch the **built checkout** (D62); set `readiness` + `verification.kind` when probe passes (D37, D54). **`git_mcp` + `stdio`** = in-guest MCP verify helper; **`streamable_http`** = HTTP MCP handshake listing tools; `webapp` / `demo` = declared probe. Do **not** destroy on readiness alone. Gates own success (D47, D66) |
-| **6–7. Finalize** | Plane-1 SCA on copied lockfiles + cite-checked `vuln_review` (D48, D63); canary + **containment matrix** with positive controls (D58, D65); optional MCP assessment (tooling already present); capture artifacts via D60 copy; **persist receipt then confirm destroy**; mark terminal per D66 (D49, D57, D61) |
+| **6–7. Finalize** | Plane-1 SCA on copied lockfiles + cite-checked `vuln_review` (D48, D63); **active checks** (install activity trace, canary exfiltration, persistence writes, MCP tool-description review); canary + **containment matrix** with positive controls (D58, D65); optional MCP assessment (tooling already present); capture artifacts via D60 copy; **persist receipt then confirm destroy**; mark terminal per D66 (D49, D57, D61). If the microVM vanishes mid-pipeline, self-heal onto a fresh generation up to `MAX_SANDBOX_HEALS` (D80) |
 
-### `environment_profile.json` (schema_version `1` — D51)
+### `environment_profile.json` (schema_version `1` - D51)
 
 Full field rules: [DATABASE.md](DATABASE.md). Example:
 
@@ -258,14 +269,14 @@ Full field rules: [DATABASE.md](DATABASE.md). Example:
 }
 ```
 
-`source.commit` is required. For `original_application`, launch the **built checkout** — do not use unpinned `npx -y <package>` (D62).
+`source.commit` is required. For `original_application`, launch the **built checkout** - do not use unpinned `npx -y <package>` (D62).
 
 ### Prompt pack
 
-- `discover_environment` — inspect → intent + draft profile (incl. whether to enable `mcp.security_assessment`)
-- `validate_environment_spec` — schema + readiness requirements (+ assessment block if present)
-- `repair_from_errors` — capped retry after provision/launch failure
-- `vuln_review` — summarize scanner output with **citations to finding ids** (D48); include optional MCP assessment / canary / containment findings
+- `discover_environment` - inspect → intent + draft profile (incl. whether to enable `mcp.security_assessment`)
+- `validate_environment_spec` - schema + readiness requirements (+ assessment block if present)
+- `repair_from_errors` - capped retry after provision/launch failure
+- `vuln_review` - summarize scanner output with **citations to finding ids** (D48); include optional MCP assessment / canary / containment / active-check findings
 
 ### Harness
 
@@ -283,21 +294,22 @@ Full field rules: [DATABASE.md](DATABASE.md). Example:
 
 ---
 
-## Plane 2 — Disposable Microsandbox
+## Plane 2 - Disposable Microsandbox
 
 **Role:** The only place untrusted repo code runs. One microVM per job for inspect + install + launch. See [Vultr agent sandboxing](https://docs.vultr.com/how-to-set-up-agent-sandboxing-on-vultr-cloud-compute) and D22/D27.
 
 ### Lifecycle
 
-1. Create microsandbox from **bootstrap** profile (`MSB_DEFAULT_IMAGE` + CPU/memory defaults) with Killhub network policy + canaries (D36, D39, D44) — only after pre-flight when hard-fail applies (D45); record generation 0/1 (D64)
+1. Create microsandbox from **bootstrap** profile (`MSB_DEFAULT_IMAGE` + CPU/memory defaults) with Killhub network policy + canaries (D36, D39, D44) - only after pre-flight when hard-fail applies (D45); record generation 0/1 (D64)
 2. Clone `source` into the sandbox; persist **`resolved_commit`**; inspect/discover (D62)
-3. If runtime `oci_image` differs → **replace** (destroy bootstrap generation, create new image, re-clone **same SHA**, re-plant canaries; inherit `expires_at`) — one live VM (D36, D64)
-4. **Install phase:** run `install_commands` / packages with registries/git egress; preinstall assessment/browser/verify tooling; attempt; flag failures (D43, D63)
+3. If runtime `oci_image` differs → **replace** (destroy bootstrap generation, create new image, re-clone **same SHA**, re-plant canaries; inherit `expires_at`) - one live VM (D36, D64)
+4. **Install phase:** run `install_commands` / packages with registries/git egress; record **install activity** (network tooling / canary exfil / persistence writes); preinstall assessment/browser/verify tooling; attempt; flag failures (D43, D63)
 5. **Verify phase (deny-all remaining egress):** supervise processes; launch built checkout for original_application; verify readiness → set `readiness` + verification kind (D37, D43, D51, D54, D62)
-6. Optional MCP Inspector/SDK assessment when profile plans it — tooling already present (D35, D63)
+6. Optional MCP Inspector/SDK assessment when profile plans it - tooling already present (D35, D63); MCP jobs may also run **tool-description review** after readiness
 7. **SCA on Plane 1** against lockfiles copied to artifact dir; canary + **containment matrix** with known-live targets + positive controls (D58, D65) + network probes (incl. install-phase CP denial)
 8. Optional Playwright stills **inside** Plane 2 (D38); `copy_out` only to server-selected dirs (D60)
-9. Persist **receipt** → stop + remove in finally; set job-level `destroyed_at` **only if current generation confirmed** else `destroy_failed` (D57, D61); emit lifecycle evidence (D49)
+9. Persist **receipt** (incl. `dossier.active_checks`) → stop + remove in finally; set job-level `destroyed_at` **only if current generation confirmed** else `destroy_failed` (D57, D61); emit lifecycle evidence (D49)
+10. If `msb` reports the VM gone mid-pipeline: mark generation failed, clear `sandbox_id`, and re-enter from bootstrap on a fresh generation (cap `MAX_SANDBOX_HEALS` - D80). Absolute `expires_at` and stall/wall-clock reaping still terminalize (D41, D83)
 
 ### Network phases (D43)
 
@@ -316,7 +328,7 @@ stateDiagram-v2
 
 | Phase | Guest egress | Tooling / SCA |
 |-------|--------------|---------------|
-| **Install/provision** | Package/git allowed; control-plane + management **denied** (probe with positive controls — D65) | Preinstall Playwright / MCP assessment / verify helpers (D63) |
+| **Install/provision** | Package/git allowed; control-plane + management **denied** (probe with positive controls - D65) | Preinstall Playwright / MCP assessment / verify helpers (D63); install activity trace |
 | **Verify / containment / in-guest shots** | **Deny-all remaining egress** except guest loopback | No new Killhub tool installs; no live `npm audit` against registry |
 | **SCA** | N/A in guest after offline | Plane 1 reads copied lockfiles / advisory APIs (D43, D63) |
 
@@ -325,8 +337,9 @@ stateDiagram-v2
 - No Killhub control-plane API keys in sandbox `env` by default; canaries only (D19, D44)
 - Inter-sandbox traffic denied by default
 - Egress to public control-plane destinations and Microsandbox management endpoints **denied and probe-tested** with positive controls (D39, D65)
-- After install: verify/containment run with **deny-all remaining egress** — not merely registries-denied (D43)
-- Resource/time caps + absolute `expires_at` inherited on replace (host reaper; `msb touch` cannot extend — D41, D64); prefer non-root; no Docker socket from control plane
+- After install: verify/containment run with **deny-all remaining egress** - not merely registries-denied (D43)
+- Resource/time caps + absolute `expires_at` inherited on replace (host reaper; `msb touch` cannot extend - D41, D64); prefer non-root; no Docker socket from control plane
+- Lost-sandbox self-heal never runs two concurrent VMs for one job and never extends `expires_at` (D80, D27, D41)
 
 ---
 
@@ -335,14 +348,14 @@ stateDiagram-v2
 ```
 Plane 1 (control)                         Plane 2 (one disposable microVM)
 ─────────────────                         ────────────────────────────────
-Enter URL → admit job (D40) → ledger
+Feed / deep link / MCP → admit (D40) → ledger
 Bootstrap create ───────────────────────► msb create (default image + net policy)
 Plan loop: inspect / infer / validate ──► clone + read
 Runtime profile; image change? ─────────► replace VM (still one live) or continue
 Provision + launch + readiness ─────────► install / run / probe → readiness field
 Optional MCP assessment (D35) ──────────► Inspector / SDK when planned
-Vuln scan + finalize ───────────────────► SCA / shots in guest; copy out
-UI: status · optional shots · report
+Active checks + SCA + finalize ─────────► activity / tool review / shots; copy out
+UI: status · HackerVision · report
 completed/fail/cancel/expiry → destroy ─► msb stop + remove
 ```
 
@@ -350,21 +363,21 @@ completed/fail/cancel/expiry → destroy ─► msb stop + remove
 
 ```mermaid
 sequenceDiagram
-  participant Browser
+  participant Client as Browser_or_MCP
   participant Next as Next_proxy
   participant Explore as explore_API
   participant Worker
   participant Harness as msb_harness
   participant Ledger
-  Browser->>Next: POST /api/jobs
+  Client->>Next: POST /api/jobs (or /mcp → tools)
   Next->>Explore: /internal/jobs
   Explore->>Ledger: create pending
   Worker->>Ledger: claim
   Worker->>Harness: create/exec/verify
-  Explore-->>Browser: SSE via Next proxy
+  Explore-->>Client: SSE via Next proxy
 ```
 
-Public edge: [`frontend/app/api/`](frontend/app/api/) + [`frontend/lib/explore.ts`](frontend/lib/explore.ts). Authority: [`explore/api/routes.py`](explore/api/routes.py), [`explore/service.py`](explore/service.py), [`explore/worker.py`](explore/worker.py), [`explore/harness.py`](explore/harness.py). Full module map: [docs/CODEMAP.md](docs/CODEMAP.md).
+Public edge: [`frontend/app/api/`](frontend/app/api/) + [`frontend/lib/explore.ts`](frontend/lib/explore.ts); Operator MCP: [`explore/operator_mcp.py`](explore/operator_mcp.py) / public `/mcp` (D81). Authority: [`explore/api/routes.py`](explore/api/routes.py), [`explore/service.py`](explore/service.py), [`explore/worker.py`](explore/worker.py), [`explore/harness.py`](explore/harness.py). Full module map: [docs/CODEMAP.md](docs/CODEMAP.md).
 
 ---
 
@@ -376,11 +389,12 @@ pending → [queued] → analyzing → planning → provisioning → installing
        → scanning → finalizing → completed | failed | cancelled
 ```
 
-- **analyzing / planning** — bootstrap create → inspect → validated **runtime** profile (replace VM if image differs)
-- **provisioning / installing / verifying** — install/launch; set `readiness` on probe pass (D37)
-- **scanning / finalizing** — SCA (+ optional MCP assessment); persist report; destroy sandbox; then `completed`
-- Repair capped by `MAX_REPAIR_ATTEMPTS`
-- Jobs are **server-owned** on Plane 1 (durable ledger — D41)
+- **analyzing / planning** - bootstrap create → inspect → validated **runtime** profile (replace VM if image differs)
+- **provisioning / installing / verifying** - install/launch; set `readiness` on probe pass (D37)
+- **scanning / finalizing** - SCA + active checks (+ optional MCP assessment); persist report; destroy sandbox; then `completed`
+- Repair capped by `MAX_REPAIR_ATTEMPTS`; lost-sandbox self-heal capped by `MAX_SANDBOX_HEALS` (D80)
+- Plane-1 reaper terminalizes wall-clock timeout, absolute expiry, and ledger stall (D83)
+- Jobs are **server-owned** on Plane 1 (durable ledger - D41)
 
 ```mermaid
 flowchart LR
@@ -404,23 +418,32 @@ flowchart LR
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/jobs` | Create job `{ github_url }` → `{ job_id }` (`429`/`503` on admission — D40) |
-| `GET` | `/api/jobs/{id}` | Snapshot |
+| `GET` | `/api/jobs` | Recent job summaries; server-side `limit`/`offset`; optional `github_url` filter (D69, D77, D79) |
+| `GET` | `/api/repos` | Repo-grouped feed rows (`github_url`, `run_count`, `latest`) (D79) |
+| `POST` | `/api/jobs` | Create job `{ github_url }` → `{ job_id }` (`429`/`503` on admission - D40) |
+| `GET` | `/api/jobs/{id}` | Snapshot (receipt, active checks, readiness, …) |
 | `GET` | `/api/jobs/{id}/events` | SSE |
+| `GET` | `/api/jobs/{id}/events/recent` | Bounded recent events (Operator MCP `tail_events`) |
 | `GET` | `/api/jobs/{id}/screenshots` | Timeline (may be empty) |
 | `GET` | `/api/jobs/{id}/screenshots/{shot_id}` | Image bytes |
-| `DELETE` | `/api/jobs/{id}` | Cancel + destroy sandbox |
+| `DELETE` | `/api/jobs/{id}` | Cancel + destroy sandbox (D61) |
+| `POST` | `/mcp` | Operator MCP JSON-RPC (D81); tools call public `/api/*` |
+| `GET` | `/api/fixtures` | Public fixture catalog / intake policy |
 | `GET` | `/health` | Control-plane liveness |
 
-SSE: `status` · `progress` · `log` · `screenshot` · `error` · `span` · `finding` · `containment` · `lifecycle` (+ keep-alives — D49, D50)
+UI-only (not Jobs API): GitHub short path `/{owner}/{repo}` client-side creates then redirects to `/jobs/{id}` (D82). Canonical history remains `/repos/{host}/…` (D79).
 
-Public git URLs: HTTPS on allowlisted hosts only (`github.com`, `gitlab.com`, `bitbucket.org`, `codeberg.org` — D78); else `400`. Pre-flight may reject before sandbox create (D45).
+SSE: `status` · `progress` · `log` · `screenshot` · `error` · `span` · `finding` · `containment` · `lifecycle` · `gap` (+ keep-alives - D49, D50, D55, D67)
+
+Public git URLs: HTTPS on allowlisted hosts only (`github.com`, `gitlab.com`, `bitbucket.org`, `codeberg.org` - D78); else `400`. Pre-flight may reject before sandbox create (D45). Full contracts: [API.md](API.md).
 
 ---
 
-## Progress and screenshots
+## Progress, screenshots, and HackerVision
 
-Screenshots are **optional** (D31). Prefer browser stills for HTTP webapp verify; **Playwright runs inside Plane 2** (D38); Plane 1 stores copied stills. Skip for CLI-only MCP or early fail. Missing screenshots must not invalidate readiness or block `completed`.
+Screenshots are **optional** (D31). Prefer browser stills for HTTP webapp verify; **Playwright runs inside Plane 2** (D38); Plane 1 stores copied stills (filesystem or Vultr Object Storage + optional CDN - D72, D76). Skip for CLI-only MCP or early fail. Missing screenshots must not invalidate readiness or block `completed`.
+
+**HackerVision (D84)** is an on-demand Plane-1 UI overlay: it replays the job's retained SSE events in a Three.js mainframe scene. A walking raptor marks recorded high/critical findings, unexpected canary exposure, or policy bypass at or before the replay cursor. Reduced-motion holds the pose; the event scrubber works without WebGL. HackerVision is presentation only - containment still happens in Plane 2.
 
 Caps: `MAX_SCREENSHOTS_PER_JOB` + disk budgets (D40); redact secrets; stills only.
 
@@ -457,14 +480,16 @@ flowchart LR
 - Browser never receives control-plane secrets
 - Demo deploy: edge proxy faces internet; app binds localhost (D46)
 - OpenCode: trusted system config; deny host shell; repo instructions untrusted (D38)
-- Plane 2 must not reach Plane 1 public endpoints or management APIs — policy + `network_probe` (D39)
+- Operator MCP speaks only the public Jobs API under admission; never injects harness/server tokens into creates (D81)
+- Plane 2 must not reach Plane 1 public endpoints or management APIs - policy + `network_probe` (D39)
 - Install-then-offline network phases; denied egress logged (D43)
-- Canary hits are high-severity findings (D44)
-- Containment probes run **only** in Plane 2; timeout alone is insufficient — record host-access, sibling-access, and host-liveness evidence (D58); visible in receipt/stream before destroy (D26, D49)
+- Canary hits are high-severity findings (D44); install activity / persistence / MCP tool-poisoning findings land in `receipt.dossier.active_checks`
+- Containment probes run **only** in Plane 2; timeout alone is insufficient - record host-access, sibling-access, and host-liveness evidence (D58); visible in receipt/stream before destroy (D26, D49)
 - Cancel: request → freeze ordinary workers → finalizer (receipt + destroy) → terminal `cancelled` (D61)
 - SSE clients hydrate `event_cursor` then subscribe; expired/pruned cursors force re-snapshot; retention is contiguous with `gap` events (D55, D67)
 - Agents explain; gates decide (D47, D66)
 - Harness copy paths restricted (D60); resolved commit required (D62)
+- Lost-sandbox self-heal and stall/timeout reaping keep one live VM and never extend absolute expiry (D80, D83, D41)
 
 ---
 
@@ -481,7 +506,7 @@ flowchart TB
 | Environment | Plane 1 | Plane 2 | Inference |
 |-------------|---------|---------|-----------|
 | **Local dev** | `docker-compose` (ports may bind openly) | Microsandbox on reachable VX1 (`MSB_HOST`) | Vultr Serverless Inference |
-| **Public / demo** | **[killhub.pro](https://killhub.pro)** — Vultr Cloud Compute behind reverse proxy; app on `127.0.0.1` (D46) | Microsandbox on Vultr VX1 | Vultr Serverless Inference only |
+| **Public / demo** | **[killhub.pro](https://killhub.pro)** - Vultr Cloud Compute behind reverse proxy; app on `127.0.0.1` (D46) | Microsandbox on Vultr VX1 | Vultr Serverless Inference only |
 
 Control plane and VX1 may be the same Vultr host or split; sandboxes never run inside the Next.js process address space as shared-kernel containers substituting for Microsandbox.
 
@@ -491,9 +516,12 @@ Control plane and VX1 may be the same Vultr host or split; sandboxes never run i
 
 ```
 killhub/
-├── frontend/                 # Plane 1 — Next.js (UI + /api proxy to explore)
-├── explore/                  # Plane 1 — ledger, worker, harness (same host)
-│   └── prompts/              # Trusted agent prompts (not repo-root)
+├── frontend/                 # Plane 1 - Next.js (UI + /api proxy to explore)
+├── explore/                  # Plane 1 - ledger, worker, harness, operator MCP
+│   ├── prompts/              # Trusted agent prompts (not repo-root)
+│   ├── operator_mcp.py       # Stdio Operator MCP entry (D81)
+│   └── fixtures/             # Pinned M7 fixtures (D53)
+├── acceptance/               # Black-box pytest against a live deploy
 ├── docs/                     # CODEMAP · GLOSSARY (how-it-works)
 ├── ops/                      # VX1 firewall / offline egress helpers
 ├── storage/                  # ledger/ + profiles/ + screenshots/
@@ -502,7 +530,7 @@ killhub/
 └── README.md
 ```
 
-Plane 2 is **not** a checked-in app folder — it is a Microsandbox microVM per job.
+Plane 2 is **not** a checked-in app folder - it is a Microsandbox microVM per job.
 
 ### Plane 2 create / network policy (operator)
 
@@ -538,15 +566,17 @@ Install phase keeps package/git egress; verify/containment switch to **deny-all 
 | `JOB_STALL_SECONDS` | Ledger silence on `updated_at` → `job_stalled` (D83; heartbeats keep it fresh) |
 | `ENV_TTL_SECONDS` / `expires_at` | Absolute sandbox expiry (D41; not extended by touch); job also terminalized (D83) |
 | `MAX_REPAIR_ATTEMPTS` | Repair loop cap |
+| `MAX_SANDBOX_HEALS` | Lost-sandbox self-heal cap (D80; default 1, `0` = off) |
+| `KILLHUB_BASE_URL` | Public base Operator MCP tools call (D81; default `https://killhub.pro`) |
 | `MAX_CONCURRENT_JOBS` / `MAX_QUEUED_JOBS` / rate limits | Admission (D40) |
-| `ADMISSION_STORE` / `VALKEY_URL` / `REDIS_URL` | Shared admission backend — memory default, Valkey optional (D71) |
+| `ADMISSION_STORE` / `VALKEY_URL` / `REDIS_URL` | Shared admission backend - memory default, Valkey optional (D71) |
 | `INFERENCE_BUDGET_*` | Per-job / rolling inference caps (D40) |
 | `MAX_JOB_LOG_BYTES` / disk caps | Event and artifact budgets (D40) |
-| `LEDGER_URL` / ledger path | Durable job/event store (D41) |
+| `LEDGER_URL` / ledger path | Durable job/event store (D41; SQLite or Postgres - D73) |
 | `VULN_SCAN_*` | Scanner settings |
 | `MAX_SCREENSHOTS_PER_JOB` | Screenshot cap |
 | `STORAGE_BACKEND` | `filesystem` (default) or `s3`/`object` (D72); local staging via `SCREENSHOT_STORAGE` / `ARTIFACT_STORAGE` (D17) |
-| `OBJECT_STORAGE_*` | Vultr Object Storage endpoint/bucket/keys (Plane 1 only — D72) |
+| `OBJECT_STORAGE_*` | Vultr Object Storage endpoint/bucket/keys (Plane 1 only - D72) |
 | `OBJECT_STORAGE_CDN_BASE_URL` | Optional Vultr CDN Pull Zone base for public screenshot thumbs (D76) |
 | `LEDGER_BACKUP_UPLOAD` | Optional nightly SQLite upload to object storage (D72) |
 
@@ -559,7 +589,7 @@ Install phase keeps package/git egress; verify/containment switch to **deny-all 
 - Long-lived customer sandboxes beyond job TTL
 - GPU workloads
 - Auto-patching vulnerabilities (report only)
-- Weaponizing CVEs / generic app/web exploit suites (SCA + report always; optional MCP Inspector/SDK only when planned — D33/D35; containment probes are isolation-only)
+- Weaponizing CVEs / generic app/web exploit suites (SCA + report always; optional MCP Inspector/SDK only when planned - D33/D35; containment probes are isolation-only)
 - Non-Vultr clouds for control plane (demo) or sandboxes
 - Full session video
 - Alternate LLM providers for the Environment Agent
