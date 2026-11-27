@@ -14,6 +14,7 @@ from profile import GUEST_REPO_ROOT, assert_runtime_ready_for_provision
 from typing import Any
 
 from config import Settings, get_settings
+from fixtures import match_fixture
 from harness import copy_in, exec_command
 from jobs import get_ledger
 from ledger.store import utc_now
@@ -335,6 +336,15 @@ def verify_mcp_stdio(
     else:
         raise VerifyError("mcp.launch_command needs argv or shell", code="invalid_mcp")
 
+    # Extra read-only collection is limited to the trusted fixture at its exact pin.
+    source = profile.get("source") or {}
+    fixture = match_fixture(str(source.get("url") or ""))
+    inventory = bool(
+        fixture
+        and fixture.get("id") == "git_mcp_filesystem"
+        and source.get("commit") == fixture.get("commit")
+    )
+    inventory_option = " --inventory" if inventory else ""
     helper = f"{GUEST_HELPERS}/mcp_stdio_verify.py"
     # Refresh helper after offline snap so host-side fixes apply (D60/D63).
     copy_in(
@@ -347,7 +357,7 @@ def verify_mcp_stdio(
     # Run helper with cwd applied so relative launch bins resolve (D62 checkout).
     cmd = (
         f"cd {_shell_quote(cwd)} && "
-        f"python3 {_shell_quote(helper)} --timeout {int(timeout)} -- "
+        f"python3 {_shell_quote(helper)} --timeout {int(timeout)}{inventory_option} -- "
         + " ".join(_shell_quote(a) for a in launch_argv)
     )
     result = exec_command(
@@ -368,6 +378,8 @@ def verify_mcp_stdio(
             except json.JSONDecodeError:
                 continue
     ok = result.exit_code == 0 and bool(evidence.get("ok"))
+    if not inventory:
+        evidence.pop("inventory", None)
     detail = {
         "ok": ok,
         "type": "mcp_handshake",
