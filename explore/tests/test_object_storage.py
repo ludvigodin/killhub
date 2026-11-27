@@ -19,6 +19,7 @@ from object_storage import (
     maybe_upload_local_file,
     normalize_storage_backend,
     object_key,
+    object_storage_origin_hostname,
     parse_s3_ref,
     prune_prefix,
     require_object_storage_config,
@@ -92,6 +93,8 @@ def test_normalize_and_resolve_backend(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert normalize_storage_backend("object") == "s3"
     with pytest.raises(ObjectStorageError):
         normalize_storage_backend("gcs")
+    with pytest.raises(ObjectStorageError):
+        normalize_storage_backend("./storage/screenshots")
 
     from config import get_settings
 
@@ -104,8 +107,10 @@ def test_normalize_and_resolve_backend(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.delenv("STORAGE_BACKEND")
     monkeypatch.setenv("SCREENSHOT_STORAGE", "object")
     get_settings.cache_clear()
-    assert resolve_storage_backend() == "s3"
-    assert filesystem_root_for_screenshots().name == "screenshots"
+    # Paths only — backend keywords on SCREENSHOT_STORAGE fail closed (use STORAGE_BACKEND).
+    assert resolve_storage_backend() == "filesystem"
+    with pytest.raises(ObjectStorageError, match="STORAGE_BACKEND"):
+        filesystem_root_for_screenshots()
 
     monkeypatch.setenv("SCREENSHOT_STORAGE", str(tmp_path / "shots"))
     get_settings.cache_clear()
@@ -265,6 +270,22 @@ def test_cdn_url_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
         == "https://cdn-example.vultrcdn.com/killhub/screenshots/j/a.png"
     )
     assert cdn_url_for_s3_ref("./storage/screenshots/j/a.png") is None
+
+
+def test_object_storage_origin_hostname(monkeypatch: pytest.MonkeyPatch) -> None:
+    from config import get_settings
+
+    monkeypatch.setenv("OBJECT_STORAGE_ENDPOINT", "https://ewr1.vultrobjects.com")
+    monkeypatch.setenv("OBJECT_STORAGE_BUCKET", "killhub-shots")
+    get_settings.cache_clear()
+    assert object_storage_origin_hostname() == "killhub-shots.ewr1.vultrobjects.com"
+    assert (
+        object_storage_origin_hostname(
+            endpoint="https://killhub-shots.ewr1.vultrobjects.com",
+            bucket="killhub-shots",
+        )
+        == "killhub-shots.ewr1.vultrobjects.com"
+    )
 
 
 def test_screenshot_upload_public_when_cdn_configured(

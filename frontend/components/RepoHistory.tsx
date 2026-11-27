@@ -5,6 +5,8 @@ import { type JobSummary, listJobs } from "@/lib/api";
 import { formatJobWhen } from "@/lib/time";
 import { JobEntryCard } from "./JobEntryCard";
 import { JobLiveView } from "./JobLiveView";
+import { SectionHeader } from "./SectionHeader";
+import { SECTION_SCROLL_MT } from "./SectionNav";
 import { StatusBadge } from "./StatusBadge";
 
 const POLL_MS = 4000;
@@ -32,6 +34,8 @@ export function RepoHistory({ githubUrl, title }: RepoHistoryProps) {
     page === 0 && latest
       ? jobs.filter((job) => job.job_id !== latest.job_id)
       : jobs;
+  const showEarlier = earlierJobs.length > 0 || (total > 1 && !loading);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -78,17 +82,73 @@ export function RepoHistory({ githubUrl, title }: RepoHistoryProps) {
       ? formatJobWhen(latest.updated_at)
       : null;
 
+  const earlierBlock = showEarlier ? (
+    <div
+      id="section-earlier"
+      className={`flex flex-col gap-3 ${SECTION_SCROLL_MT}`}
+    >
+      <SectionHeader
+        eyebrow="History"
+        title="Earlier runs"
+        meta={
+          total > 1 ? (
+            <p className="text-sm text-(--muted)">
+              {Math.max(0, total - 1)} older
+            </p>
+          ) : null
+        }
+      />
+      {earlierJobs.length > 0 ? (
+        <div className="overflow-hidden rounded-lg border border-(--line) bg-(--paper-deep)/40">
+          {earlierJobs.map((job, i) => (
+            <JobEntryCard key={job.job_id} job={job} index={i} emphasizeRun />
+          ))}
+        </div>
+      ) : !loading && total <= 1 ? null : (
+        <p className="text-sm text-(--muted)">No earlier runs on this page.</p>
+      )}
+      {total > PAGE_SIZE ? (
+        <nav
+          aria-label="Run pages"
+          className="mt-2 flex items-center justify-between gap-3"
+        >
+          <button
+            type="button"
+            className="rounded-md border border-(--line) bg-(--paper-deep) px-3 py-1.5 text-sm text-(--ink) transition enabled:hover:border-(--accent) disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={page <= 0 || loading}
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+          >
+            Previous
+          </button>
+          <p className="text-sm text-(--muted)">
+            Page {page + 1} of {pageCount}
+          </p>
+          <button
+            type="button"
+            className="rounded-md border border-(--line) bg-(--paper-deep) px-3 py-1.5 text-sm text-(--ink) transition enabled:hover:border-(--accent) disabled:cursor-not-allowed disabled:opacity-40"
+            disabled={page + 1 >= pageCount || loading}
+            onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+          >
+            Next
+          </button>
+        </nav>
+      ) : null}
+    </div>
+  ) : null;
+
   return (
     <>
       <header className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 max-w-3xl">
-          <h1
-            className="mb-2 text-3xl font-semibold tracking-tight sm:text-4xl"
-            style={{
-              fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-            }}
-          >
-            {title}
+          <h1 className="type-page-title mb-2 wrap-anywhere">
+            <a
+              href={githubUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-inherit no-underline underline-offset-2 hover:underline"
+            >
+              {title}
+            </a>
           </h1>
           <p className="mb-3 text-sm text-(--muted)">
             Latest run in full, with earlier runs listed below.
@@ -130,14 +190,6 @@ export function RepoHistory({ githubUrl, title }: RepoHistoryProps) {
               ) : null}
             </div>
           ) : null}
-          <a
-            href={githubUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-(--accent) underline-offset-2 hover:underline"
-          >
-            {githubUrl}
-          </a>
         </div>
         <div ref={setActionsHost} className="shrink-0 self-start sm:pt-1" />
       </header>
@@ -157,70 +209,16 @@ export function RepoHistory({ githubUrl, title }: RepoHistoryProps) {
             jobId={latest.job_id}
             embedded
             actionsHost={actionsHost}
+            extraNavItems={
+              showEarlier
+                ? [{ id: "section-earlier", label: "Earlier runs" }]
+                : []
+            }
+            after={earlierBlock}
           />
-        ) : null}
-
-        {earlierJobs.length > 0 || (total > 1 && !loading) ? (
-          <div className="flex flex-col gap-3">
-            <div className="flex items-baseline justify-between gap-3">
-              <h3
-                className="text-base font-semibold tracking-tight"
-                style={{
-                  fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-                }}
-              >
-                Earlier runs
-              </h3>
-              {total > 1 ? (
-                <p className="text-sm text-(--muted)">
-                  {Math.max(0, total - 1)} older
-                </p>
-              ) : null}
-            </div>
-            {earlierJobs.length > 0 ? (
-              <div className="overflow-hidden rounded-lg border border-(--line) bg-(--paper-deep)/40">
-                {earlierJobs.map((job, i) => (
-                  <JobEntryCard
-                    key={job.job_id}
-                    job={job}
-                    index={i}
-                    emphasizeRun
-                  />
-                ))}
-              </div>
-            ) : !loading && total <= 1 ? null : (
-              <p className="text-sm text-(--muted)">
-                No earlier runs on this page.
-              </p>
-            )}
-            {total > PAGE_SIZE ? (
-              <nav
-                aria-label="Run pages"
-                className="mt-2 flex items-center justify-between gap-3"
-              >
-                <button
-                  type="button"
-                  className="rounded-md border border-(--line) bg-(--paper-deep) px-3 py-1.5 text-sm text-(--ink) transition enabled:hover:border-(--accent) disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={page <= 0 || loading}
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
-                >
-                  Previous
-                </button>
-                <p className="text-sm text-(--muted)">
-                  Page {page + 1} of {pageCount}
-                </p>
-                <button
-                  type="button"
-                  className="rounded-md border border-(--line) bg-(--paper-deep) px-3 py-1.5 text-sm text-(--ink) transition enabled:hover:border-(--accent) disabled:cursor-not-allowed disabled:opacity-40"
-                  disabled={page + 1 >= pageCount || loading}
-                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-                >
-                  Next
-                </button>
-              </nav>
-            ) : null}
-          </div>
-        ) : null}
+        ) : (
+          earlierBlock
+        )}
       </section>
     </>
   );

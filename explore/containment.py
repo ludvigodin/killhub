@@ -18,6 +18,8 @@ from urllib.parse import urlsplit
 from canaries import scan_canaries
 from config import Settings, get_settings
 from harness import (
+    LABEL_EXPIRES,
+    LABEL_PROBE_OWNER,
     EnvironmentPlan,
     MsbCli,
     apply_killhub_net_policy,
@@ -521,6 +523,9 @@ def probe_sibling_access_denied(
     }
 
     try:
+        owner = get_ledger(cfg).get_job(job_id)
+        if owner is None:
+            raise ContainmentError("Sibling probe requires a ledger job")
         plan = apply_killhub_net_policy(
             EnvironmentPlan(
                 image=(cfg.containment_sibling_image or cfg.msb_default_image or "debian").strip(),
@@ -537,6 +542,8 @@ def probe_sibling_access_denied(
             labels={
                 "killhub.managed": "1",
                 "killhub.probe": "sibling",
+                LABEL_PROBE_OWNER: job_id,
+                LABEL_EXPIRES: owner.expires_at,
                 "killhub.probe_session": session,
             },
         )

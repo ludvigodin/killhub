@@ -333,7 +333,8 @@
       "required": ["enabled"],
       "properties": {
         "enabled": { "type": "boolean" },
-        "discovery_method": {
+        "check": { "const": "filesystem_read_v1" },
+            "discovery_method": {
           "type": "string",
           "enum": ["mcp_inspector_cli", "python_mcp_sdk_fallback"]
         },

@@ -1,4 +1,4 @@
-"""Job timeout / stall / expires_at terminalization (D81)."""
+"""Job timeout / stall / expires_at terminalization (D83)."""
 
 from __future__ import annotations
 

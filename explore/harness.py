@@ -27,6 +27,7 @@ from models import SandboxGeneration
 logger = logging.getLogger("killhub.harness")
 
 LABEL_JOB = "killhub.job_id"
+LABEL_PROBE_OWNER = "killhub.probe_owner"
 LABEL_EXPIRES = "killhub.expires_at"
 LABEL_GENERATION = "killhub.generation"
 

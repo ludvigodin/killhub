@@ -29,7 +29,9 @@ export function KillhubLogo({ size = 28, className }: KillhubLogoProps) {
       alt="Killhub"
       width={width}
       height={height}
-      className={["inline-block shrink-0", className].filter(Boolean).join(" ")}
+      className={["inline-block max-w-none shrink-0", className]
+        .filter(Boolean)
+        .join(" ")}
       decoding="async"
     />
   );

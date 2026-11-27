@@ -108,6 +108,7 @@ def test_finalize_receipt_before_terminal_and_keeps_readiness(
             summary="Cite-checked review — low: test finding [sca-1]",
             findings=findings,
             status="ok",
+            mcp_assessment={"check": "filesystem_read_v1", "status": "partial"},
         )
         ledger.append_event(
             job_id,
@@ -135,6 +136,7 @@ def test_finalize_receipt_before_terminal_and_keeps_readiness(
     receipt = get_ledger().get_receipt(job_id)
     assert receipt is not None
     assert receipt["dossier"]["outcome"] == "completed"
+    assert receipt["dossier"]["mcp_assessment"]["status"] == "partial"
     assert get_ledger().get_vuln_report(job_id) is not None
     # An SCA finding annotates coverage while absent runtime evidence stays unknown.
     verdict = receipt["dossier"]["detonation_verdict"]

@@ -75,48 +75,52 @@ def normalize_storage_backend(raw: str | None) -> str:
         return BACKEND_S3
     if value in {"", BACKEND_FILESYSTEM, "fs", "local"}:
         return BACKEND_FILESYSTEM
-    # Path-like values are filesystem (legacy SCREENSHOT_STORAGE=./storage/...)
-    if "/" in value or value.startswith("."):
-        return BACKEND_FILESYSTEM
     raise ObjectStorageError(
         f"unknown storage backend {raw!r}; use filesystem or s3/object",
     )
 
 
 def resolve_storage_backend(settings: Settings | None = None) -> str:
-    """Pick filesystem (default) vs s3/object from STORAGE_BACKEND / SCREENSHOT_STORAGE."""
+    """Pick filesystem (default) vs s3/object from STORAGE_BACKEND (D72)."""
     cfg = settings or get_settings()
-    # Legacy D17 hint: SCREENSHOT_STORAGE=s3|object selects object backend.
-    shot = (cfg.screenshot_storage or "").strip().lower()
-    if shot in BACKEND_ALIASES:
-        return BACKEND_S3
     explicit = (cfg.storage_backend or "").strip()
     if explicit:
         return normalize_storage_backend(explicit)
     return BACKEND_FILESYSTEM
 
 
-def filesystem_root_for_screenshots(settings: Settings | None = None) -> Path:
-    """Local staging / filesystem root for screenshots (D17, D60)."""
-    cfg = settings or get_settings()
-    raw = (cfg.screenshot_storage or "").strip()
-    if not raw or raw.lower() in BACKEND_ALIASES:
-        raw = "./storage/screenshots"
-    base = Path(raw)
+def _local_storage_root(raw: str, *, default: str, env_name: str) -> Path:
+    """Resolve a local staging path; reject backend keywords that belong on STORAGE_BACKEND."""
+    value = (raw or "").strip()
+    if not value:
+        value = default
+    elif value.lower() in BACKEND_ALIASES:
+        raise ObjectStorageError(
+            f"{env_name}={value!r} is a path; set STORAGE_BACKEND=s3|object for object storage",
+        )
+    base = Path(value)
     if not base.is_absolute():
         base = Path(__file__).resolve().parent.parent / base
     return base.resolve()
+
+
+def filesystem_root_for_screenshots(settings: Settings | None = None) -> Path:
+    """Local staging / filesystem root for screenshots (D17, D60)."""
+    cfg = settings or get_settings()
+    return _local_storage_root(
+        cfg.screenshot_storage,
+        default="./storage/screenshots",
+        env_name="SCREENSHOT_STORAGE",
+    )
 
 
 def filesystem_root_for_artifacts(settings: Settings | None = None) -> Path:
     cfg = settings or get_settings()
-    raw = (cfg.artifact_storage or "").strip()
-    if not raw or raw.lower() in BACKEND_ALIASES:
-        raw = "./storage/artifacts"
-    base = Path(raw)
-    if not base.is_absolute():
-        base = Path(__file__).resolve().parent.parent / base
-    return base.resolve()
+    return _local_storage_root(
+        cfg.artifact_storage,
+        default="./storage/artifacts",
+        env_name="ARTIFACT_STORAGE",
+    )
 
 
 def object_storage_config(settings: Settings | None = None) -> ObjectStorageConfig:
@@ -319,6 +323,37 @@ def cdn_base_url(settings: Settings | None = None) -> str:
     """Normalized CDN Pull Zone base (no trailing slash), or empty when unset (D76)."""
     cfg = settings or get_settings()
     return (cfg.object_storage_cdn_base_url or "").strip().rstrip("/")
+
+
+def object_storage_origin_hostname(
+    *,
+    endpoint: str | None = None,
+    bucket: str | None = None,
+    settings: Settings | None = None,
+) -> str:
+    """Virtual-host origin host for a Vultr CDN Pull Zone (D76).
+
+    Form: ``{bucket}.{cluster}.vultrobjects.com`` — not the path-style API endpoint.
+    """
+    conf = object_storage_config(settings)
+    ep = (endpoint if endpoint is not None else conf.endpoint).strip()
+    bkt = (bucket if bucket is not None else conf.bucket).strip()
+    if not ep or not bkt:
+        raise ObjectStorageError(
+            "OBJECT_STORAGE_ENDPOINT and OBJECT_STORAGE_BUCKET required for CDN origin",
+        )
+    raw = ep
+    if raw.startswith("http://") or raw.startswith("https://"):
+        host = urlparse(raw).hostname or ""
+    else:
+        host = raw.split("/")[0]
+    host = host.strip().rstrip(".")
+    if not host:
+        raise ObjectStorageError(f"cannot parse object storage host from {ep!r}")
+    # Already virtual-host style (bucket.cluster.vultrobjects.com).
+    if host.startswith(f"{bkt}."):
+        return host
+    return f"{bkt}.{host}"
 
 
 def cdn_url_for_key(key: str, *, settings: Settings | None = None) -> str | None:

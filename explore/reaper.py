@@ -1,7 +1,7 @@
-"""Absolute expiry + orphan reaper (D41, D57, D81).
+"""Absolute expiry + orphan reaper (D41, D57, D83).
 
 Plane 1 loop: reconcile ledger vs live msb inventory and destroy expired gens,
-then fail timed-out / stalled / expired non-terminal jobs (D81).
+then fail timed-out / stalled / expired non-terminal jobs (D83).
 Host-side entry (`python -m reaper --host`): scan msb labels and destroy past
 `killhub.expires_at` even if Plane 1 is down — does not trust `msb touch`.
 """
@@ -21,6 +21,7 @@ from config import Settings, get_settings
 from harness import (
     LABEL_EXPIRES,
     LABEL_JOB,
+    LABEL_PROBE_OWNER,
     DestroyResult,
     HarnessError,
     MsbCli,
@@ -105,7 +106,9 @@ def reap_expired_from_ledger(
             env_id = note[len("live sandbox ") :].split(" ", 1)[0]
             # Host-managed killhub sandboxes without ledger → destroy (orphan).
             labels = msb.inspect_labels(env_id)
-            if _job_in_flight(ledger, labels.get(LABEL_JOB)):
+            # Probe VMs share their owner's deadline but are never its primary generation.
+            owner = labels.get(LABEL_JOB) or labels.get(LABEL_PROBE_OWNER)
+            if _job_in_flight(ledger, owner):
                 # D80: create → ledger generation write is not atomic; a VM
                 # whose job is still running is mid-provisioning, not an
                 # orphan. Absolute expires_at reaping still applies.
@@ -130,7 +133,7 @@ def reap_expired_from_ledger(
                     }
                 )
 
-    # D81: terminalize jobs past wall clock / stall silence / expires_at.
+    # D83: terminalize jobs past wall clock / stall silence / expires_at.
     from stall import reap_stale_jobs
 
     actions.extend(reap_stale_jobs(settings=cfg, cli=msb, now=now))

@@ -164,7 +164,11 @@ function stageDetails(
       ? snapshot.destroyed_at
         ? `destroyed ${snapshot.destroyed_at}`
         : "sandbox removed"
-      : null,
+      : snapshot.cleanup?.status === "destroy_failed"
+        ? snapshot.cleanup.last_error || "destroy not confirmed"
+        : snapshot.cleanup?.status === "destroying"
+          ? "removing sandbox"
+          : null,
   };
 }
 
@@ -178,6 +182,12 @@ export function buildJobTimeline(
   const terminalFail =
     snapshot.status === "failed" || snapshot.status === "cancelled";
   const terminalOk = snapshot.status === "completed";
+  const destroyFailed = snapshot.cleanup?.status === "destroy_failed";
+  const destroyRequired =
+    terminalFail ||
+    terminalOk ||
+    snapshot.status === "finalizing" ||
+    snapshot.cleanup?.status === "destroying";
 
   let foundActive = false;
   return STAGE_DEFS.map((def) => {
@@ -186,6 +196,16 @@ export function buildJobTimeline(
 
     if (isDone) {
       state = "done";
+    } else if (def.id === "destroy") {
+      // Destroy is mandatory on every job path (D37/D57) — never skip.
+      if (destroyFailed) {
+        state = "failed";
+      } else if (destroyRequired || !foundActive) {
+        state = "active";
+        foundActive = true;
+      } else {
+        state = "pending";
+      }
     } else if (terminalOk) {
       // Completed without every marker (e.g. no containment event yet) -
       // leave unfinished stages visible as pending, not fake-done.

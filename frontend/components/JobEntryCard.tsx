@@ -181,6 +181,7 @@ export function JobEntryCard({
       >
         <div className="relative size-10 shrink-0 overflow-hidden rounded-md bg-(--paper-deep) sm:size-11">
           <FeedThumb
+            key={`${job.job_id}:${job.screenshot_id ?? ""}:${job.screenshot_url ?? ""}`}
             jobId={job.job_id}
             screenshotId={job.screenshot_id}
             screenshotUrl={job.screenshot_url}
@@ -190,12 +191,7 @@ export function JobEntryCard({
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p
-              className="truncate text-sm font-semibold tracking-tight text-(--ink) sm:text-base"
-              style={{
-                fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-              }}
-            >
+            <p className="type-display truncate text-sm font-semibold tracking-tight text-(--ink) sm:text-base">
               {emphasizeRun ? runLabel : title}
             </p>
             {job.safety ? (
@@ -208,12 +204,14 @@ export function JobEntryCard({
               <span className="text-xs text-(--muted)">{runsLabel}</span>
             ) : null}
           </div>
-          <p className="mt-0.5 truncate text-sm text-(--muted)">
-            {errorLine && TERMINAL.has(job.status) ? (
-              <span style={{ color: "var(--danger)" }}>{errorLine}</span>
+          <p className="mt-0.5 text-sm text-(--muted)">
+            {errorLine && terminal ? (
+              <span className="line-clamp-2 wrap-anywhere text-(--danger)">
+                {errorLine}
+              </span>
             ) : emphasizeRun ? (
-              <>
-                <span className="font-mono text-xs tracking-wide">
+              <span className="line-clamp-2">
+                <span className="type-mono tracking-wide">
                   {shortJobId(job.job_id)}
                 </span>
                 {queueLine || job.current_step ? (
@@ -224,9 +222,9 @@ export function JobEntryCard({
                     {queueLine || job.current_step}
                   </>
                 ) : null}
-              </>
+              </span>
             ) : (
-              <>
+              <span className="line-clamp-2">
                 {queueLine || job.current_step || "Waiting…"}
                 {stalled ? (
                   <>
@@ -236,7 +234,7 @@ export function JobEntryCard({
                     <span className="text-(--muted)">May be stalled</span>
                   </>
                 ) : null}
-              </>
+              </span>
             )}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 sm:hidden">
@@ -259,6 +257,19 @@ export function JobEntryCard({
         </div>
       </Link>
 
+      {!emphasizeRun ? (
+        <a
+          href={repoHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mr-2 inline-flex size-9 shrink-0 items-center justify-center rounded-md text-(--muted) transition hover:bg-(--accent-soft) hover:text-(--ink) sm:hidden"
+          aria-label={`Open ${title} on ${hostLabel}`}
+          title={`Open on ${hostLabel}`}
+        >
+          <HostIcon host={host} className="size-4" />
+        </a>
+      ) : null}
+
       <div className="hidden shrink-0 flex-col items-end justify-center gap-1 py-3 pr-3 sm:flex sm:pr-4">
         <time
           dateTime={when.iso}
@@ -268,12 +279,12 @@ export function JobEntryCard({
           {when.relative || when.absolute}
         </time>
         {when.absolute ? (
-          <p className="max-w-[11rem] truncate text-right text-[11px] tabular-nums text-(--muted)">
+          <p className="type-meta max-w-44 truncate text-right text-(--muted)">
             {when.absolute}
           </p>
         ) : null}
         {updated ? (
-          <p className="text-[11px] tabular-nums text-(--muted)">
+          <p className="type-meta text-(--muted)">
             {terminal ? "ended" : "updated"} {updated.relative}
           </p>
         ) : null}
@@ -289,7 +300,7 @@ export function JobEntryCard({
             <HostIcon host={host} className="size-4" />
           </a>
         ) : (
-          <p className="mt-0.5 font-mono text-[11px] tracking-wide text-(--muted)">
+          <p className="type-mono mt-0.5 tracking-wide text-(--muted)">
             {shortJobId(job.job_id)}
           </p>
         )}

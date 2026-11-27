@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -13,9 +14,12 @@ from pathlib import Path
 from typing import Any
 
 from config import Settings, get_settings
+from errors import HarnessError
+from fixtures import match_fixture
 from harness import copy_out, exec_command
 from jobs import get_ledger
 from ledger.store import utc_now
+from models import JobEvent
 
 logger = logging.getLogger("killhub.vulnscan")
 
@@ -30,12 +34,15 @@ LOCKFILE_NAMES = (
     "npm-shrinkwrap.json",
     "requirements.txt",
     "poetry.lock",
+    "uv.lock",
     "Pipfile.lock",
     "Cargo.lock",
     "go.sum",
 )
 
 OSV_BATCH_LIMIT = 80
+OSV_MAX_BATCHES = 16
+OSV_LOOKUP_SECONDS = 30
 OSV_QUERYBATCH = "https://api.osv.dev/v1/querybatch"
 
 
@@ -217,6 +224,33 @@ def _parse_requirements_txt(text: str) -> list[tuple[str, str]]:
     return pkgs
 
 
+def _parse_toml_lock(text: str) -> list[tuple[str, str]]:
+    """``[[package]]`` entries of uv.lock / poetry.lock that come from a registry.
+
+    Editable, virtual, path, directory and git sources (the project itself,
+    workspace members, VCS pins) are skipped: OSV can't match them as PyPI
+    releases.
+    """
+    import tomllib
+
+    data = tomllib.loads(text)
+    pkgs: list[tuple[str, str]] = []
+    for pkg in data.get("package") or []:
+        if not isinstance(pkg, dict):
+            continue
+        name, version = pkg.get("name"), pkg.get("version")
+        if not isinstance(name, str) or not isinstance(version, str):
+            continue
+        src = pkg.get("source")
+        if isinstance(src, dict):
+            if any(k in src for k in ("editable", "virtual", "path", "directory", "git")):
+                continue
+            if src.get("type") in {"git", "directory", "file", "url"}:
+                continue
+        pkgs.append((name, version))
+    return pkgs
+
+
 def extract_packages(path: Path) -> tuple[str, list[tuple[str, str]]]:
     """Return (ecosystem, [(name, version), ...])."""
     name = path.name.lower()
@@ -227,6 +261,8 @@ def extract_packages(path: Path) -> tuple[str, list[tuple[str, str]]]:
         return "npm", _parse_npm_lock(data)
     if name.endswith("requirements.txt"):
         return "PyPI", _parse_requirements_txt(text)
+    if name.endswith("uv.lock") or name.endswith("poetry.lock"):
+        return "PyPI", _parse_toml_lock(text)
     if name.endswith("pipfile.lock"):
         data = json.loads(text)
         pkgs: list[tuple[str, str]] = []
@@ -252,11 +288,11 @@ def query_osv_batch(
     """Query OSV from Plane 1 (never from guest after offline — D43)."""
     if ecosystem == "unknown" or not packages:
         return []
-    # Cap queries to keep finalize bounded.
-    capped = packages[:OSV_BATCH_LIMIT]
+    if len(packages) > OSV_BATCH_LIMIT:
+        raise ValueError("OSV request exceeds batch size")
     queries = [
         {"package": {"name": name, "ecosystem": ecosystem}, "version": version}
-        for name, version in capped
+        for name, version in packages
     ]
     body = json.dumps({"queries": queries}).encode("utf-8")
     req = urllib.request.Request(
@@ -271,13 +307,13 @@ def query_osv_batch(
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         payload = json.loads(resp.read().decode("utf-8"))
     results = payload.get("results") if isinstance(payload, dict) else None
-    if not isinstance(results, list) or len(results) != len(capped):
+    if not isinstance(results, list) or len(results) != len(packages):
         raise ValueError("Incomplete OSV batch response")
     vulns: list[dict[str, Any]] = []
     for i, item in enumerate(results):
         if not isinstance(item, dict) or not isinstance(item.get("vulns", []), list):
             raise ValueError("Invalid OSV result")
-        name, version = capped[i]
+        name, version = packages[i]
         for vuln in item.get("vulns") or []:
             if not isinstance(vuln, dict) or not vuln.get("id"):
                 raise ValueError("Invalid OSV advisory")
@@ -323,18 +359,50 @@ def _osv_url(vuln: dict[str, Any]) -> str | None:
     return None
 
 
+def _advisory_id_only(finding: dict[str, Any]) -> bool:
+    detail = finding.get("detail") or {}
+    return finding.get("source") == "sca" and (
+        not finding.get("title")
+        or finding["title"] == detail.get("osv_id")
+        or re.fullmatch(r"(?:GHSA|PYSEC|CVE|OSV|RUSTSEC)-[A-Za-z0-9-]+", finding["title"])
+        is not None
+    )
+
+
+def _load_advisory_summary(finding: dict[str, Any], timeout: float) -> None:
+    """Best-effort context for the leading advisory, within the existing lookup budget."""
+    advisory_id = finding["detail"]["osv_id"]
+    if (
+        not isinstance(advisory_id, str)
+        or timeout <= 0
+        or not re.fullmatch(r"[A-Za-z0-9_-]{1,120}", advisory_id)
+    ):
+        return
+    try:
+        url = f"https://api.osv.dev/v1/vulns/{advisory_id}"
+        with urllib.request.urlopen(url, timeout=min(timeout, 3.0)) as response:
+            data = json.loads(response.read(256_000))
+        if isinstance(data, dict) and data.get("id") == advisory_id:
+            description = data.get("summary") or data.get("details")
+            if isinstance(description, str) and description.strip():
+                finding["title"] = " ".join(description.split())[:500]
+    except (OSError, ValueError):
+        pass  # The batch match remains valid even when its description is unavailable.
+
+
 def sca_findings_from_lockfiles(
     lockfiles: list[Path],
     *,
     osv_endpoint: str = OSV_QUERYBATCH,
-) -> tuple[list[dict[str, Any]], str]:
+) -> tuple[list[dict[str, Any]], str, int, int]:
     """
-    Return (findings, status) where status is ok|partial|failed.
+    Return findings, status, checked entries and discovered pinned entries.
     """
     findings: list[dict[str, Any]] = []
-    if not lockfiles:
-        return [], "partial"
-    incomplete = False
+    incomplete = not lockfiles
+    deadline = time.monotonic() + OSV_LOOKUP_SECONDS
+    requested = 0
+    discovered = 0
     errors = 0
     scanned = 0
     for path in lockfiles:
@@ -343,28 +411,34 @@ def sca_findings_from_lockfiles(
             if not packages:
                 incomplete = True
                 continue
-            if len(packages) > OSV_BATCH_LIMIT:
-                incomplete = True
-            vulns = query_osv_batch(ecosystem, packages, endpoint=osv_endpoint)
-            scanned += 1
-            for vuln in vulns:
-                fid = f"sca-{uuid.uuid4().hex[:8]}"
-                findings.append(
-                    {
-                        "id": fid,
-                        "severity": vuln.get("severity") or "medium",
-                        "package": f"{vuln.get('package')}@{vuln.get('version')}",
-                        "title": str(vuln.get("summary") or vuln.get("osv_id") or "advisory"),
-                        "advisory_url": vuln.get("advisory_url"),
-                        "source": "sca",
-                        "detail": {
-                            "osv_id": vuln.get("osv_id"),
-                            "ecosystem": vuln.get("ecosystem"),
-                            "lockfile": path.name,
-                            "aliases": vuln.get("aliases") or [],
-                        },
-                    }
-                )
+            discovered += len(packages)
+            for start in range(0, len(packages), OSV_BATCH_LIMIT):
+                remaining = deadline - time.monotonic()
+                if requested >= OSV_MAX_BATCHES or remaining <= 0:
+                    incomplete = True
+                    break
+                batch = packages[start : start + OSV_BATCH_LIMIT]
+                requested += 1
+                vulns = query_osv_batch(ecosystem, batch, endpoint=osv_endpoint, timeout=remaining)
+                scanned += len(batch)
+                for vuln in vulns:
+                    fid = f"sca-{uuid.uuid4().hex[:8]}"
+                    findings.append(
+                        {
+                            "id": fid,
+                            "severity": vuln.get("severity") or "medium",
+                            "package": f"{vuln.get('package')}@{vuln.get('version')}",
+                            "title": str(vuln.get("summary") or vuln.get("osv_id") or "advisory"),
+                            "advisory_url": vuln.get("advisory_url"),
+                            "source": "sca",
+                            "detail": {
+                                "osv_id": vuln.get("osv_id"),
+                                "ecosystem": vuln.get("ecosystem"),
+                                "lockfile": path.name,
+                                "aliases": vuln.get("aliases") or [],
+                            },
+                        }
+                    )
         except (
             OSError,
             json.JSONDecodeError,
@@ -374,11 +448,15 @@ def sca_findings_from_lockfiles(
         ) as exc:
             errors += 1
             logger.warning("SCA failed for %s: %s", path, exc)
+    if findings and osv_endpoint == OSV_QUERYBATCH:
+        leading = min(findings, key=_review_priority)
+        if _advisory_id_only(leading):
+            _load_advisory_summary(leading, deadline - time.monotonic())
     if errors and scanned == 0:
-        return findings, "failed"
+        return findings, "failed", scanned, discovered
     if errors or incomplete:
-        return findings, "partial"
-    return findings, "ok"
+        return findings, "partial", scanned, discovered
+    return findings, "ok", scanned, discovered
 
 
 def collect_stream_findings(job_id: str, settings: Settings) -> list[dict[str, Any]]:
@@ -427,6 +505,75 @@ def collect_stream_findings(job_id: str, settings: Settings) -> list[dict[str, A
     return deduped
 
 
+def _measure_filesystem_read(
+    environment_id: str, job_id: str, settings: Settings
+) -> dict[str, Any]:
+    detail: dict[str, Any] = {}
+    try:
+        result = exec_command(
+            environment_id,
+            ["python3", "-E", "-s", "/opt/killhub/helpers/mcp_fixture_read.py"],
+            job_id=job_id,
+            settings=settings,
+            timeout=20,
+        )
+        measurement = json.loads(result.stdout) if result.exit_code == 0 else {}
+        if not isinstance(measurement, dict):
+            measurement = {}
+        status = measurement.get("status")
+        if (
+            status in ("passed", "failed")
+            and all(
+                isinstance(measurement.get(k), str)
+                and re.fullmatch(r"[0-9a-f]{64}", measurement[k])
+                for k in ("expected_sha256", "response_sha256", "schema_sha256")
+            )
+            and type(measurement.get("elapsed_ms")) is int
+            and measurement["elapsed_ms"] >= 0
+            and type(measurement.get("fixture_unchanged")) is bool
+            and measurement.get("tool") == "read_text_file"
+        ):
+            for key in (
+                "tool",
+                "expected_sha256",
+                "response_sha256",
+                "schema_sha256",
+                "fixture_unchanged",
+                "elapsed_ms",
+            ):
+                detail[key] = measurement[key]
+            detail["timeout_ms"] = 15000
+            matched = (
+                detail["fixture_unchanged"]
+                and detail["response_sha256"] == detail["expected_sha256"]
+                and detail["elapsed_ms"] <= detail["timeout_ms"]
+            )
+            detail["status"] = "passed" if matched and status == "passed" else "failed"
+        else:
+            detail.update(status="partial", reason="measurement_unavailable")
+    except (HarnessError, ValueError):
+        detail.update(status="partial", reason="measurement_unavailable")
+    return detail
+
+
+def _has_offline_evidence(events: list[JobEvent], environment_id: str) -> bool:
+    restored = False
+    denied = False
+    for event in events:
+        payload = event.payload
+        if event.type == "lifecycle" and payload.get("phase") == "network_verify":
+            restored = (
+                payload.get("environment_id") == environment_id
+                and (payload.get("net") or {}).get("no_net") is True
+            )
+            denied = False
+        elif (
+            event.type == "log" and payload.get("kind") == "install" and "offline_probe" in payload
+        ):
+            denied = (payload.get("offline_probe") or {}).get("classification") == "policy_denied"
+    return restored and denied
+
+
 def run_mcp_assessment_if_planned(
     environment_id: str | None,
     *,
@@ -439,50 +586,39 @@ def run_mcp_assessment_if_planned(
     assessment = mcp.get("security_assessment") or {}
     if not isinstance(assessment, dict) or not assessment.get("enabled"):
         return None
-    if not environment_id:
-        result = {
-            "enabled": True,
-            "status": "skipped",
-            "reason": "no_sandbox",
-            "at": utc_now(),
-        }
-        _log(
-            job_id,
-            "mcp_assessment skipped (no sandbox)",
-            settings=settings,
-            kind="mcp_assessment",
-            **result,
-        )
-        return result
-
-    # Bounded, non-weaponizing surface probe: confirm helpers still list MCP tools
-    # when stdio transport is declared. Never runs exploit suites (D33).
+    ledger = get_ledger(settings)
+    job = ledger.get_job(job_id)
+    fixture = match_fixture(job.github_url) if job else None
     transport = mcp.get("transport")
-    detail: dict[str, Any] = {
+    detail = {
         "enabled": True,
+        "check": "filesystem_read_v1",
         "transport": transport,
         "at": utc_now(),
+        "status": "skipped",
     }
-    if transport == "stdio":
-        probe = exec_command(
-            environment_id,
-            [
-                "sh",
-                "-lc",
-                "test -f /opt/killhub/helpers/mcp_stdio_verify.py "
-                "&& echo helper_ok || echo helper_missing",
-            ],
-            job_id=job_id,
-            settings=settings,
-            timeout=30,
-        )
-        ok = "helper_ok" in (probe.stdout or "")
-        detail["status"] = "ok" if ok else "partial"
-        detail["helper"] = "present" if ok else "missing"
+    if not environment_id or not job or job.sandbox_id != environment_id:
+        detail["reason"] = "no_current_sandbox"
+    elif transport != "stdio" or assessment.get("check") != detail["check"]:
+        detail["reason"] = "no_supported_behavior_check"
+    elif (
+        not fixture
+        or fixture["id"] != "git_mcp_filesystem"
+        or job.resolved_commit != fixture["commit"]
+        or (profile.get("source") or {}).get("commit") != fixture["commit"]
+    ):
+        detail["reason"] = "unmatched_fixture_revision"
+    elif (
+        job.cancel_requested_at
+        or not (job.readiness or {}).get("passed")
+        or (job.verification or {}).get("kind") != "original_application"
+    ):
+        detail["reason"] = "original_readiness_required"
+    elif not _has_offline_evidence(ledger.list_events(job_id), environment_id):
+        detail["reason"] = "offline_evidence_missing"
     else:
-        detail["status"] = "ok"
-        detail["note"] = "assessment recorded without offensive probes"
-
+        detail["resolved_commit"] = job.resolved_commit
+        detail.update(_measure_filesystem_read(environment_id, job_id, settings))
     _log(
         job_id,
         f"mcp_assessment → {detail.get('status')}",
@@ -490,11 +626,13 @@ def run_mcp_assessment_if_planned(
         kind="mcp_assessment",
         **detail,
     )
-    if detail.get("status") == "partial":
+    if detail.get("status") in ("failed", "partial"):
         finding = {
             "id": f"mcp-{uuid.uuid4().hex[:8]}",
             "severity": "low",
-            "title": "MCP assessment tooling incomplete",
+            "title": "Fixture read differed from expected behavior"
+            if detail["status"] == "failed"
+            else "Fixture read evidence incomplete",
             "source": "mcp_assessment",
             "detail": detail,
         }
@@ -543,7 +681,22 @@ def _render_review(findings: list[dict[str, Any]], draft: str | None) -> tuple[s
             # an advisory title are display text and must not count as citations.
             title = redact_inference_text(str(evidence[item_id].get("title") or ""))
             title = " ".join(title.replace("[", "(").replace("]", ")").split())[:300]
-            parts.append(f"{severity}: {title or 'Recorded finding'} [{item_id}]")
+            # Special cases use the recorded advisory or policy classification.
+            finding = evidence[item_id]
+            if _advisory_id_only(finding):
+                package = redact_inference_text(str(finding.get("package") or "a dependency"))
+                package = " ".join(package.replace("[", "(").replace("]", ")").split())[:300]
+                parts.append(
+                    f"An advisory lists {package} as affected [{item_id}]. "
+                    "Check the advisory for a fixed version."
+                )
+            elif (
+                finding.get("source") == "network"
+                and (finding.get("detail") or {}).get("classification") == "policy_denied"
+            ):
+                parts.append(f"The sandbox blocked a network connection as expected [{item_id}].")
+            else:
+                parts.append(f"{severity}: {title or 'Recorded finding'} [{item_id}]")
     if len(parts) < len(evidence):
         parts.append("See the full report for additional findings.")
     return "Cite-checked review — " + " | ".join(parts), bool(selected)
@@ -553,6 +706,11 @@ def cite_checked_review(findings: list[dict[str, Any]], draft: str | None = None
     """Build a D48 review whose cited claims are limited to persisted findings."""
     summary, _ = _render_review(findings, draft)
     return summary
+
+
+def _review_priority(finding: dict[str, Any]) -> int:
+    rank = {"critical": 0, "high": 1, "medium": 2, "moderate": 2, "low": 3, "info": 5}
+    return rank.get(str(finding.get("severity")).lower(), 4)
 
 
 def run_vuln_scan(
@@ -595,7 +753,9 @@ def run_vuln_scan(
         )
 
     endpoint = osv_endpoint or getattr(cfg, "vuln_scan_osv_url", None) or OSV_QUERYBATCH
-    sca_findings, sca_status = sca_findings_from_lockfiles(lock_host, osv_endpoint=str(endpoint))
+    sca_findings, sca_status, checked, discovered = sca_findings_from_lockfiles(
+        lock_host, osv_endpoint=str(endpoint)
+    )
     for finding in sca_findings:
         _finding_event(job_id, settings=cfg, finding=finding)
 
@@ -632,11 +792,14 @@ def run_vuln_scan(
     if selected:
         review_mode = "llm_rag" if (cfg.vultr_rag_collection or "").strip() else "llm"
     if not lock_host:
-        summary = f"No dependency files were available for scanning. {summary}"
+        summary = f"{summary} No dependency files were available for scanning."
     elif status == "failed":
-        summary = f"Dependency advisory lookup could not be completed. {summary}"
+        summary = f"{summary} The lookup for known dependency issues failed."
     elif status == "partial":
-        summary = f"Dependency advisory coverage was incomplete. {summary}"
+        summary = f"{summary} Some dependencies could not be checked for known security issues."
+
+    if discovered:
+        summary = f"{summary} Checked {checked} of {discovered} listed dependency versions."
 
     report = ledger.upsert_vuln_report(
         job_id,
@@ -653,6 +816,8 @@ def run_vuln_scan(
         status=status,
         finding_count=len(all_findings),
         lockfiles=[p.name for p in lock_host],
+        packages_checked=checked,
+        packages_discovered=discovered,
         report_id=report.get("job_id"),
         review_mode=review_mode,
     )

@@ -9,6 +9,7 @@ import {
   type SeverityLevel,
 } from "@/lib/findings";
 import type { DetonationVerdict } from "@/lib/job-artifacts";
+import { SectionHeader } from "./SectionHeader";
 
 type VulnReportProps = {
   report: VulnReportData | null | undefined;
@@ -72,10 +73,8 @@ function severityTone(raw: string | undefined): { bg: string; fg: string } {
 export function VulnReport({ report, verdictFindings }: VulnReportProps) {
   if (!report && !verdictFindings?.length) {
     return (
-      <section aria-label="Vulnerability report">
-        <p className="mb-2 text-sm uppercase tracking-wide text-(--muted)">
-          Vulnerability report
-        </p>
+      <section aria-label="Vulnerability report" className="space-y-3">
+        <SectionHeader size="sm" eyebrow="Scan" title="Vulnerability report" />
         <p className="text-sm text-(--muted)">
           Scan not available yet - report appears after finalize.
         </p>
@@ -167,14 +166,24 @@ export function VulnReport({ report, verdictFindings }: VulnReportProps) {
       {report?.mcp_assessment ? (
         <div className="border border-(--line) bg-(--paper-deep)/50 px-3 py-2 text-sm">
           <p className="text-xs uppercase tracking-wide text-(--muted)">
-            MCP assessment (agent-planned)
+            MCP tool behavior
+          </p>
+          <p className="mt-1">
+            {report.mcp_assessment.check === "filesystem_read_v1"
+              ? ({
+                  passed:
+                    "The filesystem tool returned the expected content and preserved the fixture.",
+                  failed:
+                    "The filesystem read did not meet the fixture expectations.",
+                  partial: "The fixture read produced incomplete evidence.",
+                  skipped: "The fixture read was skipped.",
+                }[String(report.mcp_assessment.status)] ??
+                "Behavior outcome unavailable.")
+              : "This historical assessment contains no measured fixture read."}
           </p>
           <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap font-mono text-xs">
             {JSON.stringify(report.mcp_assessment, null, 2)}
           </pre>
-          <p className="mt-2 text-xs text-(--muted)">
-            Shown only when the profile enabled assessment - separate from SCA.
-          </p>
         </div>
       ) : null}
 

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { resolveScreenshotSrc, screenshotFallbackSrc } from "@/lib/screenshots";
+import { SectionHeader } from "./SectionHeader";
+import { SECTION_SCROLL_MT } from "./SectionNav";
 
 export type ScreenshotItem = {
   screenshot_id: string;
@@ -71,26 +73,20 @@ export function ScreenshotTimeline({ jobId, shots }: ScreenshotTimelineProps) {
 
   return (
     <section
+      id="section-screenshots"
       aria-label="Screenshot trail"
-      className="overflow-hidden border border-(--line) bg-(--paper-deep)/55"
+      className={`overflow-hidden border border-(--line) bg-(--paper-deep)/55 ${SECTION_SCROLL_MT}`}
     >
-      <div className="flex flex-wrap items-end justify-between gap-2 border-b border-(--line) px-3 py-4 sm:px-4">
-        <div>
-          <p className="text-xs uppercase tracking-[0.14em] text-(--muted)">
-            Verifiable stills
-          </p>
-          <h2
-            className="mt-1 text-lg font-semibold tracking-tight sm:text-xl"
-            style={{
-              fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-            }}
-          >
-            Screenshot trail
-          </h2>
-        </div>
-        <p className="font-mono text-xs text-(--muted)">
-          {shots.length} still{shots.length === 1 ? "" : "s"}
-        </p>
+      <div className="border-b border-(--line) px-3 py-4 sm:px-4">
+        <SectionHeader
+          eyebrow="Verifiable stills"
+          title="Screenshot trail"
+          meta={
+            <p className="type-mono text-(--muted)">
+              {shots.length} still{shots.length === 1 ? "" : "s"}
+            </p>
+          }
+        />
       </div>
 
       <figure className="relative bg-(--paper)">
@@ -101,15 +97,10 @@ export function ScreenshotTimeline({ jobId, shots }: ScreenshotTimelineProps) {
           src={featuredSrc}
           alt={featured.caption || `Screenshot ${featured.screenshot_id}`}
           priority
-          className="aspect-[16/9] w-full object-cover object-top sm:aspect-[2/1]"
+          className="aspect-video w-full object-cover object-top sm:aspect-2/1"
         />
         <figcaption className="absolute inset-x-0 bottom-0 bg-linear-to-t from-[#0a0b0d]/95 via-[#0a0b0d]/55 to-transparent px-3 pb-3 pt-10 sm:px-4">
-          <p
-            className="text-sm font-semibold tracking-tight text-(--ink) sm:text-base"
-            style={{
-              fontFamily: "var(--font-display), ui-sans-serif, sans-serif",
-            }}
-          >
+          <p className="type-display text-sm font-semibold tracking-tight text-(--ink) sm:text-base">
             {featured.step || "still"}
           </p>
           {featured.caption ? (
@@ -149,7 +140,7 @@ export function ScreenshotTimeline({ jobId, shots }: ScreenshotTimelineProps) {
                     alt=""
                     className="aspect-video w-full object-cover object-top"
                   />
-                  <span className="block truncate px-1.5 py-1 font-mono text-[10px] text-(--muted)">
+                  <span className="block truncate px-1.5 py-1 type-mono text-(--muted)">
                     {index + 1}. {shot.step || "still"}
                   </span>
                 </button>

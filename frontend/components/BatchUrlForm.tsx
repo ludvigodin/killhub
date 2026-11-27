@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useState, useTransition } from "react";
 import { createJob } from "@/lib/api";
 import {
@@ -37,6 +38,7 @@ function admissionHint(code?: string, status?: number): string | null {
 }
 
 export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
+  const router = useRouter();
   const [text, setText] = useState("");
   const [results, setResults] = useState<BatchResult[]>([]);
   const [batchError, setBatchError] = useState<string | null>(null);
@@ -114,6 +116,10 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
         setText("");
       }
       onCreated?.(out);
+      const firstJob = out.find((r) => r.ok && r.job_id)?.job_id;
+      if (firstJob) {
+        router.push(`/jobs/${encodeURIComponent(firstJob)}`);
+      }
     });
   }
 
@@ -129,7 +135,7 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
         <label className="sr-only" htmlFor="github-urls">
           Public HTTPS GitHub repository URL
         </label>
-        <div className="mx-auto flex w-full max-w-md flex-wrap items-stretch gap-2 sm:flex-nowrap">
+        <div className="mx-auto flex w-full max-w-md flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-stretch">
           <input
             id="github-urls"
             name="github_urls"
@@ -145,28 +151,30 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
                 : "https://github.com/org/repo"
             }
             disabled={pending}
-            className="min-h-11 min-w-0 flex-1 basis-full rounded-lg border border-(--line) bg-(--paper-deep) px-4 font-mono text-sm text-(--ink) outline-none placeholder:text-(--muted) focus:border-(--accent) disabled:opacity-70 sm:basis-auto"
+            className="min-h-11 min-w-0 w-full rounded-lg border border-(--line) bg-(--paper-deep) px-4 font-mono text-sm text-(--ink) outline-none placeholder:text-(--muted) focus:border-(--accent) disabled:opacity-70 sm:min-w-0 sm:flex-1"
           />
-          <button
-            type="submit"
-            disabled={pending || lines.length === 0}
-            className="min-h-11 min-w-0 flex-1 rounded-lg bg-(--accent) px-5 text-sm font-medium text-(--paper) transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
-          >
-            {pending
-              ? lines.length > 1
-                ? `Starting ${lines.length}…`
-                : "Starting…"
-              : lines.length > 1
-                ? `Verify ${lines.length}`
-                : "Verify"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setMcpOpen(true)}
-            className="min-h-11 min-w-0 flex-1 rounded-lg border border-(--line) bg-transparent px-4 text-sm font-medium text-(--ink) transition hover:border-(--accent) hover:bg-(--paper-deep) sm:flex-none"
-          >
-            Connect MCP
-          </button>
+          <div className="grid grid-cols-2 gap-2 sm:contents">
+            <button
+              type="submit"
+              disabled={pending || lines.length === 0}
+              className="min-h-11 min-w-0 rounded-lg bg-(--accent) px-5 text-sm font-medium text-(--paper) transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
+            >
+              {pending
+                ? lines.length > 1
+                  ? `Starting ${lines.length}…`
+                  : "Starting…"
+                : lines.length > 1
+                  ? `Verify ${lines.length}`
+                  : "Verify"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMcpOpen(true)}
+              className="min-h-11 min-w-0 rounded-lg border border-(--line) bg-transparent px-4 text-sm font-medium text-(--ink) transition hover:border-(--accent) hover:bg-(--paper-deep) sm:flex-none"
+            >
+              Connect MCP
+            </button>
+          </div>
         </div>
       </form>
       {catalog?.restricted && (
@@ -189,7 +197,9 @@ export function BatchUrlForm({ onCreated }: BatchUrlFormProps) {
           Enter a public HTTPS GitHub repository URL.
         </p>
       ) : null}
-      {batchError ? <ErrorBanner message={batchError} /> : null}
+      {batchError ? (
+        <ErrorBanner className="mt-4" message={batchError} />
+      ) : null}
       {hint ? <p className="mt-3 text-sm text-(--warn)">{hint}</p> : null}
       {results.length > 0 ? (
         <ul className="mt-4 space-y-1.5 text-sm">

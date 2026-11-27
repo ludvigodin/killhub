@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { DM_Sans, Syne } from "next/font/google";
+import { homeDescription, homeTitle } from "@/lib/seo";
 import "./globals.css";
 
 const syne = Syne({
@@ -17,28 +18,20 @@ const dmSans = DM_Sans({
 export const metadata: Metadata = {
   metadataBase: new URL("https://killhub.pro"),
   title: {
-    default: "Killhub",
+    default: homeTitle,
     template: "%s · Killhub",
   },
-  description:
-    "Plan → sandboxed execution → verifiable output → destroy. Paste a public git URL; Killhub runs real work in a Vultr Microsandbox and returns evidence.",
+  description: homeDescription,
   applicationName: "Killhub",
   openGraph: {
-    title: "Killhub",
-    description:
-      "Plan → sandboxed execution → verifiable output → destroy. Paste a public git URL; Killhub runs real work in a Vultr Microsandbox and returns evidence.",
-    url: "https://killhub.pro",
+    // Relative to the current path, so each URL gets its own og:url.
+    url: "./",
     siteName: "Killhub",
     type: "website",
+    locale: "en_US",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Killhub",
-    description:
-      "Plan → sandboxed execution → verifiable output → destroy. Paste a public git URL; Killhub runs real work in a Vultr Microsandbox and returns evidence.",
-  },
-  alternates: {
-    canonical: "/",
   },
 };
 

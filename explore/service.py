@@ -565,7 +565,7 @@ def claim_pending_job(*, settings: Settings | None = None) -> Job | None:
     global _pipeline_flags_warned
     cfg = settings or get_settings()
     if not _pipeline_flags_enabled(cfg):
-        # D81: do not claim into a stub with no runner; leave jobs pending/queued.
+        # D83: do not claim into a stub with no runner; leave jobs pending/queued.
         if not _pipeline_flags_warned:
             logger.error("%s", reason_for_misconfigured_worker())
             _pipeline_flags_warned = True

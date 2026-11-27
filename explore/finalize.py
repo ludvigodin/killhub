@@ -289,6 +289,7 @@ def finalize_job(
         "sandbox_generations": generations,
         "readiness": readiness_before or job.readiness,
         "verification": job.verification,
+        "mcp_assessment": (vuln_report or {}).get("mcp_assessment"),
         "finding_ids": [f.get("id") for f in (vuln_report or {}).get("findings") or []],
         "vuln_review": (vuln_report or {}).get("summary"),
         "at": utc_now(),

@@ -1,4 +1,5 @@
 import type { JobSnapshot } from "@/lib/api";
+import { SectionHeader } from "./SectionHeader";
 
 type EnvStatusProps = {
   snapshot: JobSnapshot;
@@ -93,9 +94,7 @@ export function EnvStatus({ snapshot }: EnvStatusProps) {
 
   return (
     <section aria-label="Environment status" className="space-y-3">
-      <p className="text-sm uppercase tracking-wide text-(--muted)">
-        Environment
-      </p>
+      <SectionHeader size="sm" eyebrow="Sandbox" title="Environment" />
       <dl className="grid gap-2 text-sm sm:grid-cols-2">
         <div>
           <dt className="text-(--muted)">Lifecycle</dt>
