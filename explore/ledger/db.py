@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import threading
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal, Protocol
@@ -51,15 +52,23 @@ def qmark_to_percent(sql: str) -> str:
 
 
 class _SqliteCursor:
-    def __init__(self, cur: sqlite3.Cursor) -> None:
-        self._cur = cur
+    """Rows fetched eagerly under the connection lock (see SqliteConnection)."""
+
+    def __init__(self, rows: list[sqlite3.Row]) -> None:
+        self._rows = rows
+        self._pos = 0
 
     def fetchone(self) -> Row | None:
-        row = self._cur.fetchone()
-        return dict(row) if row is not None else None
+        if self._pos >= len(self._rows):
+            return None
+        row = self._rows[self._pos]
+        self._pos += 1
+        return dict(row)
 
     def fetchall(self) -> list[Row]:
-        return [dict(r) for r in self._cur.fetchall()]
+        rows = self._rows[self._pos :]
+        self._pos = len(self._rows)
+        return [dict(r) for r in rows]
 
 
 class SqliteConnection:
@@ -71,6 +80,11 @@ class SqliteConnection:
         self._conn = conn
         self.db_path = db_path
         self._conn.row_factory = sqlite3.Row
+        # One connection is shared by API threads, the worker thread and the
+        # reaper (check_same_thread=False). Closing it while another thread is
+        # inside a statement segfaults CPython's sqlite3, so every call into
+        # the connection — including close — is serialized here.
+        self._lock = threading.RLock()
 
     @classmethod
     def open(cls, path: Path) -> SqliteConnection:
@@ -93,28 +107,35 @@ class SqliteConnection:
         return cls(conn, db_path=db_path)
 
     def execute(self, sql: str, params: Sequence[Any] | None = None) -> CursorResult:
-        cur = self._conn.execute(sql, tuple(params or ()))
-        return _SqliteCursor(cur)
+        with self._lock:
+            cur = self._conn.execute(sql, tuple(params or ()))
+            return _SqliteCursor(cur.fetchall())
 
     def executescript(self, script: str) -> None:
-        self._conn.executescript(script)
+        with self._lock:
+            self._conn.executescript(script)
 
     def begin(self) -> None:
-        self._conn.execute("BEGIN IMMEDIATE")
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
 
     def commit(self) -> None:
-        self._conn.execute("COMMIT")
+        with self._lock:
+            self._conn.execute("COMMIT")
 
     def rollback(self) -> None:
-        self._conn.execute("ROLLBACK")
+        with self._lock:
+            self._conn.execute("ROLLBACK")
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     def backup_to(self, dest_path: Path) -> None:
         dest = sqlite3.connect(dest_path)
         try:
-            self._conn.backup(dest)
+            with self._lock:
+                self._conn.backup(dest)
         finally:
             dest.close()
 
