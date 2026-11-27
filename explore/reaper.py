@@ -1,7 +1,7 @@
-"""Absolute expiry + orphan reaper (D41, D57, D81).
+"""Absolute expiry + orphan reaper (D41, D57, D83).
 
 Plane 1 loop: reconcile ledger vs live msb inventory and destroy expired gens,
-then fail timed-out / stalled / expired non-terminal jobs (D81).
+then fail timed-out / stalled / expired non-terminal jobs (D83).
 Host-side entry (`python -m reaper --host`): scan msb labels and destroy past
 `killhub.expires_at` even if Plane 1 is down — does not trust `msb touch`.
 """
@@ -133,7 +133,7 @@ def reap_expired_from_ledger(
                     }
                 )
 
-    # D81: terminalize jobs past wall clock / stall silence / expires_at.
+    # D83: terminalize jobs past wall clock / stall silence / expires_at.
     from stall import reap_stale_jobs
 
     actions.extend(reap_stale_jobs(settings=cfg, cli=msb, now=now))

@@ -35,7 +35,7 @@ async def worker_loop(settings: Settings | None = None) -> None:
             claimed = await asyncio.to_thread(claim_pending_job)
             if claimed is not None:
                 logger.info("claimed job %s", claimed.job_id)
-                # claim_pending_job fails misconfigured workers (D81); remaining
+                # claim_pending_job fails misconfigured workers (D83); remaining
                 # claims always have at least one pipeline / bootstrap flag.
                 await asyncio.to_thread(_run_claimed_job, claimed.job_id, cfg)
         except asyncio.CancelledError:
@@ -70,7 +70,7 @@ def _run_claimed_job(job_id: str, settings: Settings) -> None:
     heals = 0
     max_heals = max(int(settings.max_sandbox_heals or 0), 0)
     with JobHeartbeat(job_id, settings=settings):
-        # Clear claim placeholder so the UI never sticks on a stub step (D81).
+        # Clear claim placeholder so the UI never sticks on a stub step (D83).
         try:
             ledger.update_job_fields(
                 job_id,

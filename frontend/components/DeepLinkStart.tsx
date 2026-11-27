@@ -101,7 +101,11 @@ export function DeepLinkStart({ owner, repo }: DeepLinkStartProps) {
       <h1 className="type-page-title mb-2">{label}</h1>
       {error ? (
         <>
-          <ErrorBanner message={error.message} code={error.code} />
+          <ErrorBanner
+            className="mt-4"
+            message={error.message}
+            code={error.code}
+          />
           {hint ? <p className="mt-3 text-sm text-(--muted)">{hint}</p> : null}
           <p className="mt-6 text-sm text-(--muted)">
             <Link

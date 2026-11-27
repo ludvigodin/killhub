@@ -73,6 +73,27 @@ app = FastAPI(title="Killhub explore", version="0.0.4", lifespan=lifespan)
 app.include_router(internal_router)
 
 
+@app.middleware("http")
+async def operator_mcp_http_compat(request, call_next):  # type: ignore[no-untyped-def]
+    """Streamable HTTP–friendly statuses for /internal/mcp without rewriting routes (D81)."""
+    path = request.url.path.rstrip("/") or "/"
+    if path == "/internal/mcp" and request.method == "GET":
+        return Response(status_code=405, headers={"Allow": "POST"})
+    if path == "/internal/mcp" and request.method == "POST":
+        from operator_mcp_tools import mcp_http_mode
+
+        token = mcp_http_mode.set(True)
+        try:
+            response = await call_next(request)
+        finally:
+            mcp_http_mode.reset(token)
+        # Notifications used to return 204; Streamable HTTP wants 202 Accepted.
+        if response.status_code == 204:
+            return Response(status_code=202)
+        return response
+    return await call_next(request)
+
+
 @app.get("/internal/health")
 def internal_health(response: Response) -> dict[str, object]:
     """Sidecar + ledger liveness (unauthenticated for compose probes)."""

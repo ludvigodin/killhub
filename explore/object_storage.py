@@ -325,6 +325,37 @@ def cdn_base_url(settings: Settings | None = None) -> str:
     return (cfg.object_storage_cdn_base_url or "").strip().rstrip("/")
 
 
+def object_storage_origin_hostname(
+    *,
+    endpoint: str | None = None,
+    bucket: str | None = None,
+    settings: Settings | None = None,
+) -> str:
+    """Virtual-host origin host for a Vultr CDN Pull Zone (D76).
+
+    Form: ``{bucket}.{cluster}.vultrobjects.com`` — not the path-style API endpoint.
+    """
+    conf = object_storage_config(settings)
+    ep = (endpoint if endpoint is not None else conf.endpoint).strip()
+    bkt = (bucket if bucket is not None else conf.bucket).strip()
+    if not ep or not bkt:
+        raise ObjectStorageError(
+            "OBJECT_STORAGE_ENDPOINT and OBJECT_STORAGE_BUCKET required for CDN origin",
+        )
+    raw = ep
+    if raw.startswith("http://") or raw.startswith("https://"):
+        host = urlparse(raw).hostname or ""
+    else:
+        host = raw.split("/")[0]
+    host = host.strip().rstrip(".")
+    if not host:
+        raise ObjectStorageError(f"cannot parse object storage host from {ep!r}")
+    # Already virtual-host style (bucket.cluster.vultrobjects.com).
+    if host.startswith(f"{bkt}."):
+        return host
+    return f"{bkt}.{host}"
+
+
 def cdn_url_for_key(key: str, *, settings: Settings | None = None) -> str | None:
     """Absolute CDN URL for an object key, or None when CDN is not configured."""
     base = cdn_base_url(settings)

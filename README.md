@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="https://killhub.pro">
+    <img src="frontend/app/opengraph-image.jpg" alt="Killhub — Plan → sandboxed execution → verifiable output → destroy" width="800" />
+  </a>
+</p>
+
 # Killhub
 
 **Plan → sandboxed execution → verifiable output → destroy.**
@@ -69,17 +75,17 @@ flowchart TB
   D --> UI["UI: timeline · evidence · dossier"]
 ```
 
-Bootstrap comes **before** runtime-profile discovery ([DECISIONS.md](DECISIONS.md) D36).
+Bootstrap comes **before** runtime-profile discovery ([DECISIONS.md](DECISIONS.md) D36). Jobs are **server-owned** — close the tab and reopen `/jobs/{id}` to resume. Only cancel or timeout stops a job.
 
-**Jobs are server-owned.** Close the tab — the pipeline keeps running. Reopen `/jobs/{id}` to resume. Only cancel or timeout stops a job.
+**GitHub short path:** `https://killhub.pro/{owner}/{repo}` client-side starts a scan and lands on `/jobs/{id}`. History stays at `/repos/github.com/{owner}/{repo}`.
 
-**GitHub short path:** `https://killhub.pro/{owner}/{repo}` (e.g. `/heroku/node-js-getting-started`) client-side starts a scan of `https://github.com/{owner}/{repo}` and lands on `/jobs/{id}`. History stays at `/repos/github.com/{owner}/{repo}`.
+Planes, trust zones, job status machine, and security story: **[ARCHITECTURE.md](ARCHITECTURE.md)**. Request path and modules: **[docs/CODEMAP.md](docs/CODEMAP.md)**. HTTP/SSE contracts: **[API.md](API.md)**.
 
 ---
 
 ## Architecture at a glance
 
-Two planes implementing Pattern A. Hard boundary. Secrets stay on the control plane.
+Two planes. Hard boundary. Secrets stay on the control plane.
 
 ```mermaid
 flowchart TB
@@ -107,122 +113,33 @@ flowchart TB
 
 | Plane | Pattern A role | Owns |
 |------:|----------------|------|
-| **1** | Plan + verify + destroy orchestration | Next.js + `explore/` on Vultr Cloud Compute — UI, Jobs API/SSE, agent, harness, receipt, secrets |
-| **2** | Sandboxed execution | One Microsandbox microVM per job on VX1 — untrusted clone/install/run (explore and test share the same VM) |
+| **1** | Plan + verify + destroy orchestration | Next.js + `explore/` — UI, Jobs API/SSE, agent, harness, receipt, secrets |
+| **2** | Sandboxed execution | One Microsandbox microVM per job — untrusted clone/install/run (explore and test share the same VM) |
 
-There is **no** separate Explore VM vs Test VM.
-
-### Trust zones
-
-```mermaid
-flowchart LR
-  subgraph Z0["Internet"]
-    Browser["Operator browser"]
-  end
-  subgraph Host["Vultr fabric"]
-    Edge["Reverse proxy"]
-    CP["Control plane<br/>+ ledger + keys"]
-    SB["Disposable sandbox"]
-  end
-  subgraph Ext["External"]
-    Inf["Vultr Inference"]
-    GH["GitHub"]
-    Reg["Registries"]
-  end
-
-  Browser --> Edge --> CP
-  CP --> Inf
-  CP --> GH
-  CP -->|"msb + net policy"| SB
-  SB -.->|"install phase only"| Reg
-  CP -.->|"secrets never injected"| SB
-```
-
-Sandbox → control plane is **denied**. Real Killhub secrets never enter the guest (canaries only). After verifiable output, Plane 1 confirms **destroy** — the dossier stays on the ledger.
-
----
-
-## Job lifecycle
-
-Statuses map onto the Pattern A loop: **plan** (`analyzing` / `planning`) → **sandboxed execution** (`provisioning` / `installing`) → **verifiable output** (`verifying` ⇄ `repairing` / `scanning`) → **destroy** (`finalizing` → terminal).
-
-```mermaid
-stateDiagram-v2
-  [*] --> pending
-  pending --> queued
-  queued --> analyzing
-  analyzing --> planning
-  planning --> provisioning
-  provisioning --> installing
-  installing --> verifying
-  verifying --> repairing: probe fails
-  repairing --> verifying: retry ≤ MAX_REPAIR_ATTEMPTS
-  verifying --> scanning: ready evidence
-  scanning --> finalizing
-  finalizing --> completed
-  verifying --> failed: repairs exhausted
-  pending --> cancelled
-  analyzing --> cancelled
-  installing --> cancelled
-  completed --> [*]
-  failed --> [*]
-  cancelled --> [*]
-```
-
-Readiness is **verifiable output**, not a destroy trigger. The sandbox dies on `completed` / fail / cancel / absolute TTL — even if the control plane restarts.
-
----
-
-## Security story (in one picture)
-
-Containment-first: show the sandbox absorbing something unsafe, then destroy it. Chat without execution is out of scope.
-
-```mermaid
-flowchart TB
-  subgraph yes ["Verifiable / in scope"]
-    SCA["SCA / advisories with citations"]
-    MCP["Optional MCP Inspector/SDK when planned"]
-    CONT["Containment moment · network · canary probes"]
-  end
-  subgraph no ["Not a chat demo / out of scope"]
-    EXP["Weaponize CVEs"]
-    PEN["Generic app/web exploit suites"]
-    PATCH["Auto-patch / remediate"]
-  end
-```
-
-Untrusted code never runs as a privileged control-plane process. OpenCode only sees harness tools. Plane 2 network policy is probe-tested. Secrets never enter the guest.
+There is **no** separate Explore VM vs Test VM. Full trust-zone matrix and lifecycle: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
 ## Vultr-native stack
 
-Vultr is the control and execution fabric — not static hosting.
-
-| Layer | Pattern A role | Where |
-|-------|----------------|-------|
-| Public demo | Plan / verify UI + API | **[https://killhub.pro](https://killhub.pro)** — Vultr Cloud Compute behind HTTPS reverse proxy (app on `127.0.0.1`) |
-| Agent reasoning | Plan | Vultr Serverless Inference (`api.vultrinference.com`) |
-| Untrusted execution | Sandboxed execution | Microsandbox on Vultr VX1 — one microVM per job |
-| Local dev | Plane 1 only | `docker-compose` for control plane; sandboxes still provisioned on VX1 |
+| Layer | Where |
+|-------|-------|
+| Public demo | **[https://killhub.pro](https://killhub.pro)** — Vultr Cloud Compute behind HTTPS reverse proxy (app on `127.0.0.1`) |
+| Agent reasoning | Vultr Serverless Inference (`api.vultrinference.com`) |
+| Untrusted execution | Microsandbox on Vultr VX1 — one microVM per job |
+| Local Plane 1 | Native `pnpm dev` + `python -m main`, or `docker compose` (production-style Next) — sandboxes still need `msb` on VX1 |
 
 ---
 
 ## Golden fixtures (v1)
 
-Pinned commits live in fixture config ([DECISIONS.md](DECISIONS.md) D53). Use these to demo the full loop end-to-end.
+Pinned commits: [explore/fixtures/m7.json](explore/fixtures/m7.json) (D53).
 
 | Verifiable outcome | Repo |
 |---------|------|
-| `webapp` → `original_application` | [heroku/nodejs-getting-started](https://github.com/heroku/nodejs-getting-started) |
+| `webapp` → `original_application` | [heroku/nodejs-getting-started](https://github.com/heroku/nodejs-getting-started) (alias `node-js-getting-started`) |
 | `git_mcp` filesystem (stdio) | [modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers) |
 | Controlled `setup_failed` + SCA | Deliberately broken fixture (not NodeGoat) |
-
----
-
-## Who it’s for
-
-Operators, security-minded engineers, and builders of agentic apps who need **executed** bring-up of public git repos (MCP servers, webapps, oddball content) — with a plan, a sandbox, verifiable output, and confirmed destroy — not a narrative that pretends the work ran.
 
 ---
 
@@ -230,21 +147,23 @@ Operators, security-minded engineers, and builders of agentic apps who need **ex
 
 **Use the product:** [https://killhub.pro](https://killhub.pro)
 
-**Use it from an MCP client (Cursor / Claude):** stdio `explore/operator_mcp.py` or HTTP `https://killhub.pro/mcp` (D81). Prefer `create_and_wait` / `get_receipt` / `run_fixture`; same public Jobs API as the UI. See [API.md](API.md)#operator-mcp-d81.
+**Use it from an MCP client (Cursor / Claude):** stdio `explore/operator_mcp.py` or HTTP `https://killhub.pro/mcp` (D81). Prefer `create_and_wait` / `get_receipt` / `run_fixture`. See [API.md](API.md)#operator-mcp-d81.
 
 ```bash
 cd explore
 .venv/bin/python -m operator_mcp   # KILLHUB_BASE_URL=https://killhub.pro by default
 ```
 
-**Run / deploy on Vultr:** [SETUP.md](SETUP.md) — local Plane 1, VX1 Microsandbox, inference keys, reverse proxy, and verification.
+**Hack on the repo (native DX):**
 
-**Hack on the repo:**
+1. Read [PRODUCT.md](PRODUCT.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [CONTRIBUTING.md](CONTRIBUTING.md)
+2. Copy [`.env.example`](.env.example) → `.env` (never commit secrets)
+3. Follow [SETUP.md](SETUP.md) §4A + **§5 pipeline flags** — without `MSB_AUTO_CREATE` / `*_ON_CLAIM`, jobs will not progress
+4. `cd explore && .venv/bin/python -m main` and `cd frontend && pnpm dev`
 
-1. Read [PRODUCT.md](PRODUCT.md) — *what* and *why*
-2. Read [ARCHITECTURE.md](ARCHITECTURE.md) — planes, trust zones, lifecycle
-3. Read [AGENTS.md](AGENTS.md) — agent rules, quality gate, Vultr/`msb` tooling
-4. Follow [SETUP.md](SETUP.md) — copy [`.env.example`](.env.example) → `.env` (never commit secrets)
+`docker compose up --build` is a production-style control-plane path, not the fastest UI iteration loop. Plane 2 still requires Microsandbox/`msb` ([SETUP.md](SETUP.md) §6).
+
+**Deploy on Vultr:** [SETUP.md](SETUP.md).
 
 ---
 
@@ -252,30 +171,19 @@ cd explore
 
 | Doc | Purpose |
 |-----|---------|
-| [SETUP.md](SETUP.md) | Run / deploy on Vultr (local + production-style) |
 | [PRODUCT.md](PRODUCT.md) | Product intent |
-| [AGENTS.md](AGENTS.md) | Rules for AI agents working in this repo |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Two planes, trust zones, data flow |
-| [DECISIONS.md](DECISIONS.md) | Locked technical choices |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Two planes, trust zones, plan loop, lifecycle |
+| [docs/CODEMAP.md](docs/CODEMAP.md) | Where code lives / how a request flows |
+| [docs/GLOSSARY.md](docs/GLOSSARY.md) | Shared terms |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor workflow + quality gate |
+| [AGENTS.md](AGENTS.md) | Binding rules for AI agents |
+| [DECISIONS.md](DECISIONS.md) | Locked technical choices (index at top) |
 | [DATABASE.md](DATABASE.md) | Job / receipt model |
-| [API.md](API.md) | Jobs API + SSE contracts |
+| [API.md](API.md) | Jobs API + SSE + Operator MCP |
+| [SETUP.md](SETUP.md) | Run / deploy on Vultr |
 | [explore/fixtures/m7.json](explore/fixtures/m7.json) | Pinned M7 fixture SHAs (D53) |
 
-### API surface
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| `GET` | `/api/jobs` | Recent job summaries (feed; `?limit=&offset=`) |
-| `POST` | `/api/jobs` | Create `{ github_url }` → `{ job_id }` |
-| `GET` | `/api/jobs/{id}` | Snapshot |
-| `GET` | `/api/jobs/{id}/events` | SSE stream |
-| `GET` | `/api/jobs/{id}/events/recent` | Last N durable events (MCP `tail_events`) |
-| `GET` | `/api/jobs/{id}/screenshots` | Timeline (may be empty) |
-| `DELETE` | `/api/jobs/{id}` | Cancel + destroy |
-| `POST`/`GET` | `/mcp` | Operator MCP JSON-RPC (D81) |
-| `GET` | `/health` | Liveness |
-
-Full contracts: [API.md](API.md). Config and admission caps: [ARCHITECTURE.md](ARCHITECTURE.md) · [`.env.example`](.env.example).
+Public API cheat sheet and full contracts: [API.md](API.md). Config: [`.env.example`](.env.example).
 
 ---
 

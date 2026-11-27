@@ -2,7 +2,7 @@
 
 Killhub communication is plane-scoped. **Plane 1 owns the public Jobs API and SSE** ([DECISIONS.md](DECISIONS.md) D28). The **Python `explore/` sidecar owns job state** (D52) and exposes an internal Worker API on loopback. Plane 1 → Plane 2 over the harness (Microsandbox `msb` / SDK). Plane 2 never calls Plane 1 — enforced by network policy (D39).
 
-Related: [ARCHITECTURE.md](ARCHITECTURE.md) · [DATABASE.md](DATABASE.md) · [DECISIONS.md](DECISIONS.md)
+Related: [ARCHITECTURE.md](ARCHITECTURE.md) · [DATABASE.md](DATABASE.md) · [DECISIONS.md](DECISIONS.md) · [docs/CODEMAP.md](docs/CODEMAP.md) · [docs/GLOSSARY.md](docs/GLOSSARY.md)
 
 ---
 
@@ -269,11 +269,11 @@ Keep-alives at least ~every 15s while open (D50). Payloads must not include real
 
 ### `GET /api/jobs/{id}/screenshots`
 
-Ordered timeline (may be `[]`).
+Ordered timeline (may be `[]`). Each row includes ledger fields plus a public `url`: absolute Vultr CDN URL when the still is on Object Storage and `OBJECT_STORAGE_CDN_BASE_URL` is set (D76); otherwise the relative `/api/jobs/{id}/screenshots/{screenshot_id}` path.
 
 ### `GET /api/jobs/{id}/screenshots/{shot_id}`
 
-Image bytes (`image/png`). Serves a local hot cache when present; otherwise streams from Vultr Object Storage when `storage_path` is `s3://…` or `STORAGE_BACKEND=s3` (D72).
+Image bytes (`image/png`). Serves a local hot cache when present; otherwise streams from Vultr Object Storage when `storage_path` is `s3://…` or `STORAGE_BACKEND=s3` (D72). Remains available when CDN is configured (hot cache / non-CDN clients).
 
 ---
 
@@ -320,7 +320,7 @@ pending → [queued] → analyzing → planning → provisioning → installing
 
 Destroy triggers: after finalizer on terminal paths \| absolute `expires_at` — **not** readiness alone. Cleanup may end `destroy_failed` without job-level `destroyed_at` (D57). Gate outcomes: [DECISIONS.md](DECISIONS.md) D66.
 
-**Stall / timeout terminalization (D81):** Plane-1 reaper also fails non-terminal jobs when (1) `now - created_at >= JOB_TIMEOUT_SECONDS` → receipt `dossier.code=job_timeout`; (2) `now >= expires_at` (even with no sandbox) → `expires_at`; (3) claimed/in-flight with `now - updated_at >= JOB_STALL_SECONDS` → `job_stalled`. Claiming with no pipeline flags is a no-op (jobs stay `pending`). Workers emit ledger `progress` heartbeats (`payload.kind=heartbeat`) so `updated_at` reflects liveness; SSE comment keep-alives alone do not.
+**Stall / timeout terminalization (D83):** Plane-1 reaper also fails non-terminal jobs when (1) `now - created_at >= JOB_TIMEOUT_SECONDS` → receipt `dossier.code=job_timeout`; (2) `now >= expires_at` (even with no sandbox) → `expires_at`; (3) claimed/in-flight with `now - updated_at >= JOB_STALL_SECONDS` → `job_stalled`. Claiming with no pipeline flags is a no-op (jobs stay `pending`). Workers emit ledger `progress` heartbeats (`payload.kind=heartbeat`) so `updated_at` reflects liveness; SSE comment keep-alives alone do not.
 
 ---
 
@@ -363,7 +363,7 @@ Internal to `explore/harness.py` (agent-facing subset still bound by D38 + **D60
 
 ## Plane 1 → Inference / OpenCode
 
-Vultr Serverless Inference only (D25). Trusted OpenCode config (D38). Prompts under `prompts/`. Persist `inference_model` + usage (D40).
+Vultr Serverless Inference only (D25). Trusted OpenCode config (D38). Prompts under `explore/prompts/`. Persist `inference_model` + usage (D40).
 
 ---
 
@@ -432,7 +432,7 @@ Cursor (stdio):
 }
 ```
 
-Cursor (HTTP):
+Cursor (HTTP — remote agents; prefer stdio in-desktop):
 
 ```json
 {
@@ -443,6 +443,8 @@ Cursor (HTTP):
   }
 }
 ```
+
+Public `/mcp` edge behavior (Streamable HTTP–friendly): **POST** only; **GET → 405**; JSON-RPC **notifications → 202** (empty body). Over HTTP, `create_and_wait` is capped at **120s** — prefer `create_job` + short `wait_job`.
 
 ---
 

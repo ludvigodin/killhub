@@ -13,6 +13,7 @@ import {
 import { snapshotSafety } from "@/lib/findings";
 import { ownerRepoFromGithubUrl, repoPathFromGithubUrl } from "@/lib/github";
 import { formatQueueLine, isInQueue } from "@/lib/queue";
+import { resolveScreenshotSrc } from "@/lib/screenshots";
 import { formatJobWhen, isJobStalled } from "@/lib/time";
 import { type BreadcrumbItem, Breadcrumbs } from "./Breadcrumbs";
 import { ContainmentPanel } from "./ContainmentPanel";
@@ -122,9 +123,7 @@ function toShot(meta: ScreenshotMeta, jobId: string): ScreenshotItem {
     step: meta.step,
     caption: meta.caption,
     created_at: meta.created_at,
-    url:
-      meta.url ||
-      `/api/jobs/${encodeURIComponent(jobId)}/screenshots/${encodeURIComponent(meta.screenshot_id)}`,
+    url: resolveScreenshotSrc(jobId, meta.screenshot_id, meta.url),
   };
 }
 
@@ -319,12 +318,14 @@ export function JobLiveView({
                 (typeof data.payload?.caption === "string"
                   ? data.payload.caption
                   : undefined),
-              url:
+              url: resolveScreenshotSrc(
+                jobId,
+                shotId,
                 data.url ||
-                (typeof data.payload?.url === "string"
-                  ? data.payload.url
-                  : undefined) ||
-                `/api/jobs/${encodeURIComponent(jobId)}/screenshots/${encodeURIComponent(shotId)}`,
+                  (typeof data.payload?.url === "string"
+                    ? data.payload.url
+                    : undefined),
+              ),
             });
           }
         }
@@ -512,6 +513,18 @@ export function JobLiveView({
       ? snapshot.receipt.dossier.code.trim()
       : null;
   const safety = snapshot ? snapshotSafety(snapshot) : null;
+  const errorItems: { message: string; code?: string }[] = [];
+  if (jobError) {
+    errorItems.push({ message: jobError, code: dossierCode || "job_error" });
+  } else if (dossierCode) {
+    errorItems.push({
+      message: `Job ended with ${dossierCode.replaceAll("_", " ")}.`,
+      code: dossierCode,
+    });
+  }
+  if (error) {
+    errorItems.push({ message: error.message, code: error.code });
+  }
 
   const actions = (
     <div className="flex flex-wrap items-center justify-end gap-2">
@@ -552,6 +565,9 @@ export function JobLiveView({
 
   const showFindings = Boolean(snapshot && (snapshot.vuln_report || terminal));
   const navItems: SectionNavItem[] = [];
+  if (errorItems.length > 0) {
+    navItems.push({ id: "section-errors", label: "Errors" });
+  }
   if (snapshot) {
     navItems.push(
       { id: "section-timeline", label: "Timeline" },
@@ -581,6 +597,25 @@ export function JobLiveView({
 
   const sections = (
     <div className="flex flex-col gap-8">
+      {errorItems.length > 0 ? (
+        <section
+          id="section-errors"
+          aria-label="Errors"
+          className={SECTION_SCROLL_MT}
+        >
+          <SectionHeader className="mb-3" eyebrow="Problems" title="Errors" />
+          <div className="space-y-3">
+            {errorItems.map((item) => (
+              <ErrorBanner
+                key={`${item.code ?? "error"}:${item.message}`}
+                message={item.message}
+                code={item.code}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {vision ? <HackerVision entries={logs} /> : null}
 
       {snapshot ? (
@@ -590,82 +625,90 @@ export function JobLiveView({
             id="section-status"
             aria-label="Job status"
             aria-busy={!terminal || undefined}
-            className={`space-y-4 border border-(--line) bg-(--paper-deep)/60 px-4 py-5 ${SECTION_SCROLL_MT}`}
+            className={SECTION_SCROLL_MT}
           >
-            <SectionHeader eyebrow="Live status" title="Job status" />
-            <div className="flex flex-wrap items-center gap-3">
-              {safety ? (
-                <ResultStamp safety={safety} />
-              ) : (
-                <StatusBadge status={snapshot.status} />
-              )}
-              <VerificationBadge kind={snapshot.verification?.kind} />
-              {cancelling ? (
-                <span className="type-mono inline-flex items-center gap-1.5 tracking-wide text-(--warn)">
-                  <span className="job-live-dot" aria-hidden />
-                  Cancelling
-                </span>
-              ) : stalled ? (
-                <span className="type-mono inline-flex items-center gap-1.5 tracking-wide text-(--muted)">
-                  May be stalled
-                </span>
-              ) : queueLine ? (
-                <span className="type-mono inline-flex items-center gap-1.5 tracking-wide text-(--muted)">
-                  <span className="job-live-dot" aria-hidden />
-                  Waiting
-                </span>
-              ) : !terminal ? (
-                <span className="type-mono inline-flex items-center gap-1.5 tracking-wide text-(--accent)">
-                  <span className="job-live-dot" aria-hidden />
-                  Live
-                </span>
-              ) : null}
+            <SectionHeader
+              className="mb-3"
+              eyebrow="Live status"
+              title="Job status"
+              meta={
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                  {safety ? (
+                    <ResultStamp safety={safety} />
+                  ) : (
+                    <StatusBadge status={snapshot.status} />
+                  )}
+                  <VerificationBadge kind={snapshot.verification?.kind} />
+                  {cancelling ? (
+                    <span className="type-mono inline-flex items-center gap-1.5 tracking-wide text-(--warn)">
+                      <span className="job-live-dot" aria-hidden />
+                      Cancelling
+                    </span>
+                  ) : stalled ? (
+                    <span className="type-mono inline-flex items-center gap-1.5 tracking-wide text-(--muted)">
+                      May be stalled
+                    </span>
+                  ) : queueLine ? (
+                    <span className="type-mono inline-flex items-center gap-1.5 tracking-wide text-(--muted)">
+                      <span className="job-live-dot" aria-hidden />
+                      Waiting
+                    </span>
+                  ) : !terminal ? (
+                    <span className="type-mono inline-flex items-center gap-1.5 tracking-wide text-(--accent)">
+                      <span className="job-live-dot" aria-hidden />
+                      Live
+                    </span>
+                  ) : null}
+                </div>
+              }
+            />
+            <div className="space-y-4 border border-(--line) bg-(--paper-deep)/60 px-4 py-5">
               <p className="text-sm text-(--muted)">
                 {queueLine ||
                   snapshot.current_step ||
                   (terminal ? "Finished." : "Waiting for next step…")}
               </p>
-            </div>
-            {stepsCompleted.length > 0 ? (
-              <p className="type-mono text-(--muted)">
-                steps {stepsCompleted.join(" → ")}
-              </p>
-            ) : null}
-            {started ? (
-              <p className="type-meta flex flex-wrap items-center gap-x-2 gap-y-1 text-(--muted)">
-                <time
-                  dateTime={started.iso}
-                  title={started.absolute || undefined}
-                >
-                  Started {started.relative || started.absolute}
-                  {started.absolute ? ` · ${started.absolute}` : ""}
-                </time>
-                {updated && updated.iso !== started.iso ? (
+              {stepsCompleted.length > 0 ? (
+                <p className="type-mono text-(--muted)">
+                  steps {stepsCompleted.join(" → ")}
+                </p>
+              ) : null}
+              {started ? (
+                <p className="type-meta flex flex-wrap items-center gap-x-2 gap-y-1 text-(--muted)">
                   <time
-                    dateTime={updated.iso}
-                    title={updated.absolute || undefined}
+                    dateTime={started.iso}
+                    title={started.absolute || undefined}
                   >
-                    · Updated {updated.relative}
+                    Started {started.relative || started.absolute}
+                    {started.absolute ? ` · ${started.absolute}` : ""}
                   </time>
-                ) : null}
+                  {updated && updated.iso !== started.iso ? (
+                    <time
+                      dateTime={updated.iso}
+                      title={updated.absolute || undefined}
+                    >
+                      · Updated {updated.relative}
+                    </time>
+                  ) : null}
+                </p>
+              ) : null}
+              <ProgressBar
+                progress={snapshot.progress}
+                active={!terminal && !stalled}
+              />
+              <p className="type-mono text-(--muted)">
+                cursor {snapshot.event_cursor ?? "-"}
+                {snapshot.inference_model
+                  ? ` · model ${snapshot.inference_model}`
+                  : ""}
+                {snapshot.current_profile_revision != null
+                  ? ` · profile rev ${snapshot.current_profile_revision}`
+                  : ""}
+                {snapshot.current_sandbox_generation != null
+                  ? ` · sandbox gen ${snapshot.current_sandbox_generation}`
+                  : ""}
               </p>
-            ) : null}
-            <ProgressBar
-              progress={snapshot.progress}
-              active={!terminal && !stalled}
-            />
-            <p className="type-mono text-(--muted)">
-              cursor {snapshot.event_cursor ?? "-"}
-              {snapshot.inference_model
-                ? ` · model ${snapshot.inference_model}`
-                : ""}
-              {snapshot.current_profile_revision != null
-                ? ` · profile rev ${snapshot.current_profile_revision}`
-                : ""}
-              {snapshot.current_sandbox_generation != null
-                ? ` · sandbox gen ${snapshot.current_sandbox_generation}`
-                : ""}
-            </p>
+            </div>
           </section>
         </>
       ) : (
@@ -675,15 +718,6 @@ export function JobLiveView({
         />
       )}
 
-      {jobError ? (
-        <ErrorBanner message={jobError} code={dossierCode || "job_error"} />
-      ) : dossierCode ? (
-        <ErrorBanner
-          message={`Job ended with ${dossierCode.replaceAll("_", " ")}.`}
-          code={dossierCode}
-        />
-      ) : null}
-
       <ScreenshotTimeline jobId={jobId} shots={shots} />
 
       {containment ? <ContainmentPanel containment={containment} /> : null}
@@ -692,15 +726,10 @@ export function JobLiveView({
         <FindingsSummary snapshot={snapshot} />
       ) : null}
 
-      {error ? <ErrorBanner message={error.message} code={error.code} /> : null}
-
       {!vision ? <ProgressLog entries={logs} /> : null}
 
       {showReport && snapshot ? (
-        <div
-          id="section-receipt"
-          className={`border-t border-(--line) pt-8 ${SECTION_SCROLL_MT}`}
-        >
+        <div id="section-receipt" className={SECTION_SCROLL_MT}>
           <JobReport snapshot={snapshot} />
         </div>
       ) : null}

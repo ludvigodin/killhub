@@ -4,7 +4,7 @@ v1 persistence is a **durable job/event ledger** owned by the **Python `explore/
 
 **Engine:** `LEDGER_URL` selects SQLite (`sqlite:///…`, default) or PostgreSQL (`postgresql://…` / `postgres://…` — Vultr Managed Databases). Field names below are identical on both engines (rule 6, D73).
 
-Related: [API.md](API.md) · [DECISIONS.md](DECISIONS.md) · [ARCHITECTURE.md](ARCHITECTURE.md)
+Related: [API.md](API.md) · [DECISIONS.md](DECISIONS.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [docs/CODEMAP.md](docs/CODEMAP.md) · [docs/GLOSSARY.md](docs/GLOSSARY.md)
 
 ---
 
@@ -406,8 +406,8 @@ schemas/
 | Trigger | Action |
 |---------|--------|
 | Job reaching finalizer for `completed` / `failed` / `cancelled` | Enter `cleanup.status=destroying`; confirm remove of **current** generation; then generation + job `destroyed` + `destroyed_at` — or `destroy_failed` with error (D57, D61) |
-| Absolute `expires_at` / host reaper | Same confirm-only semantics; Plane-1 also **terminalizes** the job (`dossier.code=expires_at`) if still non-terminal (D81) |
-| `JOB_TIMEOUT_SECONDS` / `JOB_STALL_SECONDS` | Plane-1 reaper fails non-terminal jobs (`job_timeout` / `job_stalled`) with receipt before/alongside destroy (D81) |
+| Absolute `expires_at` / host reaper | Same confirm-only semantics; Plane-1 also **terminalizes** the job (`dossier.code=expires_at`) if still non-terminal (D83) |
+| `JOB_TIMEOUT_SECONDS` / `JOB_STALL_SECONDS` | Plane-1 reaper fails non-terminal jobs (`job_timeout` / `job_stalled`) with receipt before/alongside destroy (D83) |
 | Image replace | Prior generation destroyed/replaced; job-level `destroyed_at` unchanged while replacement live (D64) |
 | Orphan reaper | Stop/remove sandboxes with no live job/generation reference |
 

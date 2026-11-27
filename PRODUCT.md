@@ -68,10 +68,14 @@ Pinned commit SHAs live in [explore/fixtures/m7.json](explore/fixtures/m7.json) 
 
 | Doc | Purpose |
 |-----|---------|
-| [AGENTS.md](AGENTS.md) | Rules every AI agent must follow (quality gate + Vultr tooling) |
+| [README.md](README.md) | Repo entry + quick start |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | How the platform is structured |
+| [docs/CODEMAP.md](docs/CODEMAP.md) | Module map and request path |
+| [docs/GLOSSARY.md](docs/GLOSSARY.md) | Shared terms |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributor workflow |
+| [AGENTS.md](AGENTS.md) | Rules every AI agent must follow (quality gate + Vultr tooling) |
 | [DECISIONS.md](DECISIONS.md) | Agreed technical decisions |
 | [DATABASE.md](DATABASE.md) | Data model and rules |
 | [API.md](API.md) | How components communicate |
-| [README.md](README.md) | Repo entry + quick start |
+| [SETUP.md](SETUP.md) | Local run and Vultr deploy (operators) |
 | [explore/fixtures/m7.json](explore/fixtures/m7.json) | Pinned M7 fixture SHAs (D53) |

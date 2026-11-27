@@ -49,7 +49,7 @@ def test_create_wait_destroy_lifecycle(client, auth_header, monkeypatch) -> None
         "https://github.com/heroku/node-js-getting-started",
         env_ttl_seconds=3600,
     )
-    # Keep the job off the worker claim queue — D81 fails claimed stubs when
+    # Keep the job off the worker claim queue — D83 fails claimed stubs when
     # pipeline flags are off (conftest default), which races this unit test.
     ledger.update_job_fields(
         job.job_id,

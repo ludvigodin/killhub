@@ -163,6 +163,10 @@ flowchart LR
 
 ## Environment Agent Plan Loop (runs on Plane 1, acts on Plane 2)
 
+Normative contract for how Killhub brings a repo up. Agents and gates follow this loop; see [AGENTS.md](AGENTS.md) §3.
+
+**Implementation note (code today):** The live path is an **imperative pipeline** in [`explore/worker.py`](explore/worker.py) (`_run_pipeline_once`), not a free-form OpenCode chat session. Discover uses **heuristics** ([`explore/discover.py`](explore/discover.py) `infer_runtime_profile`) plus pinned fixtures ([`explore/fixtures/m7.json`](explore/fixtures/m7.json)); trusted prompts under [`explore/prompts/`](explore/prompts/) describe intended agent behavior. **LLM calls** (Vultr Inference — D25) are used selectively today — notably cite-checked `vuln_review` and optional vision/RAG extras ([`explore/inference_extras.py`](explore/inference_extras.py)) — not for every discover step. Stages still match the table below; gates own success (D47, D66). Module map: [docs/CODEMAP.md](docs/CODEMAP.md).
+
 ```
 IN:  Git repo URL
        │
@@ -342,6 +346,26 @@ UI: status · optional shots · report
 completed/fail/cancel/expiry → destroy ─► msb stop + remove
 ```
 
+### Request path (code anchors)
+
+```mermaid
+sequenceDiagram
+  participant Browser
+  participant Next as Next_proxy
+  participant Explore as explore_API
+  participant Worker
+  participant Harness as msb_harness
+  participant Ledger
+  Browser->>Next: POST /api/jobs
+  Next->>Explore: /internal/jobs
+  Explore->>Ledger: create pending
+  Worker->>Ledger: claim
+  Worker->>Harness: create/exec/verify
+  Explore-->>Browser: SSE via Next proxy
+```
+
+Public edge: [`frontend/app/api/`](frontend/app/api/) + [`frontend/lib/explore.ts`](frontend/lib/explore.ts). Authority: [`explore/api/routes.py`](explore/api/routes.py), [`explore/service.py`](explore/service.py), [`explore/worker.py`](explore/worker.py), [`explore/harness.py`](explore/harness.py). Full module map: [docs/CODEMAP.md](docs/CODEMAP.md).
+
 ---
 
 ## Job lifecycle
@@ -467,12 +491,14 @@ Control plane and VX1 may be the same Vultr host or split; sandboxes never run i
 
 ```
 killhub/
-├── frontend/                 # Plane 1 — Next.js (UI + Jobs API/SSE)
-├── explore/                  # Plane 1 — agent / harness workers (same host)
-├── prompts/
+├── frontend/                 # Plane 1 — Next.js (UI + /api proxy to explore)
+├── explore/                  # Plane 1 — ledger, worker, harness (same host)
+│   └── prompts/              # Trusted agent prompts (not repo-root)
+├── docs/                     # CODEMAP · GLOSSARY (how-it-works)
+├── ops/                      # VX1 firewall / offline egress helpers
 ├── storage/                  # ledger/ + profiles/ + screenshots/
 ├── docker-compose.yml        # Local control plane; Plane 2 via Microsandbox on VX1
-├── PRODUCT.md … API.md
+├── PRODUCT.md … SETUP.md
 └── README.md
 ```
 
@@ -508,9 +534,9 @@ Install phase keeps package/git egress; verify/containment switch to **deny-all 
 | `VULTR_CR_ENDPOINT` / `VULTR_CR_ROBOT_*` | Host-only registry pull auth for `*.vultrcr.com` images (D74); never guest |
 | `MSB_NET_POLICY` / control-plane deny list | Plane 2 egress policy + install/offline phases (D39, D43) |
 | Reverse proxy / bind `127.0.0.1` | Demo edge (D46) |
-| `JOB_TIMEOUT_SECONDS` | Hard wall clock from `created_at`; reaper terminalizes (D81) |
-| `JOB_STALL_SECONDS` | Ledger silence on `updated_at` → `job_stalled` (D81; heartbeats keep it fresh) |
-| `ENV_TTL_SECONDS` / `expires_at` | Absolute sandbox expiry (D41; not extended by touch); job also terminalized (D81) |
+| `JOB_TIMEOUT_SECONDS` | Hard wall clock from `created_at`; reaper terminalizes (D83) |
+| `JOB_STALL_SECONDS` | Ledger silence on `updated_at` → `job_stalled` (D83; heartbeats keep it fresh) |
+| `ENV_TTL_SECONDS` / `expires_at` | Absolute sandbox expiry (D41; not extended by touch); job also terminalized (D83) |
 | `MAX_REPAIR_ATTEMPTS` | Repair loop cap |
 | `MAX_CONCURRENT_JOBS` / `MAX_QUEUED_JOBS` / rate limits | Admission (D40) |
 | `ADMISSION_STORE` / `VALKEY_URL` / `REDIS_URL` | Shared admission backend — memory default, Valkey optional (D71) |
@@ -545,4 +571,5 @@ Install phase keeps package/git egress; verify/containment switch to **deny-all 
 ## Related
 
 - [PRODUCT.md](PRODUCT.md) · [AGENTS.md](AGENTS.md) · [DECISIONS.md](DECISIONS.md) · [DATABASE.md](DATABASE.md) · [API.md](API.md)
+- [docs/CODEMAP.md](docs/CODEMAP.md) · [docs/GLOSSARY.md](docs/GLOSSARY.md) · [CONTRIBUTING.md](CONTRIBUTING.md) · [SETUP.md](SETUP.md)
 - [README.md](README.md) · [explore/fixtures/m7.json](explore/fixtures/m7.json) (D53 pins)

@@ -96,7 +96,7 @@ type ReceiptDossierGates = {
   [key: string]: unknown;
 };
 
-/** Durable finalize dossier; `code` is set for D81 stall/timeout/expiry paths. */
+/** Durable finalize dossier; `code` is set for D83 stall/timeout/expiry paths. */
 export type ReceiptDossier = {
   code?: string;
   outcome?: string;
@@ -178,6 +178,7 @@ export type ScreenshotMeta = {
   caption?: string;
   storage_path?: string;
   created_at?: string;
+  /** Absolute CDN URL when Object Storage + CDN configured (D76); else API path. */
   url?: string;
 };
 
