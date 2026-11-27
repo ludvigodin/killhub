@@ -363,15 +363,61 @@ def python_mcp_signal(text: str) -> dict[str, Any] | None:
     }
 
 
+UV_INSTALLER = (
+    "command -v uv >/dev/null 2>&1 || (curl -LsSf https://astral.sh/uv/install.sh "
+    "| env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh)"
+)
+
+
+def demo_install_plan(inspect: dict[str, Any]) -> tuple[list[str], list[dict[str, Any]]]:
+    """Packages + install commands for a demo-intent repo's own dependencies.
+
+    A repo that gets a generated demo still has its dependency install run
+    (and traced by the active checks): npm for package.json, uv for
+    pyproject.toml / uv.lock / requirements.txt. Install failures are
+    recorded as findings by install.py; the demo verdict stays honest.
+    """
+    tree = {
+        ln.strip() for ln in _inspect_section(str(inspect.get("raw") or ""), "TREE").splitlines()
+    }
+    root = GUEST_REPO_ROOT
+    packages: list[str] = []
+    commands: list[dict[str, Any]] = []
+    if "./package.json" in tree:
+        packages += ["nodejs", "npm"]
+        commands.append(_cmd(["npm", "install", "--no-audit", "--no-fund"], timeout=600, cwd=root))
+    py_deps = None
+    if "./uv.lock" in tree:
+        py_deps = _cmd(["uv", "sync", "--frozen", "--no-dev"], timeout=900, cwd=root)
+    elif "./pyproject.toml" in tree:
+        py_deps = {
+            "shell": "uv venv .venv && uv pip install --python .venv/bin/python .",
+            "cwd": root,
+            "timeout_seconds": 900,
+        }
+    elif "./requirements.txt" in tree:
+        py_deps = {
+            "shell": (
+                "uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt"
+            ),
+            "cwd": root,
+            "timeout_seconds": 900,
+        }
+    if py_deps is not None:
+        packages += ["ca-certificates", "curl"]
+        commands.append(
+            {"shell": UV_INSTALLER, "cwd": root, "timeout_seconds": 300, "killhub_tooling": True}
+        )
+        commands.append(py_deps)
+    return packages, commands
+
+
 def _python_mcp_profile(
     *, source: dict[str, Any], oci_image: str, signal: dict[str, Any]
 ) -> dict[str, Any]:
     """git_mcp profile for a Python MCP server over stdio, installed with uv."""
     root = GUEST_REPO_ROOT
-    install_uv = (
-        "command -v uv >/dev/null 2>&1 || (curl -LsSf https://astral.sh/uv/install.sh "
-        "| env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh)"
-    )
+    install_uv = UV_INSTALLER
     if signal.get("uv_lock"):
         # Exactly what the repo pinned; uv fetches a matching Python if needed.
         deps = _cmd(["uv", "sync", "--frozen", "--no-dev"], timeout=900, cwd=root)
@@ -604,7 +650,8 @@ def infer_runtime_profile(
             ],
         }
 
-    # demo
+    # demo — the repo's own dependency install still runs (and is traced).
+    demo_packages, demo_installs = demo_install_plan(inspect)
     return {
         "schema_version": "1",
         "intent": "demo",
@@ -614,8 +661,8 @@ def infer_runtime_profile(
         "oci_image": oci_image,
         "workdir": GUEST_REPO_ROOT,
         "services": [],
-        "packages": ["python3"],
-        "install_commands": [],
+        "packages": ["python3", *[p for p in demo_packages if p != "python3"]],
+        "install_commands": demo_installs,
         "run_commands": [
             _cmd(
                 [
