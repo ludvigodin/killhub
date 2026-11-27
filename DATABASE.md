@@ -386,6 +386,11 @@ schemas/
 | **Startup** | Load ledger; list live sandboxes; adopt/resume; destroy orphans / past `expires_at`; retry `destroy_failed` |
 | **Host reaper** | VX1-side destroy when `now >= expires_at` even if Plane 1 is down |
 | **Touch** | Keep-alive only while `now < expires_at`; never moves `expires_at` |
+| **Schema version** | `ledger_meta.schema_version` (baseline `1`). On open, `explore/ledger/migrations.py` stamps fresh databases, applies pending numbered migrations one transaction each (after copying the file to `<db>.pre-v<N>.bak`), and refuses a ledger newer than the build. Schema changes = append a `Migration` **and** update `ledger/schema.py` so fresh databases match |
+| **Terminal writes** | The ledger refuses `status=completed\|failed\|cancelled` until a `job_receipts` row exists (D61). Use `Ledger.finalize_job()` to write receipt + terminal `status` event + job status in one transaction |
+| **Vuln report** | Written via `Ledger.upsert_vuln_report()`; validates `status` and each finding's `id`/`severity`/`title`/`source` against the source table above |
+| **Pruning guard** | Until the receipt exists, byte-budget pruning stops before terminal `status` and `lifecycle` `destroyed`/`destroy_failed` events (D67 rule 3) |
+| **Backups** | `python -m ledger.backup --dest DIR --keep N` takes an online, integrity-checked copy. On VX1 a nightly systemd timer writes to `/var/lib/killhub/backups` and keeps 7 |
 
 ---
 

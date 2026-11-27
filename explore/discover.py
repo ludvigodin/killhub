@@ -653,26 +653,24 @@ def discover_runtime_profile(
             )
         except DiscoverError as exc:
             if exc.code == "setup_failed_fixture":
-                # Event first while non-terminal, then flip status (D61).
-                ledger.append_event(
-                    job_id,
-                    typ="status",
-                    message="failed",
-                    payload={"status": "failed", "reason": "setup_failed_fixture"},
-                )
-                ledger.update_job_fields(
+                verification = {
+                    "kind": "setup_failed",
+                    "original_failure": {"step": "discover", "summary": exc.message},
+                }
+                # Receipt, status event and terminal status in one transaction (D61).
+                ledger.finalize_job(
                     job_id,
                     status="failed",
+                    receipt={
+                        "verification": verification,
+                        "dossier": {"outcome": "setup_failed", "reason": "setup_failed_fixture"},
+                    },
+                    event_message="failed",
+                    event_payload={"reason": "setup_failed_fixture"},
                     progress=100,
                     current_step="setup_failed (fixture)",
                     error=exc.message,
-                    verification={
-                        "kind": "setup_failed",
-                        "original_failure": {
-                            "step": "discover",
-                            "summary": exc.message,
-                        },
-                    },
+                    verification=verification,
                 )
             raise
 

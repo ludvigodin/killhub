@@ -168,6 +168,7 @@ def finalize_job(
                 summary=f"Scan aborted: {exc.message}",
                 findings=[],
                 status="failed",
+                finalizer=True,
             )
             ledger.append_event(
                 job_id,
@@ -185,6 +186,7 @@ def finalize_job(
                 summary=f"Scanner crash ({exc.__class__.__name__}); report partial.",
                 findings=[],
                 status="failed",
+                finalizer=True,
             )
 
     gates = evaluate_gates(job_id, settings=cfg)

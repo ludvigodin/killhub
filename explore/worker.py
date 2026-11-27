@@ -121,7 +121,12 @@ def _run_claimed_job(job_id: str, settings: Settings) -> None:
         code = getattr(exc, "code", "worker_error")
         logger.error("claimed job %s failed: %s", job_id, message)
         job = ledger.get_job(job_id)
-        if job is not None and job.status not in {"failed", "cancelled", "completed"}:
+        # A cancel-frozen job is finalized by the cancel path, not here (D61).
+        if (
+            job is not None
+            and job.status not in {"failed", "cancelled", "completed"}
+            and job.cancel_requested_at is None
+        ):
             ledger.append_event(
                 job_id,
                 typ="error",
@@ -140,9 +145,16 @@ def _run_claimed_job(job_id: str, settings: Settings) -> None:
                     return
                 except Exception:  # noqa: BLE001
                     logger.exception("finalize after failure also failed for %s", job_id)
-            ledger.update_job_fields(
+            # Fallback: receipt + terminal status event + status atomically (D61).
+            ledger.finalize_job(
                 job_id,
                 status="failed",
+                receipt={
+                    "verification": job.verification
+                    or {"kind": "setup_failed", "original_failure": {"summary": message}},
+                    "dossier": {"outcome": "failed", "code": code, "phase": "worker_pipeline"},
+                },
+                event_payload={"reason": code},
                 current_step="pipeline failed",
                 error=message,
                 progress=100,

@@ -294,13 +294,15 @@ def test_setup_failed_short_circuit_no_demo() -> None:
         expires_at=job.expires_at,
         state="running",
     )
-    ledger.update_job_fields(
+    verification = {
+        "kind": "setup_failed",
+        "original_failure": {"step": "discover", "summary": "forbid_demo"},
+    }
+    ledger.finalize_job(
         job.job_id,
         status="failed",
-        verification={
-            "kind": "setup_failed",
-            "original_failure": {"step": "discover", "summary": "forbid_demo"},
-        },
+        receipt={"verification": verification},
+        verification=verification,
         readiness={"passed": False, "probe": "none", "detail": {}, "at": "t"},
     )
     result = verify_readiness(job.job_id, settings=get_settings())
