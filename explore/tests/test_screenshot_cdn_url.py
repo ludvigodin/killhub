@@ -73,6 +73,7 @@ def test_public_screenshot_rows_enrich_cdn(
             },
         ],
     )
+    assert "storage_path" not in rows[0]
     assert rows[0]["url"] == (
         "https://cdn-example.vultrcdn.com/killhub/screenshots/job-1/shot-a.png"
     )
