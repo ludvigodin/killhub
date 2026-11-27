@@ -10,6 +10,7 @@ import {
   type ScreenshotMeta,
 } from "@/lib/api";
 import { ErrorBanner } from "./ErrorBanner";
+import { FindingsSummary } from "./FindingsSummary";
 import { JobReport } from "./JobReport";
 import { ProgressBar } from "./ProgressBar";
 import {
@@ -322,6 +323,13 @@ export function JobLiveView({ jobId }: JobLiveViewProps) {
       ) : (
         <p className="text-(--muted)">Loading snapshot…</p>
       )}
+
+      {snapshot && (snapshot.vuln_report || terminal) ? (
+        <FindingsSummary
+          report={snapshot.vuln_report}
+          showPending={terminal && !snapshot.vuln_report}
+        />
+      ) : null}
 
       {error ? <ErrorBanner message={error.message} code={error.code} /> : null}
 
