@@ -450,6 +450,11 @@ def run_install_commands(
                 StepResult(name=f"install_commands[{i}]", ok=False, detail="not an object")
             )
             continue
+        if getattr(settings, "active_checks", True):
+            # Active checks: trace each install command (guest-side strace).
+            from activity import wrap_command_spec
+
+            spec = wrap_command_spec(spec, i)
         step = _run_command_spec(
             environment_id,
             spec,
@@ -669,6 +674,17 @@ def provision_and_go_offline(
             code="cp_bypass",
         )
 
+    active = getattr(cfg, "active_checks", True)
+    if active:
+        from activity import prepare_guest
+
+        try:
+            prepare_guest(environment_id, job_id=job_id, settings=cfg)
+        except Exception as exc:  # noqa: BLE001 — tracing is best-effort, never blocks install
+            _log(
+                job_id, f"activity trace unavailable: {exc}", settings=cfg, kind="install_activity"
+            )
+
     max_attempts = max(int(cfg.max_repair_attempts or 1), 1)
     steps: list[StepResult] = []
     failures: list[str] = []
@@ -702,6 +718,14 @@ def provision_and_go_offline(
                 f"sandbox lost during install: {environment_id}",
                 code="sandbox_lost",
             )
+
+    if active:
+        from activity import collect_and_analyze
+
+        try:
+            collect_and_analyze(environment_id, job_id=job_id, settings=cfg)
+        except Exception as exc:  # noqa: BLE001 — report, never invent "no activity"
+            _log(job_id, f"activity analysis failed: {exc}", settings=cfg, kind="install_activity")
 
     offline_meta = transition_to_verify_offline(
         environment_id, job_id=job_id, settings=cfg, cli=msb

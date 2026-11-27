@@ -140,6 +140,13 @@ def _run_pipeline_once(job_id: str, settings: Settings, *, pipeline: bool) -> No
             or settings.finalize_on_claim
         ):
             verify_readiness(job_id, settings=settings)
+            if getattr(settings, "active_checks", True):
+                from activity import review_mcp_tools
+
+                try:
+                    review_mcp_tools(job_id, settings=settings)
+                except Exception:  # noqa: BLE001 — review is additive evidence only
+                    logger.exception("MCP tool review failed for %s", job_id)
         if settings.screenshots_on_claim or settings.finalize_on_claim:
             maybe_capture_after_verify(job_id, settings=settings)
         if settings.containment_on_claim or settings.finalize_on_claim:

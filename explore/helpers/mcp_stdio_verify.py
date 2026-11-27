@@ -85,6 +85,31 @@ def _read_content_length(proc: subprocess.Popen[bytes], timeout: float) -> dict:
     return json.loads(body.decode("utf-8"))
 
 
+TOOLS_DUMP = "/tmp/killhub/activity/mcp_tools.json"
+
+
+def _dump_tools(tools):
+    """Write names/descriptions/schemas for the host tool-poisoning review (best effort)."""
+    if not isinstance(tools, list) or not os.path.isdir(os.path.dirname(TOOLS_DUMP)):
+        return
+    slim = []
+    for t in tools[:500]:
+        if not isinstance(t, dict):
+            continue
+        slim.append(
+            {
+                "name": str(t.get("name") or "")[:200],
+                "description": str(t.get("description") or "")[:4000],
+                "input_schema_text": json.dumps(t.get("inputSchema") or {})[:4000],
+            }
+        )
+    try:
+        with open(TOOLS_DUMP, "w", encoding="utf-8") as fh:
+            json.dump(slim, fh)
+    except OSError:
+        pass
+
+
 def main(argv: list[str]) -> int:
     if "--" not in argv:
         print(
@@ -145,6 +170,7 @@ def main(argv: list[str]) -> int:
         write(proc, {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
         tools_msg = read(proc, timeout)
         tools = ((tools_msg.get("result") or {}).get("tools")) or []
+        _dump_tools(tools)
         tool_count = len(tools) if isinstance(tools, list) else 0
         ok = isinstance(tools, list) and (allow_empty or tool_count >= 1)
         evidence = {
